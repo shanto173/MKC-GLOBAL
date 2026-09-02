@@ -21,6 +21,15 @@ export const config = {
     webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || '',
   },
 
+  /** Telegram group/channel where staff get notified of new bookings. */
+  staffChatId: env.STAFF_CHAT_ID || '',
+
+  mail: {
+    apiKey: env.RESEND_API_KEY || '',
+    from: env.MAIL_FROM || 'MKC Global Logistics <onboarding@resend.dev>',
+    opsEmail: env.OPS_EMAIL || '',
+  },
+
   llm: {
     provider: (env.LLM_PROVIDER || 'openai').toLowerCase(),
     openaiKey: env.OPENAI_API_KEY || '',

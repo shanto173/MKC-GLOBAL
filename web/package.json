@@ -4,22 +4,26 @@
   "private": true,
   "type": "module",
   "description": "MKC Global Logistics AI chatbot - Telegram + web, backed by Supabase",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "gen:data": "node scripts/generate-demo-data.mjs",
     "seed": "node scripts/seed-db.mjs",
     "ingest": "node scripts/ingest.mjs",
     "setup:webhook": "node scripts/set-webhook.mjs",
     "dev": "vercel dev",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "chatid": "node scripts/find-chat-id.mjs",
+    "test:pdf": "node scripts/test-notify.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4"
+    "@supabase/supabase-js": "^2.45.4",
+    "pdfkit": "^0.15.0"
   },
   "devDependencies": {
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
-    "pdfkit": "^0.15.0",
-    "pdf-parse": "^1.1.1"
+    "pdfjs-dist": "^4.7.76"
   }
 }

@@ -44,6 +44,19 @@ export async function sendTyping(chatId) {
   await call('sendChatAction', { chat_id: chatId, action: 'typing' });
 }
 
+/** Upload a file (multipart, so it cannot go through the JSON helper above). */
+export async function sendDocument(chatId, buffer, filename, caption) {
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('document', new Blob([buffer], { type: 'application/pdf' }), filename);
+  if (caption) form.append('caption', caption.slice(0, 1024));
+
+  const res = await fetch(API('sendDocument'), { method: 'POST', body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) throw new Error(`sendDocument: ${JSON.stringify(data).slice(0, 300)}`);
+  return data;
+}
+
 export async function setWebhook(url, secret) {
   return call('setWebhook', {
     url,

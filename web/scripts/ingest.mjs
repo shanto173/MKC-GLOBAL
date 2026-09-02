@@ -15,14 +15,9 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import ExcelJS from 'exceljs';
 import { db } from '../lib/supabase.js';
 import { embed, embeddingsAvailable } from '../lib/llm.js';
-
-// pdf-parse runs a self-test when imported via its index; import the lib directly.
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(here, '..', 'data');
@@ -89,8 +84,34 @@ console.log(`\n\nKnowledge base ready: ${done} chunks from ${sources.length} fil
 // ---------------------------------------------------------------------------
 
 async function fromPdf(file) {
-  const { text } = await pdfParse(fs.readFileSync(file));
-  const cleaned = text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  // pdfjs-dist rather than pdf-parse: the latter bundles a 2018 build of pdf.js
+  // that rejects perfectly valid PDFs.
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(fs.readFileSync(file)),
+    useSystemFonts: true,
+  }).promise;
+
+  let text = '';
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    const content = await page.getTextContent();
+    // Break the line whenever the baseline jumps, so paragraphs survive.
+    let lastY = null;
+    for (const item of content.items) {
+      const y = item.transform?.[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) text += '\n';
+      text += item.str;
+      lastY = y;
+    }
+    text += '\n\n';
+  }
+
+  const cleaned = text
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return splitText(cleaned, path.basename(file, '.pdf').replace(/_/g, ' '));
 }
 

@@ -7,6 +7,7 @@
 import { db } from './supabase.js';
 import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
+import { notifyBooking } from './notify.js';
 
 export const toolDefinitions = [
   {
@@ -238,12 +239,22 @@ const executors = {
     const { data, error } = await db().from('bookings').insert(row).select().single();
     if (error) return { ok: false, error: error.message };
 
+    // Confirmation PDF by email to the customer and the ops desk, plus a ping
+    // to the staff group. Never allowed to fail the booking itself.
+    const notified = await notifyBooking(data).catch((err) => {
+      console.error('notifyBooking threw:', err);
+      return { errors: [err.message] };
+    });
+    if (notified.errors?.length) console.error('booking notification issues:', notified.errors);
+
     return {
       ok: true,
       booking_ref: data.booking_ref,
       status: data.status,
+      confirmation_emailed: notified.customer_email === true,
       next_step:
-        'Tell the customer the booking reference, that Booking Operations will confirm by email ' +
+        'Tell the customer the booking reference, that a confirmation PDF has been emailed to them, '
+        + 'that Booking Operations will confirm by email ' +
         'within one business day, and which documents to prepare (MRN, ACID, commercial invoice, packing list).',
       booking_form_url: config.bookingFormUrl || undefined,
     };
