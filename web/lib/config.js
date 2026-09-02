@@ -9,7 +9,11 @@ export const config = {
   companyName: env.COMPANY_NAME || 'MKC Global Logistics',
   bookingFormUrl: env.BOOKING_FORM_URL || '',
   adminSecret: env.ADMIN_SECRET || '',
-  publicBaseUrl: (env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
+  // Optional. Everything falls back to the incoming request host, so this only
+  // matters for CLI scripts. Named APP_BASE_URL because hosts treat a PUBLIC_*
+  // prefix as a browser-exposed framework variable and refuse to keep it secret;
+  // PUBLIC_BASE_URL is still honoured for anyone who already set it.
+  publicBaseUrl: (env.APP_BASE_URL || env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
 
   supabase: {
     url: env.SUPABASE_URL || '',

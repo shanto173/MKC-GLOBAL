@@ -150,7 +150,12 @@ git push
    Without this, Vercel will try to build the old Python Streamlit app.
 4. Framework Preset: **Other**. Leave build/output commands empty.
 5. Expand **Environment Variables** and add every line from your `.env`
-   (name on the left, value on the right). Skip `PUBLIC_BASE_URL` for now.
+   (name on the left, value on the right). Skip `APP_BASE_URL` for now.
+
+   > If Vercel says a variable already exists, delete that row from the paste and
+   > edit the existing one instead (**⋯ → Edit**). And remember: environment
+   > variables only take effect on a **new** deployment — after changing any,
+   > go to **Deployments → ⋯ → Redeploy**.
 6. Click **Deploy**. Wait ~1 minute.
 
 You now have a URL like `https://mkc-global-bot.vercel.app`.

@@ -4,3 +4,4 @@ node_modules/
 .vercel
 *.log
 data/sample-booking.pdf
+vercel-env-to-add.txt
