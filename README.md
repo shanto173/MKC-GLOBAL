@@ -1,3 +1,14 @@
+# MKC Global Logistics — chatbot
+
+> **Production bot lives in [`web/`](web/).** Telegram + web chat, backed by a
+> Supabase database, deployed on Vercel.
+> **Setup guide: [`web/docs/SETUP.md`](web/docs/SETUP.md)**
+>
+> The Streamlit app documented below is the original local prototype. It is kept
+> for reference; it does not connect to the live database.
+
+---
+
 # ABC Global Forwarding Chatbot
 
 A local Streamlit prototype for freight bookings, shipment tracking, FAQ answers, and department-based support routing. The interface is inspired by a verified business conversation in WhatsApp, while using original ABC branding.
