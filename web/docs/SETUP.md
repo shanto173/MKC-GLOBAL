@@ -85,9 +85,10 @@ Fill in:
 | `OPENAI_API_KEY` | platform.openai.com → API keys → Create new secret key |
 | `ADMIN_SECRET` | Invent another random string, same way |
 
-Leave `LLM_PROVIDER=openai` and `OPENAI_MODEL=gpt-4o-mini`.
-`gpt-4o-mini` is cheap — roughly USD 0.15 per million input tokens, so a few
-thousand customer chats cost a couple of dollars.
+Leave `LLM_PROVIDER=openai` and `OPENAI_MODEL=gpt-4.1-nano`.
+That is the cheapest model that still calls tools reliably — about USD 0.10 per
+million input tokens, so roughly 20,000 customer chats for $5. If booking
+conversations ever feel clumsy, change one line to `gpt-4.1-mini`.
 
 ---
 
@@ -104,7 +105,7 @@ Expected output from `seed`:
 
 ```
   shipments      12
-  events         33
+  events         34
   clients        12
 ```
 
@@ -159,7 +160,7 @@ You now have a URL like `https://mkc-global-bot.vercel.app`.
 Open `https://your-app.vercel.app/api/health` in a browser. You want:
 
 ```json
-{ "ready": true, "database": "ok", "rows": { "shipments": 12, "documents": 40 } }
+{ "ready": true, "database": "ok", "rows": { "shipments": 12, "documents": 32 }, "pdf": "ok (3213 bytes)" }
 ```
 
 If `ready` is false, the JSON tells you exactly which variable is missing.
@@ -244,6 +245,81 @@ npm run ingest
 
 Tariff sheets, customs circulars, service handbooks, FAQ exports — all work.
 Re-running replaces the chunks for files with the same name.
+
+---
+
+## Step 7 — Booking notifications (email + Telegram)
+
+Out of the box a booking lands silently in the `bookings` table. This step
+makes it arrive in an inbox and a staff group, with a confirmation PDF attached.
+
+Nothing here is required — skip it and bookings still save correctly. Each part
+you configure switches itself on.
+
+### 7a. Email via Resend (free, 3,000/month)
+
+1. [resend.com](https://resend.com) → sign up (GitHub login works)
+2. **API Keys** → **Create API Key** → name it `mkc-bot` → copy the `re_...` value
+3. Add to `web/.env` **and** to Vercel → Settings → Environment Variables:
+
+   ```
+   RESEND_API_KEY=re_xxxxxxxxxxxx
+   OPS_EMAIL=your-bookings-inbox@gmail.com
+   ```
+
+> ⚠️ **Until you verify a domain, Resend only lets you send to the address you
+> signed up with**, from `onboarding@resend.dev`. That is fine for testing — set
+> `OPS_EMAIL` to your own address. Customers will NOT receive their copy yet.
+
+**To email real customers**, verify a domain in Resend → **Domains** → add
+`mkcglobal.com` → add the DNS records it shows you → then set:
+
+```
+MAIL_FROM=MKC Global Logistics <bookings@mkcglobal.com>
+```
+
+Verifying a domain also keeps your mail out of spam folders, which matters more
+than it sounds for booking confirmations.
+
+### 7b. Telegram staff group
+
+1. In Telegram, create a group, e.g. **MKC Bookings**
+2. Add **@MKC_Global_bot** to it
+3. Send any message in the group (`hello` is fine)
+4. Run:
+
+   ```powershell
+   npm run chatid
+   ```
+
+   It prints something like `STAFF_CHAT_ID=-1002345678901` (group ids are
+   negative). Put that in `.env` and in Vercel.
+
+The script briefly detaches the webhook to read pending messages, then puts it
+back — the bot keeps working.
+
+### 7c. Test it
+
+```powershell
+npm run test:pdf            # renders data/sample-booking.pdf, sends nothing
+npm run test:pdf -- --send  # actually emails and pings the group
+```
+
+Then check `https://your-app.vercel.app/api/health` — the `notifications`
+block tells you which channels are live, and `pdf` confirms PDF rendering works
+in the deployed function.
+
+### What each party receives
+
+| Who | Gets |
+|---|---|
+| Customer | "We have your booking request" email + PDF, if their contact is an email |
+| `OPS_EMAIL` | "New booking request" email + PDF, reply-to set to the customer |
+| Staff group | The PDF as a Telegram document, with a one-glance caption |
+
+If a notification fails — wrong key, Resend down, bot removed from the group —
+the booking is **still saved**. Failures are logged in Vercel → Logs and never
+shown to the customer.
 
 ---
 

@@ -21,7 +21,7 @@ A customer message goes to one agent loop shared by both channels:
    |---|---|
    | `track_shipment` | SQL lookup by reference, ACID, B/L, container or customer name |
    | `search_knowledge` | Vector search over the company PDF/Excel (pgvector), keyword fallback |
-   | `create_booking` | Validates and inserts a booking request, returns a reference |
+   | `create_booking` | Validates, de-duplicates, inserts, then emails/pings the PDF |
    | `list_my_bookings` | Bookings made from this chat |
    | `create_support_ticket` | Escalates to one of five departments |
 
@@ -42,6 +42,8 @@ api/
   admin/setup.js     one-click webhook registration
 lib/
   agent.js           the tool-calling loop and system prompt
+  notify.js          booking emails (Resend) + staff Telegram ping
+  pdf.js             branded booking confirmation PDF, built in memory
   tools.js           tool schemas + the SQL behind them
   llm.js             OpenAI / Anthropic adapter (plain fetch, no SDK)
   supabase.js        service-role client
@@ -53,6 +55,8 @@ scripts/
   seed-db.mjs              Excel  -> shipments / events / clients
   ingest.mjs               PDF+Excel -> embedded knowledge base
   set-webhook.mjs          point the bot at a deployment
+  find-chat-id.mjs         resolve your staff Telegram group id
+  test-notify.mjs          render a sample PDF, --send to deliver it
   smoke-test.mjs           talk to the agent from the terminal
 supabase/schema.sql        the whole database, idempotent
 public/index.html          website chat widget
@@ -69,7 +73,24 @@ npm run ingest        # build the RAG knowledge base
 npm run smoke         # ask the agent 6 test questions
 npm run smoke -- --chat        # interactive terminal chat
 npm run setup:webhook -- https://your-app.vercel.app
+npm run chatid        # find your staff Telegram group id
+npm run test:pdf      # render a sample booking PDF
+npm run test:pdf -- --send     # and actually deliver it
 ```
+
+## When a booking is made
+
+`create_booking` writes the row first, then notifies. Notification failures are
+logged and swallowed — a booking is never lost because an email bounced.
+
+| Who | Receives |
+|---|---|
+| Customer | Confirmation email + PDF, when their contact is an email address |
+| `OPS_EMAIL` | New-booking email + PDF, reply-to set to the customer |
+| `STAFF_CHAT_ID` | The PDF as a Telegram document with a summary caption |
+
+Each channel activates only when its environment variable is set, so you can
+run with none, some, or all of them. `/api/health` reports which are live.
 
 ## Switching the model
 
@@ -100,6 +121,7 @@ back to Postgres full-text search — worse, but functional.
 - [ ] Replace demo data with real shipment exports, and schedule `seed`
 - [ ] Rotate the Telegram token
 - [ ] Rate-limit `/api/chat`
-- [ ] Notify staff when a booking lands (email or a Telegram group)
+- [ ] Set RESEND_API_KEY / OPS_EMAIL / STAFF_CHAT_ID so bookings reach a human
+- [ ] Verify a sending domain in Resend so customers actually get their copy
 - [ ] Add a privacy notice — you are storing chat history
 - [ ] Decide how long to keep `conversations` rows
