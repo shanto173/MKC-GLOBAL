@@ -8,6 +8,9 @@ writes them back to the database.
 **Start here → [`docs/SETUP.md`](docs/SETUP.md)** (step-by-step, no prior
 Supabase or Vercel experience assumed).
 
+**Explaining this to a colleague? → [`docs/HOW-WE-BUILT-THIS.md`](docs/HOW-WE-BUILT-THIS.md)**
+— plain English, no programming knowledge needed.
+
 ---
 
 ## How it works
