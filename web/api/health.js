@@ -32,6 +32,34 @@ export default async function handler(_req, res) {
     }
   }
 
-  const ready = Object.values(checks).every(Boolean) && database === 'ok';
-  res.status(ready ? 200 : 503).json({ ready, checks, database, rows: { shipments, documents } });
+  // PDFKit reads .afm font files off disk; if Vercel's file tracing misses
+  // them the confirmation PDF fails only when a real booking is made. Check now.
+  let pdf = 'not checked';
+  try {
+    const { bookingConfirmationPdf } = await import('../lib/pdf.js');
+    const buf = await bookingConfirmationPdf({
+      booking_ref: 'HEALTH-CHECK',
+      status: 'pending_review',
+      channel: 'health',
+      customer_name: 'Health Check',
+      customer_contact: 'health@example.com',
+      origin_country: 'European Union',
+      origin_port: 'Rotterdam',
+      destination_port: 'Port Said',
+      cargo_description: 'test',
+      created_at: new Date().toISOString(),
+    });
+    pdf = buf?.length > 800 ? `ok (${buf.length} bytes)` : `suspicious (${buf?.length} bytes)`;
+  } catch (err) {
+    pdf = `error: ${err.message}`;
+  }
+
+  const notifications = {
+    email: config.mail.apiKey ? 'configured' : 'RESEND_API_KEY not set - emails skipped',
+    ops_inbox: config.mail.opsEmail || 'OPS_EMAIL not set',
+    staff_telegram: config.staffChatId ? 'configured' : 'STAFF_CHAT_ID not set - staff ping skipped',
+  };
+
+  const ready = Object.values(checks).every(Boolean) && database === 'ok' && pdf.startsWith('ok');
+  res.status(ready ? 200 : 503).json({ ready, checks, database, rows: { shipments, documents }, pdf, notifications });
 }
