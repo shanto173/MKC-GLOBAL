@@ -1,0 +1,11 @@
+Name,last_name,shipment_id,acid_id,MRN_status,shipment_status,from_port,to_port,vehicle_dimension,vehicle_weight,payment_status,delivery_status
+Amelia,Carter,SHP-24001,ACID-908341,Approved,Vessel departed Rotterdam,Rotterdam Port,Alexandria Port (including El Dekheila),12.0 x 2.5 x 3.1 m,18.4 t,Paid,Not yet
+Oliver,Bennett,SHP-24002,ACID-908342,Approved,Customs clearance in progress,Felixstowe Port,Port Said,10.5 x 2.4 x 3.0 m,15.1 t,Paid,Not yet
+Sophia,Martinez,SHP-24003,ACID-908343,Pending,Documents under review,Port of Valencia,Damietta Port,13.2 x 2.6 x 3.4 m,21.3 t,Pending,Not yet
+Noah,Wilson,SHP-24004,ACID-908344,Approved,Arrived at destination terminal,Port of Hamburg,Ain Sokhna Port,11.8 x 2.5 x 3.2 m,17.8 t,Paid,Not yet
+Emma,Johnson,SHP-24005,ACID-908345,Approved,Delivered,Port of Savannah,Suez Port,9.8 x 2.3 x 2.9 m,13.6 t,Paid,Complete
+Liam,Thompson,SHP-24006,ACID-908346,Rejected,On hold — MRN correction required,Port of Antwerp,Alexandria Port (including El Dekheila),12.7 x 2.5 x 3.3 m,20.0 t,Pending,Not yet
+Mia,Anderson,SHP-24007,ACID-908347,Approved,Loaded on vessel,London Gateway,Port Said,10.9 x 2.4 x 3.0 m,16.2 t,Paid,Not yet
+James,Walker,SHP-24008,ACID-908348,Approved,Awaiting pickup at origin,Port of New York and New Jersey,Damietta Port,13.0 x 2.6 x 3.5 m,22.1 t,Pending,Not yet
+Isabella,Clark,SHP-24009,ACID-908349,Approved,In transit — ETA 8 September,Port of Genoa,Ain Sokhna Port,11.2 x 2.5 x 3.1 m,17.0 t,Paid,Not yet
+Henry,Lewis,SHP-24010,ACID-908350,Approved,Delivered,Port of Los Angeles,Suez Port,12.4 x 2.5 x 3.2 m,19.5 t,Paid,Complete

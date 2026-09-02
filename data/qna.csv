@@ -1,0 +1,8 @@
+question,keywords,answer
+Which countries do you ship from?,countries|origins|ship|from,"We accept shipments from the European Union, the United Kingdom, and the United States."
+Which ports do you serve in Egypt?,egypt|ports|destinations,"We deliver to Alexandria Port (including El Dekheila), Port Said, Damietta Port, Ain Sokhna Port, and Suez Port."
+What documents do I need?,documents|document|mrn|acid|paperwork,"For a new booking, please prepare the MRN, ACID reference or document, commercial invoice, packing list, and any relevant vehicle documents."
+How do I track a shipment?,track|tracking|shipment|order,"Choose Order tracking and enter either your shipment number (for example SHP-24001) or ACID number (for example ACID-908341)."
+How can I pay?,pay|payment|invoice,"For payment questions, choose Help → Problem with payment. The Accounts & Payments team will assist you."
+How long does shipping take?,long|duration|time|eta,"Transit time depends on the origin port, destination, sailing schedule, and customs clearance. Your booking confirmation will contain an estimated schedule."
+Can I speak to a person?,person|human|employee|agent,"Yes. Choose Help and select the relevant issue; I will route it to the correct ABC Global Forwarding department."
