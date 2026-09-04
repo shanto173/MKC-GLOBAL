@@ -10,8 +10,43 @@ import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './conf
 
 const MAX_STEPS = 5;
 
+/**
+ * Which language the customer is writing in.
+ *
+ * Asking the model to "reply in the language they used" held most of the time
+ * but not all of it, and an English customer receiving half an answer in Arabic
+ * is a bad failure. So the language is decided here, from their actual
+ * characters, and stated as a fact in the prompt rather than a preference.
+ */
+export function detectLanguage(text) {
+  const s = String(text ?? '');
+  if (/[؀-ۿ]/.test(s)) return 'ar';
+  return isFrancoArabic(s) ? 'ar' : 'en';
+}
+
+/**
+ * Franco-Arabic is Arabic typed in Latin letters, with digits standing in for
+ * letters that have no Latin equivalent: 3=ع, 7=ح, 2=ء, 5=خ, 9=ص. Detecting it
+ * matters because it looks like English to a character test, and an Egyptian
+ * writing "el sha7na fen?" should not be answered in English alone.
+ */
+function isFrancoArabic(text) {
+  const s = text.toLowerCase();
+
+  // A digit used as a letter, i.e. sitting inside a word between letters
+  // (sha7na, bta3ty) or opening one (3ayez, 7abibi). Reference numbers such as
+  // MKC-24001 and chassis numbers do not match, because their digits are
+  // adjacent to other digits or separators rather than letters.
+  const digitAsLetter = /[a-z][23579][a-z]/.test(s) || /\b[2357][a-z]{2,}/.test(s);
+
+  const words = /\b(fen|feen|ezay|izzay|3ayez|3awez|a7gez|sha7na|bta3|bta3ty|bta3i|msh|mesh|3andi|3ala|kam|eh|ayoh|aiwa|tamam|momken|mumkin|law sama7t|shokran)\b/.test(s);
+
+  return digitAsLetter || words;
+}
+
 export function systemPrompt(ctx) {
   const today = new Date().toISOString().slice(0, 10);
+  const lang = ctx.customerLanguage;
   return `You are the virtual assistant for ${config.companyName}, an international freight
 forwarding company. You talk to customers on ${ctx.channel === 'telegram' ? 'Telegram' : 'the company website'}.
 Today is ${today}.
@@ -43,7 +78,7 @@ their intent, not just the number:
 Calling track_shipment for someone who wants to book tells them their unit does
 not exist, which is both wrong and discouraging.
 
-YOUR THREE JOBS
+WHAT YOU DO
 1. Shipment tracking - call track_shipment. Never state a status, ETA, vessel or
    payment state that did not come back from that tool.
 2. New bookings - follow these steps in order.
@@ -66,10 +101,13 @@ YOUR THREE JOBS
    engine - it affects clearance.
 
    STEP 3 - DOCUMENTS.
-   Ask the customer to send three things, as files or as photographs:
+   Ask the customer to send these, as files or as photographs:
      - the commercial invoice
      - the transport document or EUR.1 certificate of origin
      - the MRN from the export country
+     - the ACID number, registered on the Nafeza platform
+   The ACID is not optional. Cargo that reaches Egypt without a valid ACID
+   cannot be cleared and accrues demurrage, so never leave it off the list.
    Ask whether they already have an MRN. If they need MKY to obtain one for
    them, say so, set mrn_needed when you book, and tell them Customs
    Documentation will handle it - do not keep asking for a document they have
@@ -120,7 +158,16 @@ YOUR THREE JOBS
    Never re-ask for something the customer already told you. A city they named
    IS the port of loading. Infer the origin country when it is obvious.
    Write dates as YYYY-MM-DD in the current year unless they clearly mean next.
-3. Company questions - call search_knowledge FIRST, then answer from what it
+3. Changing or checking an existing booking.
+   If the customer says a detail was wrong - the chassis, the make, their name,
+   the route, the ready date - call update_booking with only the fields that
+   change. The booking reference stays the same; say so, because customers
+   assume a correction means a new reference.
+   A booking can only be changed while it is awaiting review. Once Operations
+   has confirmed it, the tool refuses: raise a ticket with Booking Operations
+   describing what the customer wants changed.
+
+4. Company questions - call search_knowledge FIRST, then answer from what it
    returns. This includes any question starting "how long", "how much",
    "what do I need", "when", "can you", "do you".
 
@@ -161,8 +208,10 @@ NEVER TRANSLATE THESE, in any language: the chassis / VIN number, booking and
 shipment references, ACID, MRN, EUR.1, Incoterm codes, vessel names, and the
 port names as they appear in tool results. They must appear on customs paperwork
 exactly as they are, in Latin characters. Write the surrounding sentence in
-Arabic and leave those tokens as they are. You may add the familiar Arabic name
-of a port in brackets for readability, e.g. Alexandria (الإسكندرية).
+Arabic and leave those tokens as they are. A port keeps its Latin name and may
+carry the Arabic in brackets after it - Alexandria Port (الإسكندرية) - but never
+translate the name and then gloss it with itself, which produces the nonsense
+"ميناء الإسكندرية (الإسكندرية)". One or the other, not both.
 
 Numbers: use ordinary Western digits (18500), not Arabic-Indic (١٨٥٠٠), so the
 customer can copy them straight into an email or a form.
@@ -185,7 +234,16 @@ not extra information. Identifiers stay identical in both halves. Example:
   MKC-24001 is on board MSC Aurora and is expected to arrive on 8 September.
 
 Use exactly one bar per reply, separating the two languages - not one per
-sentence. A reply written in English needs no bar and no translation.`;
+sentence.
+
+THE BAR IS ONLY FOR ARABIC. If the customer wrote to you in English, reply in
+English ALONE: no Arabic, no bar, no translation. An English-speaking customer
+who is sent Arabic they did not ask for cannot read half of their own answer.
+Decide from the language of THEIR message, not the language of the conversation
+so far.
+${lang === 'ar'
+  ? 'THIS CUSTOMER IS WRITING IN ARABIC. Reply in Egyptian Arabic, then a single bar, then the English translation.'
+  : 'THIS CUSTOMER IS WRITING IN ENGLISH. Reply in English only. Do NOT include Arabic and do NOT include a bar.'}`;
 }
 
 /**
@@ -196,19 +254,31 @@ sentence. A reply written in English needs no bar and no translation.`;
 export async function respond(userText, ctx) {
   const history = await loadHistory(ctx.channel, ctx.chatId);
   const messages = [...history, { role: 'user', content: userText }];
+
+  // A message we composed ourselves - the note that a document arrived - is
+  // always English, so the customer's own last message decides the language.
+  const synthetic = String(userText).trimStart().startsWith('[');
+  const spoken = synthetic
+    ? [...history].reverse().find((m) => m.role === 'user')?.content ?? userText
+    : userText;
+  const customerLanguage = detectLanguage(spoken);
   const toolsUsed = [];
 
   // One id per customer message. Tools that must not complete inside a single
   // exchange - creating a booking, above all - compare this against the id
   // stored on the draft, so the model cannot both propose and accept a booking
   // without the customer having spoken in between.
-  const turnCtx = { ...ctx, turnId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+  const turnCtx = {
+    ...ctx,
+    customerLanguage,
+    turnId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  };
 
   let finalText = '';
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const { content, toolCalls } = await chat({
-      system: systemPrompt(ctx),
+      system: systemPrompt(turnCtx),
       messages,
       tools: toolDefinitions,
     });

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Booking Operations — MKY Global Forwarding</title>
+<style>
+  :root {
+    --ground:#eef2f4; --surface:#fff; --surface-2:#f7f9fa;
+    --ink:#0f212c; --ink-2:#33505f; --muted:#67808f;
+    --rule:#d2dde3; --accent:#0b6e8a; --accent-soft:#e0eef3;
+    --good:#1b7357; --good-soft:#e3f2ec;
+    --warn:#ac4a1a; --warn-soft:#faede5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#081117; --surface:#0f1b23; --surface-2:#15232c;
+      --ink:#e7f0f5; --ink-2:#b4c7d2; --muted:#7c94a2;
+      --rule:#223541; --accent:#52b8d6; --accent-soft:#10303c;
+      --good:#4fc49b; --good-soft:#12291f; --warn:#e28a50; --warn-soft:#2c1e14;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{background:var(--accent);color:#fff;padding:14px 20px;display:flex;
+    align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header .sp{flex:1}
+  header select,header button{font:inherit;padding:6px 10px;border-radius:7px;border:0;cursor:pointer}
+  header select{background:rgba(255,255,255,.15);color:#fff}
+  header select option{color:#000}
+  main{max-width:1000px;margin:0 auto;padding:20px}
+
+  .gate{max-width:380px;margin:12vh auto;background:var(--surface);padding:24px;
+    border-radius:12px;border:1px solid var(--rule)}
+  .gate h2{margin:0 0 6px;font-size:17px}
+  .gate p{margin:0 0 16px;color:var(--muted);font-size:13px}
+  .gate input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--rule);
+    background:var(--surface-2);color:var(--ink);font:inherit}
+  .gate button{width:100%;margin-top:10px;padding:10px;border:0;border-radius:8px;
+    background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+
+  .card{background:var(--surface);border:1px solid var(--rule);border-radius:12px;
+    margin-bottom:14px;overflow:hidden}
+  .card .top{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;
+    padding:14px 16px;border-bottom:1px solid var(--rule);background:var(--surface-2)}
+  .ref{font-family:ui-monospace,Consolas,monospace;font-weight:600}
+  .vehicle{font-weight:600}
+  .top .sp{flex:1}
+  .age{color:var(--muted);font-size:12.5px}
+  .pill{font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 8px;border-radius:3px;font-family:ui-monospace,Consolas,monospace}
+  .pill.pending{background:var(--warn-soft);color:var(--warn)}
+  .pill.confirmed{background:var(--good-soft);color:var(--good)}
+  .pill.rejected{background:var(--warn-soft);color:var(--warn)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:2px;background:var(--rule);border-bottom:1px solid var(--rule)}
+  .grid div{background:var(--surface);padding:9px 16px}
+  .grid dt{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 2px}
+  .grid dd{margin:0;font-weight:600;word-break:break-word}
+
+  .docs{padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    border-bottom:1px solid var(--rule);font-size:13px}
+  .docs a{display:inline-block;padding:4px 10px;border:1px solid var(--rule);
+    border-radius:999px;text-decoration:none;color:var(--accent)}
+  .docs .none{color:var(--muted)}
+
+  .act{padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .act input{flex:1;min-width:200px;padding:8px 11px;border-radius:8px;
+    border:1px solid var(--rule);background:var(--surface-2);color:var(--ink);font:inherit}
+  .act button{padding:8px 16px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+  .confirm{background:var(--good);color:#fff}
+  .reject{background:transparent;color:var(--warn);border:1px solid var(--warn) !important}
+  button:disabled{opacity:.5;cursor:not-allowed}
+
+  .msg{padding:10px 16px;font-size:13px}
+  .msg.ok{background:var(--good-soft);color:var(--good)}
+  .msg.err{background:var(--warn-soft);color:var(--warn)}
+  .empty{text-align:center;color:var(--muted);padding:50px 20px}
+  .note{color:var(--muted);font-size:12.5px;padding:0 16px 12px}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate" hidden>
+  <h2>Booking Operations</h2>
+  <p>Enter the admin secret to see the queue. It is kept in this browser only.</p>
+  <input id="secret" type="password" placeholder="ADMIN_SECRET" autocomplete="off" />
+  <button id="enter">Open queue</button>
+  <p id="gateErr" style="color:#b3261e;margin-top:10px" hidden></p>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>Booking Operations</h1>
+    <select id="status">
+      <option value="pending_review">Awaiting review</option>
+      <option value="confirmed">Confirmed</option>
+      <option value="rejected">Rejected</option>
+      <option value="all">All</option>
+    </select>
+    <span class="sp"></span>
+    <span id="count" class="age"></span>
+    <button id="refresh" style="background:rgba(255,255,255,.15);color:#fff">Refresh</button>
+  </header>
+  <main id="list"></main>
+</div>
+
+<script>
+  const KEY = 'mky-ops-secret';
+  const $ = (id) => document.getElementById(id);
+  let secret = localStorage.getItem(KEY) || '';
+
+  function show(el, on) { el.hidden = !on; }
+
+  async function api(path, options) {
+    const res = await fetch(path + (path.includes('?') ? '&' : '?') + 'secret=' + encodeURIComponent(secret), options);
+    if (res.status === 401) throw new Error('unauthorised');
+    return res.json();
+  }
+
+  function field(label, value) {
+    if (value === null || value === undefined || value === '') return '';
+    return `<div><dt>${label}</dt><dd>${escape(String(value))}</dd></div>`;
+  }
+
+  function escape(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  function card(b) {
+    const docs = b.documents?.length
+      ? b.documents.map((d) => d.url
+          ? `<a href="${d.url}" target="_blank" rel="noopener">${escape(d.type)} · ${escape(d.file)}</a>`
+          : `<span class="none">${escape(d.type)} (no file)</span>`).join('')
+      : '<span class="none">No documents sent yet</span>';
+
+    const decided = ['confirmed','rejected','cancelled'].includes(b.status);
+    const pillClass = b.status === 'confirmed' ? 'confirmed' : b.status === 'pending_review' ? 'pending' : 'rejected';
+
+    return `<div class="card" data-ref="${escape(b.booking_ref)}">
+      <div class="top">
+        <span class="ref">${escape(b.booking_ref)}</span>
+        <span class="vehicle">${escape([b.make, b.model].filter(Boolean).join(' ') || 'Vehicle')}</span>
+        <span class="sp"></span>
+        <span class="age">${b.age_hours}h old</span>
+        <span class="pill ${pillClass}">${escape(b.status.replace('_',' '))}</span>
+      </div>
+      <dl class="grid">
+        ${field('Chassis / VIN', b.vin)}
+        ${field('Customer', b.customer_name)}
+        ${field('Contact', b.customer_contact)}
+        ${field('Company', b.company)}
+        ${field('Route', (b.origin_port || '?') + ' → ' + (b.destination_port || '?'))}
+        ${field('Origin country', b.origin_country)}
+        ${field('Gross weight', b.gross_weight_kg ? b.gross_weight_kg + ' kg' : '')}
+        ${field('Incoterm', b.incoterm)}
+        ${field('Ready date', b.ready_date)}
+        ${field('MRN', b.mrn_number)}
+        ${field('ACID', b.acid_number)}
+        ${field('MKY to obtain MRN', b.mrn_needed ? 'yes' : '')}
+        ${field('Language', b.language)}
+        ${field('Notes', b.notes)}
+        ${field('Decided by', b.confirmed_by)}
+        ${field('Ops notes', b.ops_notes)}
+      </dl>
+      <div class="docs"><strong style="font-weight:600">Documents:</strong> ${docs}</div>
+      ${decided ? `<div class="note">Decided ${b.confirmed_at ? new Date(b.confirmed_at).toLocaleString() : ''}${b.customer_told_at ? ' · customer notified' : ' · customer NOT notified'}</div>`
+        : `<div class="act">
+             <input placeholder="Note to the customer (optional) — e.g. space confirmed on MSC Aurora, ETD 12 Sep" />
+             <button class="confirm">Confirm</button>
+             <button class="reject">Reject</button>
+           </div>`}
+    </div>`;
+  }
+
+  async function load() {
+    const status = $('status').value;
+    $('list').innerHTML = '<div class="empty">Loading…</div>';
+    try {
+      const data = await api('/api/admin/bookings?status=' + status);
+      $('count').textContent = data.count + ' booking' + (data.count === 1 ? '' : 's');
+      $('list').innerHTML = data.bookings.length
+        ? data.bookings.map(card).join('')
+        : '<div class="empty">Nothing here.</div>';
+    } catch (err) {
+      if (err.message === 'unauthorised') return gate('That secret was not accepted.');
+      $('list').innerHTML = '<div class="empty">Could not load: ' + escape(err.message) + '</div>';
+    }
+  }
+
+  $('list').addEventListener('click', async (e) => {
+    const button = e.target.closest('button.confirm, button.reject');
+    if (!button) return;
+    const cardEl = button.closest('.card');
+    const ref = cardEl.dataset.ref;
+    const action = button.classList.contains('confirm') ? 'confirm' : 'reject';
+    const note = cardEl.querySelector('.act input').value.trim();
+
+    if (action === 'reject' && !note) {
+      alert('Please give a reason — it is sent to the customer.');
+      return;
+    }
+    cardEl.querySelectorAll('button').forEach((b) => (b.disabled = true));
+
+    try {
+      const r = await api('/api/admin/bookings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ booking_ref: ref, action, note, operator: 'operations' }),
+      });
+      const told = r.customer_told || {};
+      const how = [told.telegram && 'Telegram', told.email && 'email'].filter(Boolean).join(' and ');
+      cardEl.insertAdjacentHTML('beforeend',
+        r.ok
+          ? `<div class="msg ok">${escape(ref)} ${escape(r.status)}. ${how ? 'Customer told by ' + how + '.' : 'Customer could NOT be told — contact them directly.'}</div>`
+          : `<div class="msg err">${escape(r.error || 'Failed')}</div>`);
+      setTimeout(load, 1600);
+    } catch (err) {
+      cardEl.insertAdjacentHTML('beforeend', `<div class="msg err">${escape(err.message)}</div>`);
+      cardEl.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+  });
+
+  function gate(message) {
+    show($('app'), false);
+    show($('gate'), true);
+    if (message) { $('gateErr').textContent = message; show($('gateErr'), true); }
+    $('secret').focus();
+  }
+
+  $('enter').addEventListener('click', () => {
+    secret = $('secret').value.trim();
+    if (!secret) return;
+    localStorage.setItem(KEY, secret);
+    show($('gate'), false);
+    show($('app'), true);
+    load();
+  });
+  $('secret').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('enter').click(); });
+  $('refresh').addEventListener('click', load);
+  $('status').addEventListener('change', load);
+
+  if (secret) { show($('app'), true); load(); } else gate();
+</script>
+</body>
+</html>

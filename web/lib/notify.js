@@ -102,6 +102,76 @@ export async function notifyBooking(booking) {
   return result;
 }
 
+/**
+ * Tells the customer what Operations decided. This is roadmap step 5, and it is
+ * the step that closes the loop: until now a booking sat at pending_review and
+ * the customer only heard back if somebody remembered to email them.
+ *
+ * The message goes to the chat they booked from, so it lands where they are,
+ * and by email as well when we have an address.
+ *
+ * @param {object} booking
+ * @param {'confirmed'|'rejected'} decision
+ * @param {string} [note] reason or instructions from Operations
+ */
+export async function notifyBookingDecision(booking, decision, note = '') {
+  const result = { telegram: false, email: false, errors: [] };
+  const confirmed = decision === 'confirmed';
+
+  const detail =
+    `${booking.booking_ref}\n` +
+    `${[booking.make, booking.model].filter(Boolean).join(' ')}\n` +
+    `${booking.vin ? `Chassis ${booking.vin}\n` : ''}` +
+    `${booking.origin_port} to ${booking.destination_port}`;
+
+  const arabic = confirmed
+    ? `تم تأكيد حجزك.\n\n${detail}\n\n${note ? note + '\n\n' : ''}شكراً لاختيارك ${config.companyName}.`
+    : `للأسف مقدرناش نأكد الحجز ${booking.booking_ref} دلوقتي.\n\n${note || 'فريق عمليات الحجز هيتواصل معاك بالتفاصيل.'}`;
+
+  const english = confirmed
+    ? `Your booking is confirmed.\n\n${detail}\n\n${note ? note + '\n\n' : ''}Thank you for choosing ${config.companyName}.`
+    : `We could not confirm booking ${booking.booking_ref} at this time.\n\n${note || 'Booking Operations will contact you with details.'}`;
+
+  // The customer booked in one language; send both, as the chat already does.
+  if (booking.chat_id && booking.channel === 'telegram' && config.telegram.token) {
+    try {
+      await sendMessage(booking.chat_id, `${arabic}\n|\n${english}`);
+      result.telegram = true;
+    } catch (err) {
+      result.errors.push(`telegram: ${err.message}`);
+      console.error('decision telegram failed:', err.message);
+    }
+  }
+
+  const email = extractEmail(booking.customer_contact);
+  if (email && config.mail.apiKey) {
+    try {
+      await sendEmail({
+        to: [email],
+        subject: confirmed
+          ? `Booking confirmed - ${booking.booking_ref}`
+          : `Booking ${booking.booking_ref} - action needed`,
+        html: wrap(`
+          <div style="font-size:16px;font-weight:700;margin-bottom:4px">
+            ${confirmed ? 'Your booking is confirmed' : 'We could not confirm this booking yet'}
+          </div>
+          <div style="font-size:13px;color:#475569;margin-bottom:18px">
+            ${escapeHtml(note || (confirmed
+              ? 'Our Operations team has accepted this shipment.'
+              : 'Booking Operations will contact you with details.'))}
+          </div>
+          ${detailTable(booking)}`),
+      });
+      result.email = true;
+    } catch (err) {
+      result.errors.push(`email: ${err.message}`);
+      console.error('decision email failed:', err.message);
+    }
+  }
+
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Resend (https://resend.com) - free tier, no domain needed for testing.
 // ---------------------------------------------------------------------------

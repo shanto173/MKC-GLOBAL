@@ -65,16 +65,32 @@ for (const c of cases) {
   const verdict = c.expect(reply);
   if (verdict !== true) problems.push(verdict);
 
-  // Arabic replies must not be written in Modern Standard Arabic, and must not
-  // carry stray English words or Arabic-Indic digits.
+  // Arabic replies carry the English translation after a single bar, so each
+  // half is judged separately: Arabic on the left, English on the right.
   if (ARABIC.test(reply)) {
-    const msa = ['أين', 'أريد', 'كيف', 'ماذا', 'الآن', 'هل يمكن'].filter((w) => reply.includes(w));
+    const bars = (reply.match(/\|/g) || []).length;
+    if (bars !== 1) problems.push(`expected exactly one | separating the languages, found ${bars}`);
+
+    // A bracketed gloss is deliberate on both sides - "الفاتورة التجارية
+    // (commercial invoice)" and "Alexandria Port (الإسكندرية)" are both wanted -
+    // so parentheses are stripped before judging which language a half is in.
+    const unglossed = (s) => s.replace(/\([^)]*\)/g, ' ');
+    const [rawArabic = '', rawEnglish = ''] = reply.split('|');
+    const arabicHalf = unglossed(rawArabic);
+    const englishHalf = unglossed(rawEnglish);
+
+    // Words no Egyptian uses in speech. الآن is deliberately not here - it is
+    // ordinary in Egyptian business Arabic, unlike أين or أريد.
+    const msa = ['أين', 'أريد', 'كيف حالك', 'ماذا', 'هل يمكن'].filter((w) => arabicHalf.includes(w));
     if (msa.length) problems.push(`formal MSA wording: ${msa.join(', ')}`);
 
-    const stray = [...(reply.match(LATIN_WORDS) || [])].filter((w) => !ALLOWED_LATIN.test(w));
-    if (stray.length) problems.push(`untranslated English: ${[...new Set(stray)].slice(0, 5).join(', ')}`);
+    // Stray English is only a fault on the ARABIC side of the bar.
+    const stray = [...(arabicHalf.match(LATIN_WORDS) || [])].filter((w) => !ALLOWED_LATIN.test(w));
+    if (stray.length) problems.push(`untranslated English in the Arabic half: ${[...new Set(stray)].slice(0, 5).join(', ')}`);
 
-    if (ARABIC_INDIC.test(reply)) problems.push('used Arabic-Indic digits');
+    if (ARABIC_INDIC.test(arabicHalf)) problems.push('used Arabic-Indic digits');
+    if (englishHalf && ARABIC.test(englishHalf)) problems.push('Arabic left in the English half');
+    if (englishHalf && !/[A-Za-z]{3}/.test(englishHalf)) problems.push('English half has no English');
   }
 
   const ok = problems.length === 0;

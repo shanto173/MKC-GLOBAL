@@ -111,6 +111,36 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'update_booking',
+    description:
+      'Change a detail on a booking the customer has already made, while it is still awaiting ' +
+      'review. Use when they say something was wrong - the chassis, the make, their name, the ' +
+      'route, the ready date. Pass only the fields that change.',
+    parameters: {
+      type: 'object',
+      properties: {
+        booking_ref: {
+          type: 'string',
+          description: 'The booking to change. If the customer did not say, look it up first.',
+        },
+        vin: { type: 'string', description: 'Corrected chassis / VIN number.' },
+        make: { type: 'string', description: 'Corrected manufacturer.' },
+        model: { type: 'string', description: 'Corrected model.' },
+        customer_name: { type: 'string', description: 'Corrected customer name.' },
+        customer_contact: { type: 'string', description: 'Corrected email or phone.' },
+        company: { type: 'string', description: 'Corrected company name.' },
+        origin_port: { type: 'string', description: 'Corrected port or city of loading.' },
+        destination_port: { type: 'string', description: 'Corrected Egyptian destination port.' },
+        gross_weight_kg: { type: 'number', description: 'Corrected gross weight in kilograms.' },
+        incoterm: { type: 'string', description: 'Corrected Incoterm.' },
+        ready_date: { type: 'string', description: 'Corrected cargo ready date, YYYY-MM-DD.' },
+        notes: { type: 'string', description: 'Anything else to record.' },
+      },
+      required: ['booking_ref'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'check_documents',
     description:
       'Which documents the customer has sent in this conversation, which are still missing, and ' +
@@ -467,6 +497,92 @@ const executors = {
         + 'that Booking Operations will confirm by email ' +
         'within one business day, and which documents to prepare (MRN, ACID, commercial invoice, packing list).',
       booking_form_url: config.bookingFormUrl || undefined,
+    };
+  },
+
+  async update_booking(args, ctx) {
+    const ref = String(args.booking_ref ?? '').trim().toUpperCase();
+    if (!ref) return { ok: false, message: 'Ask the customer which booking reference they mean.' };
+
+    const { data: booking, error } = await db()
+      .from('bookings')
+      .select('*')
+      .eq('booking_ref', ref)
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    if (!booking) return { ok: false, message: `No booking with reference ${ref}. Ask them to check it.` };
+
+    // A customer may only change their own booking, and only before Operations
+    // has acted on it - otherwise a confirmed shipment could be altered under
+    // the desk that already accepted it.
+    if (String(booking.chat_id) !== String(ctx.chatId)) {
+      return { ok: false, message: `${ref} was not created from this conversation, so it cannot be changed here. Offer to raise a ticket with Booking Operations.` };
+    }
+    if (!['draft', 'pending_review'].includes(booking.status)) {
+      return {
+        ok: false,
+        message:
+          `${ref} is already ${booking.status} and can no longer be edited here. Raise a ticket ` +
+          'with Booking Operations describing the change the customer wants.',
+      };
+    }
+
+    const editable = {
+      vin: (v) => String(v).toUpperCase().replace(/\s+/g, ''),
+      make: latinizeName,
+      model: latinizeName,
+      customer_name: (v) => String(v).trim(),
+      customer_contact: (v) => String(v).trim(),
+      company: (v) => String(v).trim(),
+      origin_port: latinizeName,
+      destination_port: (v) => matchPort(v),
+      gross_weight_kg: numOrNull,
+      incoterm: (v) => String(v).trim().toUpperCase(),
+      ready_date: dateOrNull,
+      notes: (v) => String(v).trim(),
+    };
+
+    const changes = {};
+    const history = [];
+    for (const [field, clean] of Object.entries(editable)) {
+      if (args[field] === undefined || args[field] === null || args[field] === '') continue;
+      const value = clean(args[field]);
+      if (value === null || value === undefined || value === booking[field]) continue;
+      changes[field] = value;
+      history.push({ field, from: booking[field] ?? null, to: value, at: new Date().toISOString() });
+    }
+
+    if (args.destination_port && !changes.destination_port && matchPort(args.destination_port) === null) {
+      return { ok: false, message: `"${args.destination_port}" is not a port we serve. Supported: ${DESTINATION_PORTS.join(', ')}.` };
+    }
+    if (!history.length) return { ok: true, unchanged: true, booking_ref: ref, message: 'Nothing was different, so nothing was changed. Confirm the current details with the customer.' };
+
+    if (changes.origin_port) changes.origin_country = countryForPort(changes.origin_port) ?? booking.origin_country;
+    if (changes.make || changes.model) {
+      changes.cargo_description = [changes.make ?? booking.make, changes.model ?? booking.model].filter(Boolean).join(' ');
+    }
+
+    const { data: updated, error: updErr } = await db()
+      .from('bookings')
+      .update({ ...changes, edit_history: [...(booking.edit_history ?? []), ...history] })
+      .eq('booking_ref', ref)
+      .select()
+      .single();
+    if (updErr) return { ok: false, error: updErr.message };
+
+    return {
+      ok: true,
+      booking_ref: ref,
+      changed: history.map((h) => `${h.field}: ${h.from ?? '(empty)'} -> ${h.to}`),
+      booking: {
+        vin: updated.vin, make: updated.make, model: updated.model,
+        customer_name: updated.customer_name,
+        route: `${updated.origin_port} to ${updated.destination_port}`,
+        ready_date: updated.ready_date,
+      },
+      next_step:
+        'Read the changes back to the customer and confirm the booking reference is unchanged. ' +
+        'Booking Operations sees the updated details.',
     };
   },
 
