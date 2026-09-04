@@ -340,7 +340,7 @@ const executors = {
         // omitted origin_country, which is NOT NULL in the original schema, so
         // every draft insert failed and the bot asked for a country the tool
         // never required.
-        origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)) || 'Unspecified',
+        origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)),
         origin_port: latinizeName(args.origin_port),
         destination_port: port,
         vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
@@ -384,7 +384,7 @@ const executors = {
       // keeps the booking valid; Operations can always reply in the same thread.
       customer_contact: args.customer_contact?.trim() || `${ctx.channel}:${ctx.chatId}`,
       company: args.company?.trim() || null,
-      origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)) || 'Unspecified',
+      origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)),
       origin_port: latinizeName(args.origin_port),
       destination_port: port,
       vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
