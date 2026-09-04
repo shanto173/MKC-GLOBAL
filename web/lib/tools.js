@@ -336,14 +336,30 @@ const executors = {
         chat_id: String(ctx.chatId),
         customer_name: args.customer_name.trim(),
         customer_contact: args.customer_contact?.trim() || `${ctx.channel}:${ctx.chatId}`,
-        origin_port: args.origin_port.trim(),
+        // The draft carries the same shape as the final row. It previously
+        // omitted origin_country, which is NOT NULL in the original schema, so
+        // every draft insert failed and the bot asked for a country the tool
+        // never required.
+        origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)) || 'Unspecified',
+        origin_port: latinizeName(args.origin_port),
         destination_port: port,
         vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
-        make: args.make.trim(),
+        make: latinizeName(args.make),
+        model: latinizeName(args.model) || null,
         status: 'draft',
         raw: { ...args, turn_id: ctx.turnId },
       }, { onConflict: 'booking_ref' });
-      if (draftErr) return { ok: false, error: draftErr.message };
+      if (draftErr) {
+        console.error('booking draft insert failed:', draftErr.message);
+        return {
+          ok: false,
+          error: draftErr.message,
+          message:
+            'Saving the booking failed for a technical reason, not because the customer is ' +
+            'missing information. Do NOT ask them for more details. Apologise briefly and offer ' +
+            'to pass this to Booking Operations.',
+        };
+      }
 
       return {
         ok: false,
@@ -368,13 +384,13 @@ const executors = {
       // keeps the booking valid; Operations can always reply in the same thread.
       customer_contact: args.customer_contact?.trim() || `${ctx.channel}:${ctx.chatId}`,
       company: args.company?.trim() || null,
-      origin_country: args.origin_country?.trim() || null,
-      origin_port: args.origin_port.trim(),
+      origin_country: args.origin_country?.trim() || countryForPort(latinizeName(args.origin_port)) || 'Unspecified',
+      origin_port: latinizeName(args.origin_port),
       destination_port: port,
       vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
-      make: args.make.trim(),
-      model: args.model?.trim() || null,
-      cargo_description: [args.make, args.model, args.vehicle_type].filter(Boolean).join(' ').trim() || null,
+      make: latinizeName(args.make),
+      model: latinizeName(args.model) || null,
+      cargo_description: [args.make, args.model, args.vehicle_type].map(latinizeName).filter(Boolean).join(' ').trim() || null,
       gross_weight_kg: numOrNull(args.gross_weight_kg),
       incoterm: args.incoterm?.trim() || null,
       mrn_number: args.mrn_number?.trim() || null,
@@ -402,7 +418,7 @@ const executors = {
       vin: row.vin,
       make: row.make,
       model: row.model,
-      vehicle_type: args.vehicle_type?.trim() || null,
+      vehicle_type: latinizeName(args.vehicle_type) || null,
       engine_condition: args.engine_condition?.trim() || null,
       gross_weight_kg: row.gross_weight_kg,
       value_amount: numOrNull(args.value_amount),
@@ -493,6 +509,71 @@ export function normalizeVin(v) {
   return String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/**
+ * Makes, models and places written in Arabic, mapped to the Latin spelling used
+ * on the invoice, the bill of lading and the customs declaration.
+ *
+ * The customer is answered in Arabic, but the stored value has to match the
+ * paperwork or nobody can reconcile the two. Asking the model to transliterate
+ * did not work - it kept passing Arabic through - so it is done here, where the
+ * result is predictable. Anything not in this table is left exactly as the
+ * customer wrote it, because a wrong Latin guess is worse than Arabic.
+ */
+const LATIN_NAMES = new Map(Object.entries({
+  // manufacturers
+  'مرسيدس': 'Mercedes-Benz', 'مرسيدس بنز': 'Mercedes-Benz', 'أكتروس': 'Actros', 'اكتروس': 'Actros',
+  'فولفو': 'Volvo', 'سكانيا': 'Scania', 'مان': 'MAN', 'داف': 'DAF', 'ايفيكو': 'Iveco', 'إيفيكو': 'Iveco',
+  'رينو': 'Renault', 'هينو': 'Hino', 'ايسوزو': 'Isuzu', 'إيسوزو': 'Isuzu', 'فورد': 'Ford',
+  // vehicle types
+  'جرار': 'tractor unit', 'شاحنة': 'truck', 'مقطورة': 'trailer', 'قاطرة': 'tractor unit',
+  'عربية': 'vehicle', 'سيارة': 'car', 'فان': 'van', 'أتوبيس': 'bus', 'اتوبيس': 'bus',
+  // loading places we actually see on this lane
+  'فيلنيوس': 'Vilnius', 'كلايبيدا': 'Klaipeda', 'روتردام': 'Rotterdam', 'أنتويرب': 'Antwerp',
+  'انتويرب': 'Antwerp', 'هامبورغ': 'Hamburg', 'هامبورج': 'Hamburg', 'مونفالكوني': 'Monfalcone',
+  'كوبر': 'Koper', 'كونستانتا': 'Constanta', 'برشلونة': 'Barcelona', 'فالنسيا': 'Valencia',
+  'جنوة': 'Genoa', 'فيليكستو': 'Felixstowe', 'بريمين': 'Bremen', 'زيبروجه': 'Zeebrugge',
+  'الإسكندرية': 'Alexandria', 'الاسكندرية': 'Alexandria', 'بورسعيد': 'Port Said',
+  'دمياط': 'Damietta', 'العين السخنة': 'Ain Sokhna', 'السويس': 'Suez',
+}));
+
+/**
+ * The country a loading port sits in, so a customer who says "from Vilnius" is
+ * not interrogated about Lithuania. Only ports we actually load from; anything
+ * unknown stays null rather than being guessed.
+ */
+const PORT_COUNTRY = new Map(Object.entries({
+  vilnius: 'Lithuania', klaipeda: 'Lithuania',
+  rotterdam: 'Netherlands', antwerp: 'Belgium', zeebrugge: 'Belgium',
+  hamburg: 'Germany', bremen: 'Germany', bremerhaven: 'Germany',
+  felixstowe: 'United Kingdom', 'london gateway': 'United Kingdom', southampton: 'United Kingdom',
+  monfalcone: 'Italy', genoa: 'Italy', livorno: 'Italy', trieste: 'Italy',
+  koper: 'Slovenia', constanta: 'Romania', gdansk: 'Poland', gdynia: 'Poland',
+  barcelona: 'Spain', valencia: 'Spain', bilbao: 'Spain',
+  savannah: 'United States', 'new york': 'United States', 'los angeles': 'United States',
+  piraeus: 'Greece', marseille: 'France', 'le havre': 'France',
+}));
+
+export function countryForPort(port) {
+  const key = String(port ?? '').toLowerCase().trim();
+  if (!key) return null;
+  return PORT_COUNTRY.get(key) ?? [...PORT_COUNTRY.entries()].find(([p]) => key.includes(p))?.[1] ?? null;
+}
+
+/** Rewrites Arabic words to their Latin equivalents, leaving the rest alone. */
+export function latinizeName(value) {
+  const text = String(value ?? '').trim();
+  if (!text || !/[؀-ۿ]/.test(text)) return text;
+
+  const direct = LATIN_NAMES.get(text);
+  if (direct) return direct;
+
+  const words = text.split(/\s+/).map((w) => {
+    const bare = w.replace(/^(ال)(?=[؀-ۿ]{3,})/, '');
+    return LATIN_NAMES.get(w) ?? LATIN_NAMES.get(bare) ?? w;
+  });
+  return words.join(' ');
+}
+
 function matchPort(value) {
   const v = String(value).toLowerCase();
   return (
@@ -532,5 +613,5 @@ function dateOrNull(v) {
 function makeRef(prefix) {
   const stamp = new Date().toISOString().slice(2, 10).replace(/-/g, '');
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `MKC-${prefix}-${stamp}-${rand}`;
+  return `${config.refPrefix}-${prefix}-${stamp}-${rand}`;
 }

@@ -9,6 +9,8 @@ export const config = {
   companyName: env.COMPANY_NAME || 'MKY Global Forwarding',
   bookingFormUrl: env.BOOKING_FORM_URL || '',
   companyEmail: env.COMPANY_EMAIL || 'bookings@mkyglobal.example',
+  // Prefix on every booking and ticket reference, e.g. MKY-BKG-260904-AB12.
+  refPrefix: (env.REFERENCE_PREFIX || 'MKY').toUpperCase(),
   companyPhone: env.COMPANY_PHONE || '+20 3 555 0143',
   adminSecret: env.ADMIN_SECRET || '',
   // Optional. Everything falls back to the incoming request host, so this only
