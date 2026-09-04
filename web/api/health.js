@@ -12,6 +12,10 @@ export default async function handler(_req, res) {
     message: process.env.VERCEL_GIT_COMMIT_MESSAGE?.split('\n')[0] ?? null,
     deployed_at: process.env.VERCEL_DEPLOYMENT_ID ? undefined : 'local',
     env: process.env.VERCEL_ENV ?? 'local',
+    // Surfaced so branding can be checked without messaging the bot.
+    company: config.companyName,
+    reference_prefix: config.refPrefix,
+    model: config.llm.provider === 'anthropic' ? config.llm.anthropicModel : config.llm.openaiModel,
   };
 
   const checks = {
