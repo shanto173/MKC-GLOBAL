@@ -103,3 +103,30 @@ create index if not exists booking_documents_vin_idx  on booking_documents (vin_
 -- ---------------------------------------------------------------------------
 alter table vehicles          enable row level security;
 alter table booking_documents enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- 6. Teach the shipment search about VINs.
+--
+-- Customers track a truck by its chassis number far more often than by our
+-- internal reference, and they type it with spaces and lower case.
+-- Replaces the version from schema.sql; "returns setof shipments" now also
+-- carries the vin/make/model columns added above.
+-- ---------------------------------------------------------------------------
+create or replace function find_shipments (
+  q           text,
+  match_count int default 5
+)
+returns setof shipments
+language sql stable
+as $func$
+  select *
+  from shipments s
+  where upper(s.shipment_id) = upper(q)
+     or upper(coalesce(s.acid_id, ''))      = upper(q)
+     or upper(coalesce(s.bl_number, ''))    = upper(q)
+     or upper(coalesce(s.container_no, '')) = upper(q)
+     or s.vin_norm = upper(regexp_replace(coalesce(q, ''), '[^A-Za-z0-9]', '', 'g'))
+     or s.customer_name ilike '%' || q || '%'
+  order by s.updated_at desc
+  limit match_count;
+$func$;
