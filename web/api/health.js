@@ -4,6 +4,16 @@ import { config } from '../lib/config.js';
 import { db } from '../lib/supabase.js';
 
 export default async function handler(_req, res) {
+  // Which build is actually serving. We repeatedly could not tell whether a
+  // setting had failed to save or a redeploy simply had not happened; the commit
+  // and build time answer that in one look. Vercel injects these itself.
+  const build = {
+    commit: (process.env.VERCEL_GIT_COMMIT_SHA ?? 'unknown').slice(0, 7),
+    message: process.env.VERCEL_GIT_COMMIT_MESSAGE?.split('\n')[0] ?? null,
+    deployed_at: process.env.VERCEL_DEPLOYMENT_ID ? undefined : 'local',
+    env: process.env.VERCEL_ENV ?? 'local',
+  };
+
   const checks = {
     supabase_url: Boolean(config.supabase.url),
     supabase_key: Boolean(config.supabase.serviceRoleKey),
@@ -60,6 +70,14 @@ export default async function handler(_req, res) {
     staff_telegram: config.staffChatId ? 'configured' : 'STAFF_CHAT_ID not set - staff ping skipped',
   };
 
-  const ready = Object.values(checks).every(Boolean) && database === 'ok' && pdf.startsWith('ok');
-  res.status(ready ? 200 : 503).json({ ready, checks, database, rows: { shipments, documents }, pdf, notifications });
+  const missing = [];
+  if (!checks.supabase_url) missing.push('SUPABASE_URL');
+  if (!checks.supabase_key) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!checks.telegram_token) missing.push('TELEGRAM_BOT_TOKEN');
+  if (!checks.telegram_webhook_secret) missing.push('TELEGRAM_WEBHOOK_SECRET');
+  if (!checks.llm_key) missing.push(config.llm.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  if (missing.length) checks.missing_env = missing;
+
+  const ready = missing.length === 0 && database === 'ok' && pdf.startsWith('ok');
+  res.status(ready ? 200 : 503).json({ ready, build, checks, database, rows: { shipments, documents }, pdf, notifications });
 }
