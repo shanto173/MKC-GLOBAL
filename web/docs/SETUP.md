@@ -85,10 +85,13 @@ Fill in:
 | `OPENAI_API_KEY` | platform.openai.com → API keys → Create new secret key |
 | `ADMIN_SECRET` | Invent another random string, same way |
 
-Leave `LLM_PROVIDER=openai` and `OPENAI_MODEL=gpt-4.1-nano`.
-That is the cheapest model that still calls tools reliably — about USD 0.10 per
-million input tokens, so roughly 20,000 customer chats for $5. If booking
-conversations ever feel clumsy, change one line to `gpt-4.1-mini`.
+Leave `LLM_PROVIDER=openai` and `OPENAI_MODEL=gpt-4.1-mini` — about USD 0.40 per
+million input tokens, so roughly 5,000 customer chats for $5.
+
+The cheaper `gpt-4.1-nano` is four times less, and fine if you only serve English
+customers. It was measurably worse in Arabic: it dropped shipment references,
+garbled a delivery date, and once invented a destination city. Run
+`npm run artest` to judge for yourself before changing it.
 
 ---
 

@@ -83,7 +83,12 @@ export async function setCommands() {
   });
 }
 
+/**
+ * Quick-reply buttons. Bilingual on one line rather than two separate keyboards,
+ * because a Telegram keyboard is shared by the whole chat and we do not know
+ * which language the next message will arrive in.
+ */
 export const MAIN_KEYBOARD = [
-  [{ text: 'Track a shipment' }, { text: 'New booking' }],
-  [{ text: 'Documents needed' }, { text: 'Talk to a human' }],
+  [{ text: 'Track a shipment / تتبع شحنة' }, { text: 'New booking / حجز جديد' }],
+  [{ text: 'Documents needed / المستندات' }, { text: 'Talk to a human / تحدث مع موظف' }],
 ];

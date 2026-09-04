@@ -16,7 +16,8 @@
     "smoke": "node scripts/smoke-test.mjs",
     "chatid": "node scripts/find-chat-id.mjs",
     "test:pdf": "node scripts/test-notify.mjs",
-    "flowtest": "node scripts/flow-test.mjs"
+    "flowtest": "node scripts/flow-test.mjs",
+    "artest": "node scripts/arabic-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

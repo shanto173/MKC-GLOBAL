@@ -45,7 +45,7 @@ async function converse(turns) {
   }
 
   const reply = [...messages].reverse().find((m) => m.role === 'assistant' && m.content)?.content ?? '';
-  return { byTurn, reply, all: byTurn.flat() };
+  return { byTurn, reply, all: byTurn.flat(), turns };
 }
 
 const scenarios = [
@@ -81,14 +81,14 @@ const scenarios = [
   },
   {
     name: 'full flow: summarise, wait for agreement, then book',
-    // create_booking here behaves exactly as the real tool does: the first call
-    // in a turn only drafts, and only a call in a LATER turn actually books.
+    // The stub mirrors the real tool: the first call in a turn only drafts, and
+    // only a call in a LATER turn books. The number of turns is not asserted -
+    // a better model may ask an extra clarifying question first, which is fine.
     turns: (() => {
-      let draftedOnTurn = null;
-      let currentTurn = 0;
-      const booking = () => (args) => {
-        if (draftedOnTurn === null || draftedOnTurn === currentTurn) {
-          draftedOnTurn = currentTurn;
+      const state = { draftTurn: null, bookedTurn: null, turn: 0 };
+      const booking = (args) => {
+        if (state.draftTurn === null || state.draftTurn === state.turn) {
+          state.draftTurn = state.turn;
           return {
             ok: false,
             needs_confirmation: true,
@@ -99,30 +99,32 @@ const scenarios = [
               'When they reply agreeing, call create_booking again with the same details.',
           };
         }
+        state.bookedTurn = state.turn;
         return { ok: true, booking_ref: 'MKY-BKG-260904-AB12', status: 'pending_review' };
       };
-      return [
-        {
-          user: 'Book chassis W1T96340310484233',
-          onTurn: () => { currentTurn = 0; },
-          results: { lookup_vehicle: { verdict: 'new', known: false, next_step: 'New unit. Ask for make and model, customer name, and route.' } },
+      const turn = (n, user) => ({
+        user,
+        onTurn: () => { state.turn = n; },
+        results: {
+          lookup_vehicle: { verdict: 'new', known: false, next_step: 'New unit. Ask for make and model, customer name, and route.' },
+          create_booking: booking,
         },
-        {
-          user: 'Mercedes-Benz Actros 1845, I am Arif Rahman, from Vilnius to Alexandria. The engine is damaged.',
-          onTurn: () => { currentTurn = 1; },
-          results: { create_booking: booking() },
-        },
-        {
-          user: 'Yes that is correct, please book it',
-          onTurn: () => { currentTurn = 2; },
-          results: { create_booking: booking() },
-        },
-      ];
+      });
+      return Object.assign([
+        turn(0, 'Book chassis W1T96340310484233'),
+        turn(1, 'Mercedes-Benz Actros 1845 tractor unit, I am Arif Rahman, shipping from Vilnius to Alexandria. The engine is damaged.'),
+        turn(2, 'Yes, that is all correct. Please go ahead and book it.'),
+        turn(3, 'Yes I confirm, book it.'),
+      ], { state });
     })(),
-    check: ({ byTurn, all, reply }) => {
-      if (!all.some((c) => c.name === 'create_booking')) return 'never booked';
-      if (byTurn[2].every((c) => c.name !== 'create_booking')) return 'did not book after the customer agreed';
-      const final = byTurn[2].find((c) => c.name === 'create_booking').args;
+    check: ({ turns, all, reply }) => {
+      const { draftTurn, bookedTurn } = turns.state;
+      const booked = all.filter((c) => c.name === 'create_booking');
+      if (!booked.length) return 'never called create_booking';
+      if (bookedTurn === null) return 'never got past the draft stage';
+      if (draftTurn === null || bookedTurn <= draftTurn) return 'booked in the same turn it was proposed';
+
+      const final = booked[booked.length - 1].args;
       if (String(final.vin).toUpperCase().replace(/\s/g, '') !== 'W1T96340310484233') return `wrong VIN: ${final.vin}`;
       if (!/mercedes/i.test(final.make ?? '')) return `wrong make: ${final.make}`;
       if (!/alexandria/i.test(final.destination_port ?? '')) return `wrong destination: ${final.destination_port}`;
@@ -161,6 +163,7 @@ const scenarios = [
 let passed = 0;
 for (const s of scenarios) {
   const result = await converse(s.turns);
+  result.turns = s.turns;
   const verdict = s.check(result);
   const ok = verdict === true;
   if (ok) passed++;
