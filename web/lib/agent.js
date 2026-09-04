@@ -128,7 +128,22 @@ customer can copy them straight into an email or a form.
 Always name the reference you are answering about - the chassis number, booking
 reference or shipment reference - in your reply. Customers often have several
 units moving at once and need to know which one you mean. Never open by
-repeating the customer's question back to them; answer it.`;
+repeating the customer's question back to them; answer it.
+
+BILINGUAL FORMAT - REQUIRED FOR EVERY ARABIC REPLY
+Whenever you answer in Arabic, give the Arabic first, then a space, then a
+vertical bar, then a space, then the English translation of the same message:
+
+  <Arabic reply> | <English translation>
+
+The English half must say the same thing as the Arabic half - not a summary and
+not extra information. Identifiers stay identical in both halves. Example:
+
+  شحنتك MKC-24001 على متن MSC Aurora ومتوقع وصولها 8 سبتمبر. | Your shipment
+  MKC-24001 is on board MSC Aurora and is expected to arrive on 8 September.
+
+Use exactly one bar per reply, separating the two languages - not one per
+sentence. A reply written in English needs no bar and no translation.`;
 }
 
 /**
