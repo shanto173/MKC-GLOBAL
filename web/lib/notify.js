@@ -31,7 +31,20 @@ export async function notifyBooking(booking) {
 
   // -- email the customer ----------------------------------------------------
   const customerEmail = extractEmail(booking.customer_contact);
-  if (customerEmail && config.mail.apiKey) {
+  const opsRecipients = (config.mail.opsEmail ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  // While testing, the person booking is often the ops inbox itself, which meant
+  // two near-identical emails for one booking. One address, one email: the ops
+  // copy wins, because it carries reply-to and the full detail.
+  const customerIsOps = customerEmail && opsRecipients.includes(customerEmail.toLowerCase());
+  if (customerIsOps) {
+    result.errors.push('customer address is the ops inbox - sent one email instead of two');
+  }
+
+  if (customerEmail && !customerIsOps && config.mail.apiKey) {
     try {
       await sendEmail({
         to: [customerEmail],
@@ -50,7 +63,7 @@ export async function notifyBooking(booking) {
   if (config.mail.opsEmail && config.mail.apiKey) {
     try {
       await sendEmail({
-        to: config.mail.opsEmail.split(',').map((s) => s.trim()).filter(Boolean),
+        to: opsRecipients,
         subject: `NEW BOOKING ${booking.booking_ref} - ${booking.origin_port} to ${booking.destination_port}`,
         html: opsHtml(booking),
         attachments,

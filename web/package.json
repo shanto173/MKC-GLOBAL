@@ -24,11 +24,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "bidi-js": "^1.0.3",
-    "pdfkit": "^0.15.0"
+    "pdfkit": "^0.15.0",
+    "pdfjs-dist": "^4.7.76",
+    "@napi-rs/canvas": "^0.1.100"
   },
   "devDependencies": {
     "dotenv": "^16.4.5",
-    "exceljs": "^4.4.0",
-    "pdfjs-dist": "^4.7.76"
+    "exceljs": "^4.4.0"
   }
 }

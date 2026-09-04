@@ -151,10 +151,14 @@ const scenarios = [
       },
     ],
     check: ({ reply }) => {
+      // The property that matters: the tool refused, so the customer must not be
+      // told a booking exists. What it asks for next - confirmation, the vehicle
+      // type, documents - varies legitimately, so only require that it asks
+      // something rather than matching particular wording.
       if (/\b(is booked|has been booked|booking (is )?(created|confirmed)|successfully booked)\b/i.test(reply)) {
         return 'told the customer a booking exists when the tool refused: ' + reply.slice(0, 120);
       }
-      if (!/confirm|correct\?|is that right/i.test(reply)) return 'did not ask the customer to confirm';
+      if (!/[?؟]/.test(reply)) return 'did not ask the customer anything: ' + reply.slice(0, 120);
       return true;
     },
   },

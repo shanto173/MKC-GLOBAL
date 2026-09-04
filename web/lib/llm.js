@@ -42,7 +42,11 @@ async function postJson(url, headers, body) {
 function toOpenAiMessages(system, messages) {
   const out = [{ role: 'system', content: system }];
   for (const m of messages) {
-    if (m.role === 'tool') {
+    // Content may be an array of parts when the message carries an image; pass
+    // it through untouched so scans and photographs reach the model.
+    if (Array.isArray(m.content) && m.role === 'user') {
+      out.push({ role: 'user', content: m.content });
+    } else if (m.role === 'tool') {
       out.push({ role: 'tool', tool_call_id: m.tool_call_id, content: m.content });
     } else if (m.role === 'assistant' && m.tool_calls?.length) {
       out.push({
@@ -173,6 +177,32 @@ export async function chat({ system, messages, tools }) {
   return config.llm.provider === 'anthropic'
     ? anthropicChat({ system, messages, tools })
     : openaiChat({ system, messages, tools });
+}
+
+/**
+ * Builds a user message carrying an image, for reading a scanned document or a
+ * photograph of one. Both providers accept base64 inline; this avoids paying for
+ * a separate OCR service, and the model reads Arabic, Polish and Romanian forms
+ * as readily as English ones.
+ */
+export function imageMessage(text, buffer, mimeType = 'image/jpeg') {
+  const b64 = Buffer.from(buffer).toString('base64');
+  if (config.llm.provider === 'anthropic') {
+    return {
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: b64 } },
+        { type: 'text', text },
+      ],
+    };
+  }
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text },
+      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${b64}`, detail: 'high' } },
+    ],
+  };
 }
 
 /** True when we can produce embeddings (needed for vector RAG). */

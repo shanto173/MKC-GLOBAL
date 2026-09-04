@@ -57,6 +57,26 @@ export async function sendDocument(chatId, buffer, filename, caption) {
   return data;
 }
 
+/**
+ * Downloads a file a customer sent. Telegram gives a file_id in the update; the
+ * bytes need two calls - one to resolve the path, one to fetch it.
+ * Bot API downloads are capped at 20 MB, which is well under our storage limit.
+ */
+export async function downloadFile(fileId) {
+  const info = await call('getFile', { file_id: fileId });
+  const filePath = info?.result?.file_path;
+  if (!filePath) throw new Error('Telegram would not give a path for that file.');
+
+  const res = await fetch(`https://api.telegram.org/file/bot${config.telegram.token}/${filePath}`);
+  if (!res.ok) throw new Error(`downloading the file failed: ${res.status}`);
+
+  return {
+    buffer: Buffer.from(await res.arrayBuffer()),
+    fileName: filePath.split('/').pop(),
+    size: info.result.file_size ?? 0,
+  };
+}
+
 export async function setWebhook(url, secret) {
   return call('setWebhook', {
     url,

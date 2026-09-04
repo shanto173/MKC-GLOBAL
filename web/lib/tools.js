@@ -8,6 +8,7 @@ import { db } from './supabase.js';
 import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
+import { documentStatus, attachDocumentsToBooking } from './documents.js';
 
 export const toolDefinitions = [
   {
@@ -106,6 +107,24 @@ export const toolDefinitions = [
         },
       },
       required: ['vin', 'make', 'customer_name', 'origin_port', 'destination_port'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'check_documents',
+    description:
+      'Which documents the customer has sent in this conversation, which are still missing, and ' +
+      'whether the chassis number agrees across all of them. Call this whenever the customer asks ' +
+      'what is still needed, or before telling them a booking is complete.',
+    parameters: {
+      type: 'object',
+      properties: {
+        vin: {
+          type: 'string',
+          description: 'Chassis number, when known, so only that vehicle\'s papers are counted.',
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },
@@ -412,6 +431,9 @@ const executors = {
       .single();
     if (error) return { ok: false, error: error.message };
 
+    // Any documents already sent in this chat belong to this booking.
+    await attachDocumentsToBooking({ chatId: ctx.chatId, bookingRef: data.booking_ref, vin: row.vin });
+
     // Remember the unit so a later enquiry about this chassis recognises it,
     // even if it comes from a different customer or channel.
     const { error: vehErr } = await db().from('vehicles').upsert({
@@ -445,6 +467,21 @@ const executors = {
         + 'that Booking Operations will confirm by email ' +
         'within one business day, and which documents to prepare (MRN, ACID, commercial invoice, packing list).',
       booking_form_url: config.bookingFormUrl || undefined,
+    };
+  },
+
+  async check_documents({ vin }, ctx) {
+    const status = await documentStatus({ chatId: ctx.chatId, vin: vin ?? null });
+    if (status.error) return { error: status.error };
+
+    return {
+      ...status,
+      next_step: status.problems?.length
+        ? 'Tell the customer about the problem below before anything else - a chassis mismatch ' +
+          'gets the customs declaration rejected.'
+        : status.complete
+          ? 'All required documents are in and agree with each other. The booking can proceed.'
+          : `Still needed: ${status.missing_labels.join(', ')}. Ask the customer to send them.`,
     };
   },
 

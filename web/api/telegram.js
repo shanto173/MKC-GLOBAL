@@ -10,7 +10,8 @@ import { config } from '../lib/config.js';
 import { respond } from '../lib/agent.js';
 import { clearHistory } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
-import { sendMessage, sendTyping, MAIN_KEYBOARD } from '../lib/telegram.js';
+import { sendMessage, sendTyping, downloadFile, MAIN_KEYBOARD } from '../lib/telegram.js';
+import { ingestDocument, documentStatus } from '../lib/documents.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -25,10 +26,11 @@ export default async function handler(req, res) {
   const update = req.body ?? {};
   const message = update.message;
   const chatId = message?.chat?.id;
-  const text = (message?.text ?? '').trim();
+  const text = (message?.text ?? message?.caption ?? '').trim();
+  const attachment = fileFrom(message);
 
   // Always 200 to Telegram: a non-200 makes it retry the same update forever.
-  if (!chatId || !text) return res.status(200).json({ ok: true, skipped: true });
+  if (!chatId || (!text && !attachment)) return res.status(200).json({ ok: true, skipped: true });
 
   try {
     if (await alreadyProcessed(update.update_id)) {
@@ -37,6 +39,11 @@ export default async function handler(req, res) {
 
     const userName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ');
     const ctx = { channel: 'telegram', chatId, userName };
+
+    if (attachment) {
+      await handleAttachment(attachment, text, ctx);
+      return res.status(200).json({ ok: true });
+    }
 
     const canned = await handleCommand(text, ctx);
     if (canned) return res.status(200).json({ ok: true });
@@ -106,6 +113,78 @@ async function handleCommand(text, ctx) {
   }
 
   return false;
+}
+
+/**
+ * Picks the file out of a Telegram message. A "document" is a file sent as-is;
+ * a "photo" arrives as several sizes, and the last is the largest.
+ */
+function fileFrom(message) {
+  if (message?.document) {
+    return {
+      fileId: message.document.file_id,
+      fileName: message.document.file_name ?? 'document',
+      mimeType: message.document.mime_type ?? 'application/octet-stream',
+      size: message.document.file_size ?? 0,
+    };
+  }
+  const photo = message?.photo?.[message.photo.length - 1];
+  if (photo) {
+    return {
+      fileId: photo.file_id,
+      fileName: `photo-${photo.file_unique_id}.jpg`,
+      mimeType: 'image/jpeg',
+      size: photo.file_size ?? 0,
+    };
+  }
+  return null;
+}
+
+/**
+ * Reading a scanned document takes the best part of half a minute, so the
+ * customer is told what is happening before the wait, not after it.
+ */
+async function handleAttachment(attachment, caption, ctx) {
+  await sendMessage(
+    ctx.chatId,
+    `استلمت ${attachment.fileName}، بقرأه دلوقتي... | Got ${attachment.fileName}, reading it now...`,
+  );
+  await sendTyping(ctx.chatId);
+
+  const { buffer, fileName } = await downloadFile(attachment.fileId);
+  const result = await ingestDocument({
+    buffer,
+    fileName: attachment.fileName || fileName,
+    mimeType: attachment.mimeType,
+    chatId: ctx.chatId,
+    channel: ctx.channel,
+  });
+
+  if (!result.ok) {
+    await sendMessage(
+      ctx.chatId,
+      'معلش، مقدرتش أحفظ المستند. ممكن تبعته تاني؟ | Sorry, I could not save that document. Could you send it again?',
+      { keyboard: MAIN_KEYBOARD },
+    );
+    return;
+  }
+
+  const status = await documentStatus({ chatId: ctx.chatId, vin: result.extracted?.vin });
+
+  // The model writes the reply, so it stays in the customer's language and in
+  // the flow of the conversation - but only from what the tools actually found.
+  await sendTyping(ctx.chatId);
+  const { reply } = await respond(
+    `[The customer just sent a document: ${attachment.fileName}. It was read ` +
+      `${result.readVia === 'vision' ? 'by looking at the scan' : 'from its text'}. ` +
+      `What was found: ${JSON.stringify(result.extracted).slice(0, 1500)}. ` +
+      `Document status for this conversation: ${JSON.stringify(status).slice(0, 1500)}. ` +
+      `${caption ? `They also wrote: "${caption}". ` : ''}` +
+      'Tell them what you read from it - the chassis number above all - flag any problem, ' +
+      'and say what is still missing. Do not call check_documents again, you already have it.]',
+    ctx,
+  );
+  await sendMessage(ctx.chatId, reply, { keyboard: MAIN_KEYBOARD });
 }
 
 /** Turns bare slash commands into normal sentences the model handles well. */
