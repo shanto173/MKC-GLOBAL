@@ -33,13 +33,13 @@ and offers to pass the customer to a human.
 
 Think of it like an office.
 
-| Part | What it is | Its job in simple words |
-|---|---|---|
-| **Telegram** | The chat app customers already use | The front desk where customers walk in |
-| **Vercel** | A company that runs our code on the internet | The office building. Always open, we pay nothing |
-| **Supabase** | An online database | The filing cabinet. Shipments, bookings, documents |
-| **OpenAI** | The AI service | The clerk who understands the question and writes the reply |
-| **Resend** | An email service | The post room that sends confirmation emails |
+| Part               | What it is                                   | Its job in simple words                                     |
+| ------------------ | -------------------------------------------- | ----------------------------------------------------------- |
+| **Telegram** | The chat app customers already use           | The front desk where customers walk in                      |
+| **Vercel**   | A company that runs our code on the internet | The office building. Always open, we pay nothing            |
+| **Supabase** | An online database                           | The filing cabinet. Shipments, bookings, documents          |
+| **OpenAI**   | The AI service                               | The clerk who understands the question and writes the reply |
+| **Resend**   | An email service                             | The post room that sends confirmation emails                |
 
 All five have a free plan. Today the whole system costs about **$5**, which is
 prepaid credit for the AI and will last a very long time.
@@ -221,12 +221,12 @@ Telegram is already protected.
 
 ## 9. What it costs
 
-| Service | Free allowance | When we would pay |
-|---|---|---|
-| Vercel | Generous; enough for us | $20/month if we grow a lot |
-| Supabase | 500 MB database | $25/month at about 8 GB |
-| OpenAI | Pay as you go | ~$5 covers roughly 20,000 customer chats |
-| Resend | 3,000 emails/month | Unlikely to exceed |
+| Service  | Free allowance          | When we would pay                        |
+| -------- | ----------------------- | ---------------------------------------- |
+| Vercel   | Generous; enough for us | $20/month if we grow a lot               |
+| Supabase | 500 MB database         | $25/month at about 8 GB                  |
+| OpenAI   | Pay as you go           | ~$5 covers roughly 20,000 customer chats |
+| Resend   | 3,000 emails/month      | Unlikely to exceed                       |
 
 We picked the cheapest AI model that still works reliably, and tested six
 different ones before choosing. The cheapest was also the fastest.
@@ -248,14 +248,14 @@ To see bookings the bot has taken: Supabase → **Table Editor** → **bookings*
 
 ## 11. What is still to do
 
-| Task | Why it matters |
-|---|---|
-| Put real shipment data in | The 12 shipments now are invented examples |
-| Verify our email domain | Until then customers do not receive their confirmation — only our own inbox does |
-| Finish the staff Telegram group | So the team sees bookings instantly |
-| Replace the security keys | Some keys were shared during setup and should be renewed |
-| Limit the website chat | To stop strangers using our AI credit |
-| Decide how long to keep chat history | We store conversations; we should set a rule |
+| Task                                 | Why it matters                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| Put real shipment data in            | The 12 shipments now are invented examples                                        |
+| Verify our email domain              | Until then customers do not receive their confirmation — only our own inbox does |
+| Finish the staff Telegram group      | So the team sees bookings instantly                                               |
+| Replace the security keys            | Some keys were shared during setup and should be renewed                          |
+| Limit the website chat               | To stop strangers using our AI credit                                             |
+| Decide how long to keep chat history | We store conversations; we should set a rule                                      |
 
 ---
 
@@ -278,13 +278,31 @@ Worth being clear about what this is not.
 
 ## Quick glossary
 
-| Word | Plain meaning |
-|---|---|
-| **Deploy** | Publish the code so it runs on the internet |
-| **Database** | An organised filing cabinet a computer can search instantly |
-| **API key** | A password that lets our code use another company's service |
-| **Environment variable** | A setting stored outside the code, like a password |
-| **Repository (repo)** | The folder holding all our code and its history |
-| **Webhook** | An address Telegram sends new messages to |
-| **RAG** | Letting the AI search our own documents before answering |
-| **Serverless** | Code that runs only when needed, so we pay nothing when idle |
+| Word                           | Plain meaning                                                |
+| ------------------------------ | ------------------------------------------------------------ |
+| **Deploy**               | Publish the code so it runs on the internet                  |
+| **Database**             | An organised filing cabinet a computer can search instantly  |
+| **API key**              | A password that lets our code use another company's service  |
+| **Environment variable** | A setting stored outside the code, like a password           |
+| **Repository (repo)**    | The folder holding all our code and its history              |
+| **Webhook**              | An address Telegram sends new messages to                    |
+| **RAG**                  | Letting the AI search our own documents before answering     |
+| **Serverless**           | Code that runs only when needed, so we pay nothing when idle |
+
+
+
+Customers don't "add" a bot like a contact — they just open its chat and press Start. Four ways to get them there.
+
+1. The link — your main tool
+
+https://t.me/MKC_Global_bot
+
+This works everywhere: WhatsApp, email signatures, your website, invoices, a printed flyer. Tapping it opens the bot in Telegram with a Start button.
+
+2. Search inside Telegram
+
+Tell customers: open Telegram → tap 🔍 search → type
+
+@MKC_Global_bot
+
+→ tap the result → Start.

@@ -5,3 +5,5 @@ node_modules/
 *.log
 data/sample-booking.pdf
 vercel-env-to-add.txt
+_*.pdf
+_*.mjs
