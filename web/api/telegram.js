@@ -49,9 +49,14 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('telegram handler error:', err);
     try {
+      // A short code the customer can quote and staff can search the logs for.
+      const ref = `ERR-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      console.error(`error ref ${ref}:`, err?.message);
       await sendMessage(
         chatId,
-        'Sorry - something went wrong on our side. Please try again in a moment, or type /help to reach a colleague.',
+        `عذراً، حصل خطأ عندنا. جرب تاني بعد شوية، أو اكتب /help عشان توصل لموظف. (${ref}) ` +
+          `| Sorry - something went wrong on our side. Please try again shortly, or type /help ` +
+          `to reach a colleague. (${ref})`,
       );
     } catch {
       /* best effort */
@@ -64,12 +69,23 @@ export default async function handler(req, res) {
 async function handleCommand(text, ctx) {
   const cmd = text.toLowerCase().split(/[\s@]/)[0];
 
+  // These replies are written here rather than generated, so they must carry the
+  // Arabic themselves - the model never sees them.
   if (cmd === '/start') {
+    const name = ctx.userName ? ' ' + ctx.userName : '';
     await sendMessage(
       ctx.chatId,
-      `Hello${ctx.userName ? ' ' + ctx.userName : ''}, welcome to ${config.companyName}.\n\n` +
+      `أهلاً${name}، مرحباً بك في ${config.companyName}.\n\n` +
+        'أقدر أساعدك في:\n' +
+        '- تتبع شحنة (ابعت رقم الشاسيه أو رقم الحجز أو ACID أو بوليصة الشحن)\n' +
+        '- طلب حجز جديد\n' +
+        '- الرد على أسئلة المستندات والموانئ والجمارك\n' +
+        '- توصيلك بالقسم المختص\n\n' +
+        'تحب أساعدك في إيه؟\n' +
+        '|\n' +
+        `Hello${name}, welcome to ${config.companyName}.\n\n` +
         'I can:\n' +
-        '- track a shipment (send the reference, ACID, B/L or container number)\n' +
+        '- track a shipment (send the chassis number, booking reference, ACID or B/L)\n' +
         '- take a new booking request\n' +
         '- answer questions about documents, ports and customs\n' +
         '- put you through to the right department\n\n' +
@@ -81,7 +97,11 @@ async function handleCommand(text, ctx) {
 
   if (cmd === '/reset') {
     await clearHistory(ctx.channel, ctx.chatId);
-    await sendMessage(ctx.chatId, 'Done - I have cleared our conversation history.', { keyboard: MAIN_KEYBOARD });
+    await sendMessage(
+      ctx.chatId,
+      'تمام، مسحت المحادثة السابقة. | Done - I have cleared our conversation history.',
+      { keyboard: MAIN_KEYBOARD },
+    );
     return true;
   }
 

@@ -61,7 +61,7 @@ scripts/
   find-chat-id.mjs         resolve your staff Telegram group id
   test-notify.mjs          render a sample PDF, --send to deliver it
   smoke-test.mjs           talk to the agent from the terminal
-supabase/schema.sql        the whole database, idempotent
+supabase/migrations/       the whole database, idempotent, CLI-pushable
 public/index.html          website chat widget
 data/                      demo PDF + Excel (replace with real exports)
 ```

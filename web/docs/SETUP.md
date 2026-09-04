@@ -45,9 +45,21 @@ against Supabase and answers only from what comes back.
 ### Create the tables
 
 4. In the left sidebar click **SQL Editor** → **New query**.
-5. Open the file `web/supabase/schema.sql` from this project, copy **all** of it,
-   paste it into the editor.
+5. Open `web/supabase/migrations/20260902120000_initial_schema.sql`, copy **all**
+   of it, paste it into the editor. Then repeat for every other file in
+   `web/supabase/migrations/`, oldest first.
 6. Click **Run** (or Ctrl+Enter). You should see *Success. No rows returned*.
+
+   Or apply every migration at once with the Supabase CLI, from the `web` folder:
+
+   ```powershell
+   npx supabase login        # opens a browser, once
+   npm run db:link           # asks for your database password
+   npm run db:push           # applies everything in supabase/migrations/
+   ```
+
+   The migrations are written to be safe to re-run, so `db push` against a
+   database that already has some of the objects will not damage anything.
 7. Click **Table Editor** in the sidebar — you should now see `shipments`,
    `bookings`, `documents`, `conversations` and the rest.
 

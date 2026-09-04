@@ -17,7 +17,9 @@
     "chatid": "node scripts/find-chat-id.mjs",
     "test:pdf": "node scripts/test-notify.mjs",
     "flowtest": "node scripts/flow-test.mjs",
-    "artest": "node scripts/arabic-test.mjs"
+    "artest": "node scripts/arabic-test.mjs",
+    "db:push": "supabase db push",
+    "db:link": "supabase link --project-ref kverwgcnvnferjewvvyr"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
