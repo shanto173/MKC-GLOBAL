@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from './config.js';
 import { t, bookingLanguage } from './i18n.js';
-import { hasArabic, drawBidiLine, drawBidiParagraph } from './rtl.js';
+import { hasArabic, drawBidiLine, drawBidiParagraph, ARABIC_WORD_SPACING } from './rtl.js';
 
 const FONT_DIR = fileURLToPath(new URL('../assets/fonts/', import.meta.url));
 const AMIRI = path.join(FONT_DIR, 'Amiri-Regular.ttf');
@@ -28,6 +28,8 @@ const LINE = '#d8e0e8';
 const LEFT = 50;
 const RIGHT = 545;
 const LABEL_W = 150;
+const TOP = 60;          // where content starts on a continuation page
+const BOTTOM = 735;      // last y a line may start on, above the footer
 
 /**
  * @param {object} b a row from the bookings table
@@ -67,12 +69,27 @@ export function bookingConfirmationPdf(b, opts = {}) {
     // ---- helpers ---------------------------------------------------------
     // Everything routes through these so alignment flips with the language.
 
+    // Extra word spacing only where Arabic is actually being drawn; Latin text
+    // does not need it and would look loose.
+    const spacingFor = (text) => (anyArabic && hasArabic(text) ? ARABIC_WORD_SPACING : 0);
+
     const line = (text, x, y, width, { align, size, font, color } = {}) => {
       doc.font(font ?? REG).fontSize(size ?? 10).fillColor(color ?? INK);
       drawBidiLine(doc, text, x, y, width, {
         align: align ?? (rtl ? 'right' : 'left'),
         baseDir: s.dir,
+        wordSpacing: spacingFor(text),
       });
+    };
+
+    const newPage = () => {
+      doc.addPage();
+      return TOP;
+    };
+
+    /** Starts a new page when the next block would not fit above the footer. */
+    const ensureSpace = (needed) => {
+      if (y + needed > BOTTOM) y = newPage();
     };
 
     const para = (text, x, y, width, { size, font, color, lineGap = 3 } = {}) => {
@@ -81,6 +98,9 @@ export function bookingConfirmationPdf(b, opts = {}) {
         align: rtl ? 'right' : 'left',
         baseDir: s.dir,
         lineGap,
+        wordSpacing: spacingFor(text),
+        maxY: BOTTOM,
+        onPageBreak: newPage,
       });
     };
 
@@ -97,19 +117,21 @@ export function bookingConfirmationPdf(b, opts = {}) {
       align: rtl ? 'left' : 'right', size: 15, font: BOLD, color: '#ffffff',
     });
     // The reference is a Latin identifier on the bill of lading - never translated.
-    doc.font(REG).fontSize(11).fillColor('#cfe2ee')
-      .text(b.booking_ref, LEFT, 54, { width: RIGHT - LEFT, align: rtl ? 'left' : 'right', lineBreak: false });
+    line(b.booking_ref, LEFT, 54, RIGHT - LEFT, {
+      align: rtl ? 'left' : 'right', size: 11, color: '#cfe2ee',
+    });
 
-    let y = 128;
+    let y = 118;
 
     // ---- status banner ---------------------------------------------------
     doc.roundedRect(LEFT, y, RIGHT - LEFT, 36, 5).fill('#fff5e0');
     line(s.statusBanner, LEFT + 14, y + 8, RIGHT - LEFT - 28, { size: 10, font: BOLD, color: '#8a5a00' });
     line(s.statusNote, LEFT + 14, y + 21, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
-    y += 56;
+    y += 48;
 
     // ---- section heading + label/value rows -------------------------------
     const heading = (text) => {
+      ensureSpace(46);   // heading, rule, and at least one row beneath it
       line(text, LEFT, y, RIGHT - LEFT, { size: 11, font: BOLD, color: BRAND });
       y += 16;
       doc.moveTo(LEFT, y).lineTo(RIGHT, y).strokeColor(LINE).lineWidth(1).stroke();
@@ -119,6 +141,7 @@ export function bookingConfirmationPdf(b, opts = {}) {
     const row = (label, value) => {
       if (value === null || value === undefined || value === '') return;
       const text = String(value);
+      ensureSpace(20);
 
       if (rtl) {
         // Label hugs the right edge; the value sits to its left.
@@ -130,21 +153,21 @@ export function bookingConfirmationPdf(b, opts = {}) {
         const end = para(text, LEFT + LABEL_W + 5, y, RIGHT - LEFT - LABEL_W - 5, { size: 10, font: BOLD });
         y = Math.max(end, y + 15);
       }
-      y += 4;
+      y += 2;
     };
 
     heading(s.customer);
     row(s.name, b.customer_name);
     row(s.company, b.company);
     row(s.contact, b.customer_contact);
-    y += 8;
+    y += 4;
 
     heading(s.route);
     row(s.originCountry, b.origin_country);
     row(s.originPort, b.origin_port);
     row(s.destinationPort, b.destination_port);
     row(s.incoterm, b.incoterm);
-    y += 8;
+    y += 4;
 
     heading(s.cargo);
     row(s.description, b.cargo_description);
@@ -152,31 +175,33 @@ export function bookingConfirmationPdf(b, opts = {}) {
     row(s.volume, b.volume_cbm ? `${fmt(b.volume_cbm)} ${s.cbm}` : null);
     row(s.readyDate, b.ready_date);
     row(s.notes, b.notes);
-    y += 8;
+    y += 4;
 
     // ---- document checklist ----------------------------------------------
     heading(s.documents);
     for (const item of s.docList) {
       // The bullet is drawn as a shape rather than a character, so bidi cannot
       // move it to the wrong side of the line.
+      ensureSpace(18);
       const dotX = rtl ? RIGHT - 5 : LEFT + 3;
       doc.circle(dotX, y + 5, 1.6).fill(BRAND);
       const end = rtl
         ? para(item, LEFT, y, RIGHT - LEFT - 14, { size: 9.5 })
         : para(item, LEFT + 14, y, RIGHT - LEFT - 14, { size: 9.5 });
-      y = Math.max(end, y + 13) + 2;
+      y = Math.max(end, y + 12) + 1;
     }
-    y += 12;
+    y += 8;
 
     // ---- next steps -------------------------------------------------------
     heading(s.next);
     y = para(s.nextBody, LEFT, y, RIGHT - LEFT, { size: 9.5, lineGap: 3 });
 
     // ---- footer -----------------------------------------------------------
+    // Drawn on whatever page the content ended on, never on top of it.
     const fy = 762;
     doc.moveTo(LEFT, fy).lineTo(RIGHT, fy).strokeColor(LINE).stroke();
     const when = new Date(b.created_at ?? Date.now()).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-    line(`${config.companyName}  ·  bookings@mkcglobal.example  ·  +20 3 555 0143`,
+    line(`${config.companyName}  ·  ${config.companyEmail}  ·  ${config.companyPhone}`,
       LEFT, fy + 8, RIGHT - LEFT, { align: 'center', size: 8, color: MUTED });
     line(`${s.receivedVia(when, b.channel)}  ·  ${s.reference} ${b.booking_ref}`,
       LEFT, fy + 20, RIGHT - LEFT, { align: 'center', size: 8, color: MUTED });

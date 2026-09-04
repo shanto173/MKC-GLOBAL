@@ -6,8 +6,10 @@
 const env = process.env;
 
 export const config = {
-  companyName: env.COMPANY_NAME || 'MKC Global Logistics',
+  companyName: env.COMPANY_NAME || 'MKY Global Forwarding',
   bookingFormUrl: env.BOOKING_FORM_URL || '',
+  companyEmail: env.COMPANY_EMAIL || 'bookings@mkyglobal.example',
+  companyPhone: env.COMPANY_PHONE || '+20 3 555 0143',
   adminSecret: env.ADMIN_SECRET || '',
   // Optional. Everything falls back to the incoming request host, so this only
   // matters for CLI scripts. Named APP_BASE_URL because hosts treat a PUBLIC_*

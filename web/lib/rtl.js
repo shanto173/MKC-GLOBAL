@@ -74,24 +74,71 @@ export function bidiRuns(text, baseDir = 'rtl') {
 }
 
 /**
+ * Extra space added between Arabic words.
+ *
+ * Amiri's letters carry long connecting tails - a final lam sweeps left across
+ * most of a space - so at document sizes adjacent words visually merge even
+ * though the space character is present with its normal advance. A little over
+ * a point of extra spacing separates them without looking gappy.
+ */
+export const ARABIC_WORD_SPACING = 1.5;
+
+/**
+ * PDFKit's widthOfString ignores wordSpacing, so any measurement used for
+ * alignment has to add it back or right-aligned text drifts left.
+ */
+function measureRun(doc, text, wordSpacing) {
+  const spaces = (text.match(/ /g) ?? []).length;
+  return doc.widthOfString(text) + spaces * wordSpacing;
+}
+
+/**
  * Draw a single line of possibly-mixed text, aligned within [x, x + width].
  * Returns the width actually used.
  */
-export function drawBidiLine(doc, text, x, y, width, { align = 'right', baseDir = 'rtl' } = {}) {
+export function drawBidiLine(doc, text, x, y, width, { align = 'right', baseDir = 'rtl', wordSpacing = 0 } = {}) {
   const runs = bidiRuns(text, baseDir);
   if (!runs.length) return 0;
 
-  const widths = runs.map((r) => doc.widthOfString(r.text));
-  const total = widths.reduce((a, b) => a + b, 0);
+  // A space sitting between an Arabic word and a Latin one lands at the edge of
+  // a run, and PDFKit trims whitespace at the edges of a fragment - which is why
+  // "رقم ACID" came out as "رقمACID". Take those edge spaces out of the text and
+  // reproduce them as explicit gaps, so the gap cannot be trimmed away.
+  const spaceW = doc.widthOfString(' ') + wordSpacing;
+  const prepared = runs.map((r) => {
+    const core = r.text.trim();
+    const lead = r.text.length - r.text.trimStart().length;
+    const trail = r.text.length - r.text.trimEnd().length;
+    // We draw left to right, but a right-to-left run reads the other way: its
+    // logically trailing space sits at the visual LEFT of the run. Adding it on
+    // the right instead is why "رقم ACID" still came out as "رقمACID".
+    return {
+      core,
+      lead: r.rtl ? trail : lead,
+      trail: r.rtl ? lead : trail,
+      coreWidth: core ? measureRun(doc, core, wordSpacing) : 0,
+    };
+  });
+
+  const total = prepared.reduce((sum, p) => sum + p.coreWidth + (p.lead + p.trail) * spaceW, 0);
 
   let cursor = x;
   if (align === 'right') cursor = x + width - total;
   else if (align === 'center') cursor = x + (width - total) / 2;
 
-  runs.forEach((run, i) => {
-    doc.text(run.text, cursor, y, { lineBreak: false, width: widths[i] + 2 });
-    cursor += widths[i];
-  });
+  for (const p of prepared) {
+    cursor += p.lead * spaceW;
+    if (p.core) {
+      // No `width` here, deliberately. PDFKit routes text through its
+      // LineWrapper whenever a width is given - even with lineBreak:false - and
+      // the wrapper starts a new page as soon as the document cursor passes the
+      // bottom margin. That silently turned one booking into fifteen pages.
+      // Every run is positioned explicitly, so wrapping is not wanted at all.
+      doc.text(p.core, cursor, y, { lineBreak: false, wordSpacing });
+      cursor += p.coreWidth;
+    }
+    cursor += p.trail * spaceW;
+  }
 
   return total;
 }
@@ -102,7 +149,14 @@ export function drawBidiLine(doc, text, x, y, width, { align = 'right', baseDir 
  *
  * @returns {number} the y coordinate just below the last line drawn
  */
-export function drawBidiParagraph(doc, text, x, y, width, { align = 'right', baseDir = 'rtl', lineGap = 4 } = {}) {
+export function drawBidiParagraph(doc, text, x, y, width, {
+  align = 'right',
+  baseDir = 'rtl',
+  lineGap = 4,
+  wordSpacing = 0,
+  maxY = Infinity,
+  onPageBreak = null,
+} = {}) {
   const words = String(text ?? '').split(/\s+/).filter(Boolean);
   if (!words.length) return y;
 
@@ -112,7 +166,7 @@ export function drawBidiParagraph(doc, text, x, y, width, { align = 'right', bas
 
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
-    if (line && doc.widthOfString(candidate) > width) {
+    if (line && measureRun(doc, candidate, wordSpacing) > width) {
       lines.push(line);
       line = word;
     } else {
@@ -123,7 +177,10 @@ export function drawBidiParagraph(doc, text, x, y, width, { align = 'right', bas
 
   let cursor = y;
   for (const l of lines) {
-    drawBidiLine(doc, l, x, cursor, width, { align, baseDir });
+    // Without this, a paragraph that runs past the bottom margin makes PDFKit
+    // start a new page for every line, which is how one booking became fifteen.
+    if (cursor + lineHeight > maxY && onPageBreak) cursor = onPageBreak();
+    drawBidiLine(doc, l, x, cursor, width, { align, baseDir, wordSpacing });
     cursor += lineHeight;
   }
   return cursor;
