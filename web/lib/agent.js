@@ -9,8 +9,34 @@ import { loadHistory, saveHistory } from './session.js';
 import { db } from './supabase.js';
 import { departmentsCard, DEPARTMENT_MENU } from './format.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
+import { flowReady } from './flow/ready.js';
 
 const MAX_STEPS = 5;
+
+/**
+ * Tools that CHANGE a booking. Under the state machine the model may not have
+ * them at all.
+ *
+ * Removing them from the tool list is the enforcement, not an instruction in
+ * the prompt. A prompt can be argued with; a tool the model was never given
+ * cannot be called. This is what "no critical booking decision depends solely
+ * on an LLM" means in practice: the model can look things up and answer
+ * questions, and the only path to a booking runs through lib/flow.
+ */
+const BOOKING_TOOLS = new Set(['create_booking', 'update_booking', 'lookup_vehicle', 'check_documents']);
+
+/**
+ * @param {{stateMachine?: boolean}} [opts] whether the flow is handling booking
+ *   this turn. False when BOOKING_ENGINE=llm, and false when migration 008 has
+ *   not been applied - in which case the model must keep its booking tools or
+ *   nobody can book at all.
+ */
+export function toolsForTurn({ stateMachine = config.bookingEngine === 'state_machine' } = {}) {
+  if (!stateMachine) return toolDefinitions;
+  return toolDefinitions.filter((t) => !BOOKING_TOOLS.has(t.name));
+}
+
+export const stateMachineOwnsBooking = () => config.bookingEngine === 'state_machine';
 
 /**
  * Which language the customer is writing in.
@@ -50,54 +76,8 @@ function isFrancoArabic(text) {
   return digitAsLetter || words;
 }
 
-export function systemPrompt(ctx) {
-  const today = new Date().toISOString().slice(0, 10);
-  const known = knownSoFar(ctx.draft);
-  // Everything above the final `known` block is identical from turn to turn, so
-  // the provider caches it at a quarter of the price. Keep it that way: nothing
-  // that varies per customer or per turn belongs in the body.
-  return `You are the virtual assistant for ${config.companyName}, an international freight
-forwarding company. You talk to customers on ${ctx.channel === 'telegram' ? 'Telegram' : 'the company website'}.
-Today is ${today}.
-
-WHAT THE COMPANY DOES
-- Imports used commercial vehicles - trucks, tractor units, trailers - from
-  ${ORIGIN_COUNTRIES.join(', ')} into Egypt by sea.
-- Egyptian destination ports: ${DESTINATION_PORTS.join('; ')}. Nowhere else is served.
-- Customs clearance, ACID and MRN handling, documentation, inland delivery.
-
-THE CHASSIS NUMBER IS EVERYTHING
-Every vehicle is identified by its chassis number (VIN): 17 mixed letters and
-digits, e.g. W1T96340310484233. Repeat it exactly as given, never correct it,
-never invent one.
-
-YOU HAVE NO KNOWLEDGE OF YOUR OWN about this company. Everything you say about
-shipments, services, ports, documents, transit times, payment or contacts MUST
-come from a tool call in this turn. If a tool returns nothing, say so and offer
-a person. You may not say you lack information unless search_knowledge or
-track_shipment came back empty this turn.
-
-THE MAIN MENU
-The welcome offers three numbered choices; customers reply with the digit:
-  1 = book a shipment   2 = track a shipment   3 = contact the team
-A bare "1", "2", "3" (or ١ ٢ ٣) means that choice unless you have just asked a
-different numbered question. Never treat a bare digit as a chassis number. When
-someone seems lost, offer those three again, numbered.
-
-TRACKING OR BOOKING
-A chassis number alone does not say which. Wanting to SHIP a vehicle (book,
-ship, send, عايز أحجز, أحجز, عايز أشحن, 3ayez a7gez) -> lookup_vehicle. Asking
-WHERE something is (where, track, status, فين, وصلت, fen) -> track_shipment.
-Tracking a unit that was never booked tells the customer it does not exist,
-which is wrong and discouraging.
-
-WHAT YOU DO
-
-1. TRACKING - call track_shipment. Never state a status, ETA, vessel or payment
-   state that did not come back from it. Tracking is always live; tell them to
-   ask any time rather than promising to notify them.
-
-2. BOOKING - in this order.
+/** The pre-state-machine booking instructions, used only when BOOKING_ENGINE=llm. */
+const LEGACY_BOOKING_GUIDANCE = `2. BOOKING - in this order.
 
    STEP 1 - THE UNIT. Ask for the chassis number first. The moment you have it,
    call lookup_vehicle and obey the verdict:
@@ -163,7 +143,82 @@ WHAT YOU DO
 
 3. CHANGING AN EXISTING BOOKING - call update_booking with only the fields that
    change; the reference stays the same, say so. Once Operations has confirmed
-   it the tool refuses: raise a ticket with Booking Operations instead.
+   it the tool refuses: raise a ticket with Booking Operations instead.`;
+
+/**
+ * What the model is told about booking.
+ *
+ * Under the state machine it is told, in plain terms, that booking is not its
+ * job - because a model that believes it should be collecting a chassis number
+ * will start collecting one, and the client then has two half-finished
+ * conversations running at once. Pointing at the button is the whole of its
+ * role in a booking.
+ *
+ * The old instructions are kept for BOOKING_ENGINE=llm, so the rollback path is
+ * a genuine rollback and not a different bot.
+ */
+function bookingGuidance(stateMachine = config.bookingEngine === 'state_machine') {
+  if (!stateMachine) return LEGACY_BOOKING_GUIDANCE;
+  return `2. BOOKING - NOT YOURS TO DO. Bookings are taken by a guided flow with
+   buttons, not by you, and you have no tool that can create, change or submit
+   one. If someone wants to book, wants to change a booking, or is sending
+   documents, say so in one short sentence and tell them to tap
+   "Book my shipment" on the menu, or send /book. Never ask for a chassis
+   number, a make, a route or a document yourself, never say a booking exists,
+   and never promise that you have recorded anything.
+
+3. CHANGING AN EXISTING BOOKING - the same: it goes through that flow, or
+   through Booking Operations. Offer them the menu or a person.`;
+}
+
+export function systemPrompt(ctx) {
+  const today = new Date().toISOString().slice(0, 10);
+  const known = knownSoFar(ctx.draft);
+  // Everything above the final `known` block is identical from turn to turn, so
+  // the provider caches it at a quarter of the price. Keep it that way: nothing
+  // that varies per customer or per turn belongs in the body.
+  return `You are the virtual assistant for ${config.companyName}, an international freight
+forwarding company. You talk to customers on ${ctx.channel === 'telegram' ? 'Telegram' : 'the company website'}.
+Today is ${today}.
+
+WHAT THE COMPANY DOES
+- Imports used commercial vehicles - trucks, tractor units, trailers - from
+  ${ORIGIN_COUNTRIES.join(', ')} into Egypt by sea.
+- Egyptian destination ports: ${DESTINATION_PORTS.join('; ')}. Nowhere else is served.
+- Customs clearance, ACID and MRN handling, documentation, inland delivery.
+
+THE CHASSIS NUMBER IS EVERYTHING
+Every vehicle is identified by its chassis number (VIN): 17 mixed letters and
+digits, e.g. W1T96340310484233. Repeat it exactly as given, never correct it,
+never invent one.
+
+YOU HAVE NO KNOWLEDGE OF YOUR OWN about this company. Everything you say about
+shipments, services, ports, documents, transit times, payment or contacts MUST
+come from a tool call in this turn. If a tool returns nothing, say so and offer
+a person. You may not say you lack information unless search_knowledge or
+track_shipment came back empty this turn.
+
+THE MAIN MENU
+The welcome offers three numbered choices; customers reply with the digit:
+  1 = book a shipment   2 = track a shipment   3 = contact the team
+A bare "1", "2", "3" (or ١ ٢ ٣) means that choice unless you have just asked a
+different numbered question. Never treat a bare digit as a chassis number. When
+someone seems lost, offer those three again, numbered.
+
+TRACKING OR BOOKING
+A chassis number alone does not say which. Wanting to SHIP a vehicle (book,
+ship, send, عايز أحجز, أحجز, عايز أشحن, 3ayez a7gez) -> lookup_vehicle. Asking
+WHERE something is (where, track, status, فين, وصلت, fen) -> track_shipment.
+Tracking a unit that was never booked tells the customer it does not exist,
+which is wrong and discouraging.
+
+WHAT YOU DO
+
+1. TRACKING - call track_shipment. Never state a status, ETA, vessel or payment
+   state that did not come back from it. Tracking is always live; tell them to
+   ask any time rather than promising to notify them.
+
+${bookingGuidance(ctx.stateMachineBooking !== false)}
 
 4. COMPANY QUESTIONS - call search_knowledge FIRST, then answer from it. That
    includes anything starting "how long", "how much", "what do I need", "when",
@@ -480,8 +535,15 @@ export async function respond(userText, ctx) {
   // exchange - creating a booking, above all - compare this against the id
   // stored on the draft, so the model cannot both propose and accept a booking
   // without the customer having spoken in between.
+  // Decided once per turn: is the flow handling bookings, or is the model?
+  // Both the tool list and the prompt follow this, so they cannot disagree -
+  // a prompt telling the model to call create_booking when create_booking has
+  // been taken away produces a turn that goes nowhere.
+  const stateMachineBooking = config.bookingEngine === 'state_machine' && (await flowReady());
+
   const turnCtx = {
     ...ctx,
+    stateMachineBooking,
     customerLanguage,
     draft: await draftFor(ctx),
     // What the customer actually typed, so a tool can tell "yes, book it" from
@@ -500,7 +562,7 @@ export async function respond(userText, ctx) {
     const { content, toolCalls } = await chat({
       system: systemPrompt(turnCtx),
       messages,
-      tools: toolDefinitions,
+      tools: toolsForTurn({ stateMachine: stateMachineBooking }),
     });
 
     if (!toolCalls.length) {
@@ -553,7 +615,8 @@ export async function respond(userText, ctx) {
   const showedCard = /\u{1F4CB}/u.test(lastCard) || lastCard.includes('Before this goes to Operations');
   const proposedEarlier = turnCtx.draft?.raw?.turn_id && turnCtx.draft.raw.turn_id !== turnCtx.turnId;
 
-  if (showedCard && proposedEarlier && !toolsUsed.includes('create_booking')
+  if (!stateMachineBooking
+      && showedCard && proposedEarlier && !toolsUsed.includes('create_booking')
       && (looksLikeAgreement(turnCtx.customerSaid)
           || /^(later|done|continue|\u0628\u0639\u062f\u064a\u0646|\u062a\u0645|\u062e\u0644\u0635\u062a)\b/i.test(turnCtx.customerSaid.trim()))) {
     const result = await runTool('create_booking', turnCtx.draft.raw, turnCtx);

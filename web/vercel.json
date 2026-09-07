@@ -12,5 +12,11 @@
       "source": "/",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/outbox",
+      "schedule": "*/5 * * * *"
+    }
   ]
 }

@@ -12,6 +12,7 @@ import { storeDocument } from './storage.js';
 import { readDocument } from './read-file.js';
 import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS, LATER_DOCS } from './extract.js';
 import { normalizeVin } from './tools.js';
+import { requiredDocuments } from './settings.js';
 
 const DOC_LABELS = {
   invoice: 'commercial invoice',
@@ -37,39 +38,61 @@ export const DOC_LABELS_AR = {
  * @param {{buffer: Buffer, fileName: string, mimeType: string,
  *          chatId: string|number, channel: string, bookingRef?: string}} file
  */
-export async function ingestDocument({ buffer, fileName, mimeType, chatId, channel = 'telegram', bookingRef = null }) {
-  const stored = await storeDocument({ chatId, fileName, mimeType, buffer });
+export async function ingestDocument({
+  buffer, fileName, mimeType, chatId, channel = 'telegram', bookingRef = null,
+  telegramFileId = null, telegramFileUniqueId = null, telegramMessageId = null,
+  clientId = null, uploadedBy = null, docTypeHint = null,
+}) {
+  const stored = await storeDocument({ chatId, fileName, mimeType, buffer, bookingRef, clientId });
 
   const read = await readDocument({ buffer, mimeType, fileName });
   const extracted = read.text
     ? await extractDocument(read.text, { fileName })
     : { ok: false, needs_ocr: true, doc_type: 'other', message: read.error };
 
+  // What the flow ASKED for beats what the reader guessed, but only when the
+  // reader could not tell. A hint must never overwrite a confident reading: a
+  // client who sends the MRN while we are asking for the invoice has sent the
+  // MRN, and filing it as an invoice would then report both wrongly.
+  const readType = extracted.doc_type && extracted.doc_type !== 'other' ? extracted.doc_type : null;
+  const docType = readType ?? docTypeHint ?? 'other';
+
   const row = {
     booking_ref: bookingRef,
     chat_id: String(chatId),
+    client_id: clientId,
     channel,
     vin: extracted.vin ?? null,
-    doc_type: extracted.doc_type ?? 'other',
+    doc_type: docType,
     file_name: fileName,
     storage_path: stored.path ?? null,
+    storage_bucket: stored.bucket ?? null,
     mime_type: mimeType,
     size_bytes: buffer.length,
-    extracted: { ...extracted, read_via: read.source },
+    telegram_file_id: telegramFileId,
+    telegram_file_unique_id: telegramFileUniqueId,
+    telegram_message_id: telegramMessageId,
+    uploaded_by: uploadedBy,
+    // Received. NOT verified - that word belongs to Operations, and the
+    // difference is the whole point of having two columns.
+    status: 'received',
+    extracted: { ...extracted, read_via: read.source, type_from: readType ? 'reader' : docTypeHint ? 'client' : 'unknown' },
     extraction_ok: Boolean(extracted.ok),
     needs_ocr: read.source === 'none',
   };
 
   // The same file sent again is the same document. Customers resend after a
   // warning, and the operations desk was reading nine chips for three papers.
-  const { data: already } = await db()
+  // Telegram's file_unique_id is the reliable test - the same photo re-sent
+  // gets a new file_id and often a new name, but never a new unique id.
+  const dedupe = db()
     .from('booking_documents')
     .select('id')
     .eq('chat_id', String(chatId))
-    .eq('file_name', fileName)
-    .eq('size_bytes', buffer.length)
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (telegramFileUniqueId) dedupe.eq('telegram_file_unique_id', telegramFileUniqueId);
+  else dedupe.eq('file_name', fileName).eq('size_bytes', buffer.length);
+  const { data: already } = await dedupe.maybeSingle();
 
   const write = already
     ? db().from('booking_documents').update(row).eq('id', already.id)
@@ -166,6 +189,113 @@ export async function documentStatus({ chatId, vin = null }) {
     agreed_vin: check.vin,
     problems: check.problems,
     complete: missing.length === 0 && check.consistent,
+  };
+}
+
+/**
+ * What a specific booking request still needs, judged against the list MKY has
+ * configured rather than a list written into the code.
+ *
+ * The deterministic replacement for asking a model "are we done yet". Three
+ * facts come out of it and all three come from rows:
+ *   received  - a file of that type is attached to THIS request
+ *   missing   - a required type with no file attached
+ *   mismatched- a file whose own chassis number is not this request's
+ *
+ * A document that arrived for another vehicle is never counted as received and
+ * never counted as missing: it is its own problem, and telling a client "still
+ * missing: invoice" when they have just sent an invoice is how an afternoon
+ * gets lost to the same file being sent four times.
+ *
+ * @param {{bookingRef?: string|null, chatId: string|number, vin?: string|null,
+ *          mrnChoice?: string}} where
+ */
+export async function bookingDocumentState({ bookingRef = null, chatId, vin = null, mrnChoice = 'existing' }) {
+  const required = await requiredDocuments({ mrnChoice });
+
+  // Papers for this request: attached to it by reference, plus anything sent in
+  // this conversation that has not been attached to anything yet.
+  //
+  // Two plain queries rather than one `or(...and(...))`: the nested filter
+  // string is unreadable, easy to get subtly wrong, and the merge below is
+  // exactly as correct for one extra round trip.
+  const COLUMNS = 'id, doc_type, file_name, vin, status, extraction_ok, needs_ocr, uploaded_at, telegram_file_unique_id, booking_ref';
+
+  const loose = db()
+    .from('booking_documents')
+    .select(COLUMNS)
+    .eq('chat_id', String(chatId))
+    .is('deleted_at', null)
+    .order('uploaded_at', { ascending: false })
+    .limit(50);
+
+  const attached = bookingRef
+    ? db()
+        .from('booking_documents')
+        .select(COLUMNS)
+        .eq('booking_ref', bookingRef)
+        .is('deleted_at', null)
+        .order('uploaded_at', { ascending: false })
+        .limit(50)
+    : null;
+
+  const [looseRes, attachedRes] = await Promise.all([loose, attached ?? Promise.resolve({ data: [] })]);
+  if (looseRes.error) return { ok: false, error: looseRes.error.message };
+  if (attachedRes.error) return { ok: false, error: attachedRes.error.message };
+
+  const seenIds = new Set();
+  const data = [];
+  for (const doc of [...(attachedRes.data ?? []), ...(looseRes.data ?? [])]) {
+    // A loose document from this chat counts; one already filed against a
+    // DIFFERENT request does not - it belongs to that request, not this one.
+    if (doc.booking_ref && bookingRef && doc.booking_ref !== bookingRef) continue;
+    if (seenIds.has(doc.id)) continue;
+    seenIds.add(doc.id);
+    data.push(doc);
+  }
+
+  const norm = vin ? normalizeVin(vin) : null;
+
+  const mismatched = [];
+  const mine = [];
+  for (const doc of data ?? []) {
+    if (doc.status === 'rejected') continue;      // Operations refused it; it is not received
+    if (norm && doc.vin && normalizeVin(doc.vin) !== norm) {
+      mismatched.push(doc);
+      continue;
+    }
+    mine.push(doc);
+  }
+
+  // One type may arrive twice; the newest wins and the client is not told they
+  // have "two invoices".
+  const byType = new Map();
+  for (const doc of mine) {
+    if (!byType.has(doc.doc_type)) byType.set(doc.doc_type, doc);
+  }
+  // Origin paperwork satisfies the transport-document requirement either way.
+  if (byType.has('eur1') && !byType.has('brief')) byType.set('brief', byType.get('eur1'));
+
+  const missing = required.filter((type) => !byType.has(type));
+  const verified = mine.filter((d) => d.status === 'verified').map((d) => d.doc_type);
+
+  return {
+    ok: true,
+    required,
+    received: [...byType.entries()].map(([type, doc]) => ({
+      type,
+      file: doc.file_name,
+      status: doc.status,
+      readable: doc.extraction_ok,
+      vin: doc.vin,
+    })),
+    received_types: [...byType.keys()],
+    // "Verified" is Operations' word, never the bot's. A file arriving proves a
+    // file arrived and nothing else.
+    verified_types: verified,
+    missing,
+    mismatched: mismatched.map((d) => ({ type: d.doc_type, file: d.file_name, vin: d.vin })),
+    complete: missing.length === 0,
   };
 }
 

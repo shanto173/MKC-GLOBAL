@@ -133,6 +133,8 @@
     <button role="tab" data-tab="shipments" aria-selected="false">Shipments</button>
     <button role="tab" data-tab="customers" aria-selected="false">Customers</button>
     <button role="tab" data-tab="tickets" aria-selected="false">Tickets</button>
+    <button role="tab" data-tab="tasks" aria-selected="false">Work queue</button>
+    <button role="tab" data-tab="mrn" aria-selected="false">MRN</button>
   </div>
 
   <div class="bar">
@@ -161,6 +163,8 @@
     shipments: [['','In progress'],['delivered','Delivered'],['all','All']],
     customers: [['','All customers']],
     tickets: [['open','Open'],['resolved','Resolved'],['all','All']],
+    tasks: [['open','Open'],['done','Done'],['all','All']],
+    mrn: [['open','Open'],['issued','Issued'],['rejected','Rejected'],['all','All']],
   };
   let SHIPMENT_STATUSES = [];
 
@@ -368,6 +372,72 @@
     $('filter').hidden = FILTERS[tab].length < 2;
   }
 
+  // ---------- work queue ----------
+  function taskCard(t) {
+    const done = ['done', 'cancelled'].includes(t.status);
+    const cls = t.status === 'done' ? 'confirmed' : t.status === 'in_progress' ? 'pending' : 'pending';
+    const payload = Object.entries(t.payload || {})
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => f(k.replace(/_/g, ' '), typeof v === 'object' ? JSON.stringify(v) : v))
+      .join('');
+
+    return `<div class="card" data-ref="${esc(t.task_ref)}" data-kind="task">
+      <div class="top">
+        <span class="ref">${esc(t.task_ref)}</span>
+        <span class="veh">${esc(t.task_type.replace(/_/g, ' '))}</span>
+        <span class="sp"></span>
+        <span class="dim">${t.age_hours}h old</span>
+        <span class="pill ${cls}">${esc(t.status.replace('_',' '))}</span>
+      </div>
+      <dl class="grid">
+        ${f('Booking', t.booking_ref)}${f('Assigned to', t.assigned_to)}
+        ${f('Priority', t.priority)}${f('Notes', t.notes)}
+        ${payload}
+      </dl>
+      ${done
+        ? `<div class="note-line">Closed ${t.completed_at ? new Date(t.completed_at).toLocaleString() : ''}${t.completed_by ? ' by ' + esc(t.completed_by) : ''}</div>`
+        : `<div class="act">
+             <input class="note" placeholder="Internal note — not sent to the customer" />
+             ${t.status === 'open'
+               ? '<button class="btn" data-action="claim">Take it</button>'
+               : '<button class="btn ghost" data-action="release">Put it back</button>'}
+             <button class="btn confirm" data-action="complete">Done</button>
+           </div>`}
+    </div>`;
+  }
+
+  // ---------- MRN applications ----------
+  function mrnCard(r) {
+    const finished = ['issued', 'rejected', 'cancelled'].includes(r.status);
+    const cls = r.status === 'issued' ? 'confirmed' : r.status === 'rejected' ? 'rejected' : 'pending';
+    const supplied = (r.supplied_information?.notes || [])
+      .map((n) => `<li><time>${new Date(n.at).toLocaleDateString()}</time> ${esc(n.text)}</li>`).join('');
+
+    return `<div class="card" data-ref="${esc(r.request_ref)}" data-kind="mrn">
+      <div class="top">
+        <span class="ref">${esc(r.request_ref)}</span>
+        <span class="veh">${esc(r.vin || 'no chassis')}</span>
+        <span class="sp"></span>
+        <span class="pill ${cls}">${esc(r.status.replace(/_/g,' '))}</span>
+      </div>
+      <dl class="grid">
+        ${f('Booking', r.booking_ref)}${f('MRN', r.mrn_number)}
+        ${f('Still needed', (r.missing_information || []).join(', '))}
+        ${f('Ops notes', r.operations_notes)}
+      </dl>
+      ${supplied ? `<ul class="events">${supplied}</ul>` : ''}
+      ${finished
+        ? `<div class="note-line">${r.issued_at ? 'Issued ' + new Date(r.issued_at).toLocaleString() : 'Closed'}</div>`
+        : `<div class="act">
+             <input class="mrnno" placeholder="MRN number, exactly as issued" />
+             <button class="btn confirm" data-action="issue">Record MRN</button>
+             <input class="note" placeholder="What the client must send / why it is refused" />
+             <button class="btn ghost" data-action="need_info">Ask the client</button>
+             <button class="btn reject" data-action="reject">Refuse</button>
+           </div>`}
+    </div>`;
+  }
+
   async function load(append = false) {
     if (!append) { offset = 0; loaded = []; $('list').innerHTML = '<div class="empty">Loading…</div>'; }
     $('more').hidden = true;
@@ -414,6 +484,29 @@
         $('list').innerHTML = shown.length ? shown.map(ticketCard).join('') : '<div class="empty">No tickets.</div>';
         offset = loaded.length;
         $('more').hidden = !d.has_more;
+      } else if (tab === 'tasks') {
+        const d = await api('/api/admin/tasks?status=' + encodeURIComponent(status || 'open') + page);
+        loaded = append ? loaded.concat(d.tasks) : d.tasks;
+        let shown = loaded;
+        if (q) {
+          const needle = q.toLowerCase();
+          shown = loaded.filter((t) => JSON.stringify(t).toLowerCase().includes(needle));
+        }
+        $('count').textContent = loaded.length + ' of ' + d.total + ' task' + (d.total === 1 ? '' : 's');
+        $('list').innerHTML = shown.length ? shown.map(taskCard).join('') : '<div class="empty">Nothing waiting.</div>';
+        offset = loaded.length;
+        $('more').hidden = !d.has_more;
+      } else if (tab === 'mrn') {
+        const d = await api('/api/admin/mrn?status=' + encodeURIComponent(status || 'open'));
+        loaded = d.requests || [];
+        let shown = loaded;
+        if (q) {
+          const needle = q.toLowerCase();
+          shown = loaded.filter((r) => JSON.stringify(r).toLowerCase().includes(needle));
+        }
+        $('count').textContent = loaded.length + ' MRN request' + (loaded.length === 1 ? '' : 's');
+        $('list').innerHTML = shown.length ? shown.map(mrnCard).join('') : '<div class="empty">No MRN requests.</div>';
+        $('more').hidden = true;
       } else {
         const d = await api('/api/admin/customers' + (q ? '?q=' + encodeURIComponent(q) : ''));
         $('count').textContent = d.count + ' customer' + (d.count === 1 ? '' : 's');
@@ -449,6 +542,32 @@
           ? `${card.dataset.ref} ${r.status}.` +
             (r.customer_told?.telegram ? ' Customer told on Telegram.' : r.customer_told ? ' Customer could not be reached on Telegram.' : '')
           : (r.error || 'Failed');
+      } else if (card.dataset.kind === 'task') {
+        r = await api('/api/admin/tasks', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ task_ref: card.dataset.ref, action, notes: note, operator }),
+        });
+        message = r.ok ? `${card.dataset.ref} ${r.task.status.replace('_',' ')}.` : (r.error || 'Failed');
+      } else if (card.dataset.kind === 'mrn') {
+        const mrnNumber = card.querySelector('.mrnno')?.value.trim() ?? '';
+        // An MRN is a customs identifier. It is typed by the operator from the
+        // document in front of them and never derived from anything here.
+        if (action === 'issue' && !mrnNumber) {
+          buttons.forEach((b) => (b.disabled = false));
+          return alert('Type the MRN number exactly as it was issued.');
+        }
+        if (action !== 'issue' && !note) {
+          buttons.forEach((b) => (b.disabled = false));
+          return alert('Say what you need from the client, or why it is refused — the client is told.');
+        }
+        r = await api('/api/admin/mrn', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            request_ref: card.dataset.ref, action, operator,
+            mrn_number: mrnNumber, requested: note, note,
+          }),
+        });
+        message = r.ok ? `${card.dataset.ref} ${r.request.status.replace(/_/g,' ')}.` : (r.error || 'Failed');
       } else if (card.dataset.kind === 'booking') {
         r = await api('/api/admin/bookings', {
           method: 'POST', headers: { 'content-type': 'application/json' },

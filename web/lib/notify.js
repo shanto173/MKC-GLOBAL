@@ -11,6 +11,7 @@ import { bookingConfirmationPdf } from './pdf.js';
 import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
 import { splitLanguages } from './agent.js';
+import { enqueue } from './outbox.js';
 
 /**
  * @param {object} booking row from the bookings table
@@ -148,7 +149,7 @@ export async function notifyBooking(booking) {
  * @param {'confirmed'|'rejected'} decision
  * @param {string} [note] reason or instructions from Operations
  */
-export async function notifyBookingDecision(booking, decision, note = '') {
+export async function notifyBookingDecision(booking, decision, note = '', { shipmentId = null } = {}) {
   const result = { telegram: false, email: false, errors: [] };
   const confirmed = decision === 'confirmed';
 
@@ -168,17 +169,36 @@ export async function notifyBookingDecision(booking, decision, note = '') {
     ? `👍 Your booking is confirmed.\n\n${detail}\n\n${note ? note + '\n\n' : ''}🙏 Thank you for booking your freight with ${config.companyName}.`
     : `⚠️ We could not confirm booking ${booking.booking_ref} at this time.\n\n${note || 'Booking Operations will contact you with details.'}`;
 
-  // The customer booked in one language; send both, as the chat already does.
+  // The chat message goes through the outbox, not from here.
+  //
+  // Sent inline, a Telegram timeout during the confirm click meant the operator
+  // saw "customer told" while the customer heard nothing and had no way to
+  // learn otherwise; and an operator clicking twice sent two confirmations with
+  // two different shipment references. The outbox row is written once per
+  // decision - the idempotency key sees to that - and retried until it lands.
   if (booking.chat_id && booking.channel === 'telegram' && config.telegram.token) {
-    try {
-      // Through the same divider as every other reply; a bare "|" reached the
-      // customer as a literal bar between the two halves.
-      await sendMessage(booking.chat_id, splitLanguages(`${arabic} | ${english}`));
-      result.telegram = true;
-    } catch (err) {
-      result.errors.push(`telegram: ${err.message}`);
-      console.error('decision telegram failed:', err.message);
-    }
+    const queued = await enqueue({
+      chatId: booking.chat_id,
+      clientId: booking.client_id ?? null,
+      eventType: confirmed ? 'booking_confirmed' : 'booking_rejected',
+      entityType: 'booking',
+      entityId: booking.booking_ref,
+      idempotencyKey: `${confirmed ? 'booking_confirmed' : 'booking_rejected'}:${booking.booking_ref}`,
+      payload: {
+        booking_ref: booking.booking_ref,
+        vin: booking.vin,
+        make: [booking.make, booking.model].filter(Boolean).join(' ') || booking.make,
+        origin_port: booking.origin_port,
+        destination_port: booking.destination_port,
+        shipment_id: shipmentId ?? null,
+        reason: note || null,
+      },
+    });
+    // `queued` reports that the intention is recorded, which is the thing the
+    // operator needs to know. Delivery is the drain's job and its own record.
+    result.telegram = queued.ok;
+    result.queued = queued.queued;
+    if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
   }
 
   const email = extractEmail(booking.customer_contact);

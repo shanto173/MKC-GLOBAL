@@ -31,6 +31,12 @@ export default async function handler(_req, res) {
   let database = 'not checked';
   let shipments = null;
   let documents = null;
+  // Migration 008 adds the tables the state machine cannot work without. Their
+  // absence is the single most likely reason a freshly deployed bot answers
+  // nothing at all, so it is reported here by name rather than discovered in a
+  // log after a client has been left waiting.
+  let migrations = 'not checked';
+  const flowTables = {};
 
   if (checks.supabase_url && checks.supabase_key) {
     try {
@@ -44,6 +50,33 @@ export default async function handler(_req, res) {
     } catch (err) {
       database = `error: ${err.message}`;
     }
+
+    const REQUIRED = ['conversation_sessions', 'operations_tasks', 'mrn_requests',
+      'notification_outbox', 'audit_logs', 'bot_settings'];
+    const absent = [];
+    for (const table of REQUIRED) {
+      const { error } = await db().from(table).select('*', { count: 'exact', head: true });
+      flowTables[table] = error ? `missing: ${error.message}` : 'ok';
+      if (error) absent.push(table);
+    }
+
+    // The two Postgres functions that make submission and de-duplication
+    // atomic. A missing one does not throw until a client taps Confirm.
+    const claim = await db().rpc('claim_telegram_update', { p_update_id: -1, p_chat_id: 'health' });
+    flowTables.claim_telegram_update = claim.error ? `missing: ${claim.error.message}` : 'ok';
+    if (claim.error) absent.push('claim_telegram_update()');
+
+    const submit = await db().rpc('submit_booking_request', {
+      p_booking_ref: '__health_check__', p_chat_id: 'health', p_task_ref: 'health',
+    });
+    // not_found is the RIGHT answer here: the function exists and refused a
+    // reference that does not. Only a transport error means it is absent.
+    flowTables.submit_booking_request = submit.error ? `missing: ${submit.error.message}` : 'ok';
+    if (submit.error) absent.push('submit_booking_request()');
+
+    migrations = absent.length
+      ? `migration 008 not applied - missing: ${absent.join(', ')}`
+      : 'ok';
   }
 
   // PDFKit reads .afm font files off disk; if Vercel's file tracing misses
@@ -82,6 +115,15 @@ export default async function handler(_req, res) {
   if (!checks.llm_key) missing.push(config.llm.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   if (missing.length) checks.missing_env = missing;
 
-  const ready = missing.length === 0 && database === 'ok' && pdf.startsWith('ok');
-  res.status(ready ? 200 : 503).json({ ready, build, checks, database, rows: { shipments, documents }, pdf, notifications });
+  const booking_engine = {
+    engine: config.bookingEngine,
+    prompt_version: config.promptVersion,
+    model_can_book: config.bookingEngine !== 'state_machine',
+  };
+
+  const ready = missing.length === 0 && database === 'ok' && migrations === 'ok' && pdf.startsWith('ok');
+  res.status(ready ? 200 : 503).json({
+    ready, build, checks, database, migrations, flow_tables: flowTables,
+    booking_engine, rows: { shipments, documents }, pdf, notifications,
+  });
 }

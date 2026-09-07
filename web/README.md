@@ -15,25 +15,54 @@ Supabase or Vercel experience assumed).
 
 ## How it works
 
-A customer message goes to one agent loop shared by both channels:
+A customer message meets a **deterministic state machine** first, and a language
+model only if the machine has nothing to say.
 
-1. The model receives the message plus the conversation history.
-2. It decides which **tool** it needs. Tools are the only source of facts:
+```
+Telegram ──► api/telegram.js ──► lib/flow/machine.js ──► booking · tracking · contact
+                                       │                          │
+                                       │ nothing to say           └──► Supabase
+                                       ▼
+                                lib/agent.js  (the model, for questions)
+```
 
-   | Tool | What it does |
-   |---|---|
-   | `track_shipment` | SQL lookup by reference, ACID, B/L, container or customer name |
-   | `search_knowledge` | Vector search over the company PDF/Excel (pgvector), keyword fallback |
-   | `create_booking` | Validates, de-duplicates, inserts, then emails/pings the PDF |
-   | `list_my_bookings` | Bookings made from this chat |
-   | `create_support_ticket` | Escalates to one of five departments |
+The rule the design rests on: **the model may read, it may not decide.** It
+reads a chassis number out of a sentence and answers questions from the company
+knowledge base. Whether a vehicle may be booked, what documents are outstanding,
+and whether a request goes to Operations are decided from rows in Postgres.
 
-3. Tool results go back to the model, which writes the reply.
-4. The last 8 exchanges are stored in Supabase so the conversation has memory
-   across serverless invocations.
+The model has no booking tools — `create_booking` and friends are filtered out of
+its tool list. That is the enforcement; a prompt can be argued with, a tool that
+was never offered cannot be called.
 
-The system prompt forbids inventing shipment data, quoting prices, or serving
-ports outside the five supported Egyptian destinations.
+**→ [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** explains the flows, the
+idempotency, and where every business rule actually lives.
+
+### What the model still does
+
+| Tool | What it does |
+|---|---|
+| `track_shipment` | shipment lookup by reference, ACID, B/L, container |
+| `search_knowledge` | vector search over the company PDF/Excel, keyword fallback |
+| `list_my_bookings` | bookings made from this chat |
+| `create_support_ticket` | escalates to one of five departments |
+
+### The three flows
+
+1. **Book my shipment** — chassis check, the basics, MRN choice and documents,
+   the summary and the yes. Four steps, inline buttons throughout.
+2. **Track my shipment** — by chassis or reference, with an ownership check, and
+   a Refresh that re-reads the database rather than repeating itself.
+3. **Contact our team** — booking, tracking, documents, or a person.
+
+Conversation state lives in `conversation_sessions`, so a restart, a redeploy, a
+webhook retry or a second worker all continue the same conversation.
+
+**Both channels run the same flow.** Telegram draws inline keyboards; the
+website widget gets the same choices back as `options` and draws its own
+buttons. Either way a client can just type the number — "2" means the second
+choice offered, except where a question was asked, in which case it is the
+answer to that question.
 
 ## Layout
 
@@ -42,8 +71,29 @@ api/
   telegram.js        Telegram webhook (secret-token verified, de-duplicated)
   chat.js            JSON endpoint for the website widget
   health.js          config + database self-check
+  cron/outbox.js     drains queued notifications, every 5 minutes
+  admin/bookings.js  the Operations queue: review, confirm, reject, ask
+  admin/tasks.js     the internal work queue
+  admin/mrn.js       MRN applications
   admin/setup.js     one-click webhook registration
 lib/
+  flow/              THE STATE MACHINE - where booking is actually decided
+    machine.js         one place where every transition is chosen
+    states.js          every state, in one list
+    store.js           conversation_sessions - state that survives a restart
+    booking.js         steps 1-4, the chassis check through the yes
+    tracking.js        lookup with an ownership rule
+    contact.js         the four contact routes
+    keyboards.js       inline keyboards and their callback payloads
+    messages.js        every word said to a client, in both languages
+  bookings.js        booking rules: duplicates, required fields, submission
+  documents.js       what arrived, what is missing, whose vehicle it is for
+  mrn.js             MRN applications MKY makes on a client's behalf
+  operations.js      the work queue + the OperationsNotifier interface
+  outbox.js          nothing important is sent from inside a handler
+  settings.js        business values MKY can change without a deployment
+  clients.js         Telegram identity, and who may see what
+  audit.js           who did what, redacted
   agent.js           the tool-calling loop and system prompt
   notify.js          booking emails (Resend) + staff Telegram ping
   pdf.js             branded booking confirmation PDF, built in memory
@@ -70,6 +120,9 @@ data/                      demo PDF + Excel (replace with real exports)
 
 ```bash
 npm install
+npm test              # 78 tests: no network, no token, no model
+npm run outbox -- --list       # what is waiting to be sent
+npm run outbox                 # send it now
 npm run gen:data      # regenerate the demo PDF + Excel
 npm run seed          # load Excel into Supabase
 npm run ingest        # build the RAG knowledge base
@@ -121,6 +174,14 @@ back to Postgres full-text search — worse, but functional.
 
 ## Before real customers
 
+- [ ] **Re-register the webhook** (`npm run setup:webhook -- https://…`). The old
+      registration did not subscribe to `callback_query`, so every inline button
+      is dead until this is run once.
+- [ ] Apply migration 008 (`npm run db:push`)
+- [ ] Set `CRON_SECRET` so failed notifications are retried
+- [ ] Fill in `bot_settings.required_mrn_documents` and `acid_required` — both
+      are deliberately empty, because inventing a customs requirement is not
+      acceptable. See "Business decisions still needed" below.
 - [ ] Replace demo data with real shipment exports, and schedule `seed`
 - [ ] Rotate the Telegram token
 - [ ] Rate-limit `/api/chat`
@@ -128,3 +189,17 @@ back to Postgres full-text search — worse, but functional.
 - [ ] Verify a sending domain in Resend so customers actually get their copy
 - [ ] Add a privacy notice — you are storing chat history
 - [ ] Decide how long to keep `conversations` rows
+
+## Business decisions still needed from MKY
+
+Three values are deliberately left unset. The software works without them; it
+just cannot guess them, and guessing a customs requirement or reading out an
+invented phone number would be worse than saying nothing.
+
+| Where | What is needed | What happens meanwhile |
+|---|---|---|
+| `bot_settings.required_mrn_documents` | what MKY needs from a client to apply for an MRN on their behalf | the bot collects a free-text description and raises a Customs Documentation task saying the list is undefined |
+| `bot_settings.acid_required` | whether an ACID registration is required from the client at booking time | not asked for |
+| `OPERATIONS_PHONE` (or `bot_settings.operations_phone`) | the number to give a client who asks for a person | the bot logs a callback task and says a number has not been configured, rather than reading out the `.env.example` placeholder |
+
+Set the first two in the `bot_settings` table; no deployment is needed.

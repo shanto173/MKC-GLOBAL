@@ -17,10 +17,30 @@ import { signedUrl } from '../../lib/storage.js';
 import { createShipmentFromBooking } from '../../lib/shipments.js';
 import { knownOperator } from './users.js';
 import { refreshPinSafely } from '../../lib/pinned.js';
+import { enqueue, drain } from '../../lib/outbox.js';
+import { closeTasksForBooking } from '../../lib/operations.js';
+import { audit } from '../../lib/audit.js';
+import { createHash } from 'node:crypto';
 
-const ACTIONS = { confirm: 'confirmed', reject: 'rejected', cancel: 'cancelled' };
+const ACTIONS = {
+  confirm: 'confirmed',
+  reject: 'rejected',
+  cancel: 'cancelled',
+  // An operator opening a request marks it as theirs, so two desks do not work
+  // the same one. It is a status, not a decision, and it stays decidable.
+  review: 'under_review',
+  // Handing it back to the client for something missing. The client is told,
+  // through the outbox, exactly what is wanted.
+  request_info: 'needs_client_action',
+};
+
+/** Statuses from which an operator may still act on a request. */
+const DECIDABLE = ['pending_review', 'under_review', 'needs_client_action'];
 
 const normalise = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Short, stable digest of an operator's request text, for the outbox key. */
+const hashOf = (text) => createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -54,7 +74,11 @@ async function list(req, res) {
     .range(offset, offset + limit - 1);
 
   // "all" still hides drafts: they are unconfirmed proposals, not requests.
+  // "queue" is what a desk actually wants - everything still owed a decision,
+  // whoever has it open - rather than pending_review alone, which hid every
+  // request a colleague had already taken into review.
   if (status === 'all') query.neq('status', 'draft');
+  else if (status === 'queue') query.in('status', DECIDABLE);
   else query.eq('status', status);
 
   const { data, error, count: total } = await query;
@@ -140,7 +164,7 @@ async function decide(req, res) {
   // A positive guard, not a negative one: only a request actually awaiting
   // review may be decided. Listing the finished states missed `draft`, which
   // let an unsubmitted half-filled proposal be confirmed through the API.
-  if (booking.status !== 'pending_review') {
+  if (!DECIDABLE.includes(booking.status)) {
     return res.status(409).json({
       error: `${ref} is ${booking.status}, not awaiting review`,
       decided_at: booking.confirmed_at,
@@ -164,7 +188,7 @@ async function decide(req, res) {
       confirmed_by: who.name ?? String(operator).slice(0, 80),
     })
     .eq('booking_ref', ref)
-    .eq('status', 'pending_review')
+    .in('status', DECIDABLE)
     .select();
   if (updErr) return res.status(500).json({ error: updErr.message });
 
@@ -199,17 +223,65 @@ async function decide(req, res) {
 
   // Telling the customer must never undo the decision, so failures are reported
   // rather than thrown - the booking stays decided either way.
-  const told = status === 'cancelled'
-    ? { telegram: false, email: false, errors: ['cancelled bookings are not announced'] }
-    : await notifyBookingDecision(
-        updated,
-        status,
-        // The shipment reference is what they will track with, so it goes in
-        // the message that tells them the booking is confirmed.
-        shipment?.ok && shipment.shipment_id
-          ? `${note ? note + ' ' : ''}Track it with ${shipment.shipment_id} or your chassis number.`
-          : note,
-      );
+  //
+  // Two of the five actions are deliberately silent. "review" is an operator
+  // claiming the request so two desks do not work it at once - nothing has
+  // happened that the client needs to hear about. A cancellation is not
+  // announced either.
+  let told = { telegram: false, email: false, errors: [] };
+
+  if (status === 'under_review') {
+    told = { telegram: false, email: false, errors: ['taken into review - the client is not told'] };
+    await db().from('bookings').update({
+      review_started_at: new Date().toISOString(),
+      review_started_by: who.name ?? String(operator).slice(0, 80),
+    }).eq('booking_ref', ref);
+  } else if (status === 'cancelled') {
+    told = { telegram: false, email: false, errors: ['cancelled bookings are not announced'] };
+  } else if (status === 'needs_client_action') {
+    // Handing it back. What is wanted is recorded on the row AND sent to the
+    // client verbatim - an operator's own words, never a list we invented.
+    const requested = String(req.body?.requested ?? note ?? '').trim();
+    if (!requested) {
+      return res.status(400).json({ error: 'requested (what the client must provide) is required for request_info' });
+    }
+    await db().from('bookings').update({
+      needs_client_action: { requested, at: new Date().toISOString(), by: who.name ?? String(operator) },
+    }).eq('booking_ref', ref);
+
+    const queued = await enqueue({
+      chatId: updated.chat_id,
+      clientId: updated.client_id ?? null,
+      eventType: 'missing_information_requested',
+      entityType: 'booking',
+      entityId: ref,
+      // Keyed on the text, so asking for a SECOND thing later sends a second
+      // message, while a double-click on the same request sends one.
+      idempotencyKey: `missing_information:${ref}:${hashOf(requested)}`,
+      payload: { booking_ref: ref, requested },
+    });
+    told = { telegram: queued.ok, email: false, errors: queued.ok ? [] : [queued.error] };
+  } else {
+    told = await notifyBookingDecision(updated, status, note, {
+      shipmentId: shipment?.ok ? shipment.shipment_id : null,
+    });
+  }
+
+  // The work queue follows the decision: a request that has been decided is not
+  // still owed to anyone. Reopening for client action leaves the task open,
+  // because somebody does still have to chase it.
+  if (['confirmed', 'rejected', 'cancelled'].includes(status)) {
+    await closeTasksForBooking(ref, { operator: who.name ?? String(operator), reason: `booking ${status}` });
+  }
+
+  await audit({
+    actor_type: 'operator',
+    actor_id: who.name ?? String(operator),
+    action: `booking_${status}`,
+    entity_type: 'booking',
+    entity_id: ref,
+    metadata: { shipment_id: shipment?.shipment_id ?? null, had_note: Boolean(note) },
+  });
 
   // A cancellation is not announced to the customer, so nothing else would have
   // refreshed the card at the top of their chat - and it would have gone on
@@ -218,11 +290,16 @@ async function decide(req, res) {
     await refreshPinSafely(updated.chat_id);
   }
 
+  // Sending now rather than waiting for the next cron tick, so the client hears
+  // back while the operator is still looking at the screen. The outbox retries
+  // whatever does not go out.
+  await drain({ limit: 5 }).catch(() => null);
+
   if (told.telegram || told.email) {
     await db().from('bookings').update({ customer_told_at: new Date().toISOString() }).eq('booking_ref', ref);
   }
 
-  if (!told.telegram && !told.email && status !== 'cancelled') {
+  if (!told.telegram && !told.email && !['cancelled', 'under_review'].includes(status)) {
     warnings.push('The customer could NOT be told - contact them directly.');
   }
 

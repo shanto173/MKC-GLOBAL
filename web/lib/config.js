@@ -16,6 +16,21 @@ export const config = {
   // 2 and 3 both end at "Operations: [PHONE NUMBER]".
   operationsPhone: env.OPERATIONS_PHONE || env.COMPANY_PHONE || '+20 3 555 0143',
   adminSecret: env.ADMIN_SECRET || '',
+
+  /**
+   * Who owns the booking conversation.
+   *
+   *   state_machine  the deterministic flow in lib/flow decides every step, and
+   *                  the model cannot create, change or submit a booking. This
+   *                  is the default and the only supported production setting.
+   *   llm            the previous behaviour, where the model drove booking
+   *                  through tools. Kept so this change can be rolled back with
+   *                  one environment variable rather than a redeploy of old code.
+   */
+  bookingEngine: (env.BOOKING_ENGINE || 'state_machine').toLowerCase(),
+
+  /** Prompt version, recorded against every AI interaction so answers are traceable. */
+  promptVersion: env.BOT_PROMPT_VERSION || '2',
   // Optional. Everything falls back to the incoming request host, so this only
   // matters for CLI scripts. Named APP_BASE_URL because hosts treat a PUBLIC_*
   // prefix as a browser-exposed framework variable and refuse to keep it secret;

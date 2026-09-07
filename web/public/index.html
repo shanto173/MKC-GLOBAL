@@ -109,6 +109,13 @@
     .status .veh { color: #b6c7d8; }
     .status .st { color: #e8f0f8; }
   }
+
+  /* The flow's choices, offered as buttons. Wrapped, because a bilingual
+     label is long and a row of them must not push the log sideways. */
+  .options{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}
+  .opt{font:inherit;font-size:13px;padding:7px 12px;border-radius:14px;cursor:pointer;
+       border:1px solid var(--line,#d7dee8);background:var(--card,#fff);color:inherit;text-align:left}
+  .opt:hover{border-color:var(--accent,#0b5fff)}
 </style>
 </head>
 <body>
@@ -207,8 +214,35 @@
     return el;
   }
 
-  async function ask(text) {
+  /**
+   * The choices the flow last offered, drawn as buttons.
+   *
+   * The reply already lists them as numbered text, so typing the number works
+   * whatever happens here. These are the same choices, one tap instead.
+   */
+  function options(list) {
+    document.querySelectorAll('.options').forEach((el) => el.remove());
+    if (!list?.length) return;
+
+    const box = document.createElement('div');
+    box.className = 'options';
+    for (const option of list) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'opt';
+      button.textContent = option.label;
+      // The payload goes back exactly as it came. It carries no authority - the
+      // server decides whether that button is legal from the state it is in.
+      button.addEventListener('click', () => ask(option.label, option.data));
+      box.appendChild(button);
+    }
+    log.appendChild(box);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function ask(text, action = null) {
     add(text, 'user');
+    document.querySelectorAll('.options').forEach((el) => el.remove());
     input.value = '';
     send.disabled = true;
     const dots = typing();
@@ -216,12 +250,16 @@
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId }),
+        body: JSON.stringify({ message: text, sessionId, ...(action ? { action } : {}) }),
       });
       const data = await res.json();
       dots.remove();
       if (!res.ok) add(data.error || 'Something went wrong.', 'err');
-      else { add(data.reply, 'bot'); refreshStatus(); }
+      else {
+        add(data.reply, 'bot');
+        options(data.options);
+        refreshStatus();
+      }
     } catch (err) {
       dots.remove();
       add('Network error — is the server running?', 'err');

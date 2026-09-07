@@ -47,8 +47,24 @@ const DOC_TYPE_HINTS = [
   { type: 'mrn', words: ['export accompanying', 'document de însoţire de export', 'document de insotire', 'ausfuhrbegleitdokument', 'mrn', 'declarant', 'b.v. export'] },
   { type: 'eur1', words: ['eur.1', 'eur 1', 'movement certificate', 'certificat de circulaţie', 'certificat de circulatie', 'circulation des marchandises'] },
   { type: 'acid', words: ['acid', 'aci', 'nafeza', 'نافذة', 'الرقم التعريفي', 'مسجل'] },
-  { type: 'brief', words: ['cmr', 'bill of lading', 'waybill', 'packing list'] },
+  // A transport document goes by half a dozen names on this lane and only one
+  // of them was listed, so a perfectly ordinary CMR read as "other".
+  { type: 'brief', words: ['cmr', 'consignment note', 'bill of lading', 'waybill', 'sea waybill',
+                           'packing list', 'frachtbrief', 'lettre de voiture', 'vrachtbrief',
+                           'krovinio važtaraštis', 'list przewozowy'] },
 ];
+
+/**
+ * Where in a document its evidence sits, in three tiers.
+ *
+ * A document says what it IS in its title, repeats it in the letterhead, and
+ * then spends the rest of the page naming every other document in the file. So
+ * the same word is worth very different amounts depending on where it appears:
+ * "invoice" on line one is the document's own name, and "invoice" in a list of
+ * attachments is a reference to a different piece of paper entirely.
+ */
+const TITLE_LINES = 3;
+const HEADER_LINES = 12;
 
 // ---------------------------------------------------------------------------
 // Arabic text repair
@@ -134,14 +150,42 @@ export function extractIdentifiers(rawText) {
   };
 }
 
+/**
+ * What kind of document is this, judged on where the evidence sits.
+ *
+ * The old version counted keyword hits anywhere in the text and broke ties by
+ * position in the list above - so a CMR consignment note, whose body names the
+ * invoice and the MRN it travels with, was classified as an invoice, because
+ * "invoice" happened to be the first entry with a score of one. The client was
+ * then asked for a transport document they had already sent.
+ *
+ * A document declares its type at the TOP. A mention further down is evidence
+ * about some OTHER document, so a header hit is worth much more than a body
+ * one, and a tie on both is left as `other` rather than settled by array order.
+ */
 export function guessDocType(rawText) {
   const text = repairArabic(String(rawText ?? '')).toLowerCase();
-  let best = { type: 'other', score: 0 };
-  for (const { type, words } of DOC_TYPE_HINTS) {
-    const score = words.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
-    if (score > best.score) best = { type, score };
-  }
-  return best.type;
+  if (!text.trim()) return 'other';
+
+  const lines = text.split('\n').filter((l) => l.trim());
+  const title = lines.slice(0, TITLE_LINES).join('\n');
+  const header = lines.slice(0, HEADER_LINES).join('\n');
+
+  const scored = DOC_TYPE_HINTS.map(({ type, words }) => {
+    const inTitle = words.filter((w) => title.includes(w)).length;
+    const inHeader = words.filter((w) => header.includes(w)).length;
+    const inBody = words.filter((w) => text.includes(w)).length;
+    // The title dominates on purpose: a document whose heading names its type
+    // is not ambiguous just because its body cites three other documents.
+    return { type, score: inTitle * 20 + inHeader * 5 + inBody };
+  }).sort((a, b) => b.score - a.score);
+
+  const [first, second] = scored;
+  if (!first || first.score === 0) return 'other';
+  // Two types with identical evidence is not a decision, it is a coin toss, and
+  // a wrong type quietly satisfies the wrong requirement.
+  if (second && second.score === first.score) return 'other';
+  return first.type;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +234,20 @@ report) and a national accounting total in RON, which you must ignore.
 
 "vin" must be a chassis number: letters and digits mixed, usually 17 characters.
 A field of digits only is never a VIN - it is a tax number, an ACID, or an
-invoice number. Return null rather than a number you are unsure about.`;
+invoice number. Return null rather than a number you are unsure about.
+
+"doc_type" is what THIS document is, taken from its title and letterhead - not
+from the other documents it refers to. Freight paperwork cross-references
+everything else in the file: a consignment note lists the invoice number and the
+MRN, and an invoice cites the EUR.1. Judge by the heading.
+  invoice - a commercial or pro-forma invoice
+  mrn     - an export accompanying document / customs export declaration
+  eur1    - a EUR.1 movement certificate
+  acid    - an Egyptian ACID / Nafeza registration
+  brief   - a transport document: CMR or other consignment note, bill of lading,
+            sea waybill, packing list
+  other   - only when it is genuinely none of these. Prefer a considered type
+            over "other": "other" makes us ask the client what they just sent.`;
 
 /**
  * Read one document. Deterministic identifiers always override the model.

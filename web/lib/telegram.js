@@ -29,18 +29,71 @@ function chunk(text) {
   return parts;
 }
 
-export async function sendMessage(chatId, text, { keyboard, oneTime = false, returnMessage = false } = {}) {
+/**
+ * @param {object} opts
+ * @param {Array} [opts.keyboard]  reply keyboard (sits under the text box)
+ * @param {Array} [opts.inline]    inline keyboard (sits under this message)
+ * @param {boolean} [opts.oneTime] hide a reply keyboard after one use
+ * @param {boolean} [opts.removeKeyboard] take the reply keyboard away entirely
+ */
+export async function sendMessage(
+  chatId,
+  text,
+  { keyboard, inline, oneTime = false, returnMessage = false, removeKeyboard = false } = {},
+) {
   const parts = chunk(text);
   let last;
   for (let i = 0; i < parts.length; i++) {
     const payload = { chat_id: chatId, text: parts[i], disable_web_page_preview: true };
-    if (keyboard && i === parts.length - 1) {
-      payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: oneTime };
+    // Only the final part carries the buttons: repeating them under every chunk
+    // of a long answer gives the client three copies of the same choice.
+    if (i === parts.length - 1) {
+      if (inline) payload.reply_markup = { inline_keyboard: inline };
+      else if (keyboard) payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: oneTime };
+      else if (removeKeyboard) payload.reply_markup = { remove_keyboard: true };
     }
     last = await call('sendMessage', payload);
   }
   // The caller sometimes needs the message back - to pin it, for instance.
   return returnMessage ? last : undefined;
+}
+
+/**
+ * Answers a callback query.
+ *
+ * Telegram spins a loading circle on the tapped button until this is called,
+ * and gives up after a few seconds leaving the client looking at a dead button.
+ * It must therefore be called on EVERY callback - including the ones we refuse
+ * - which is why it never throws and is invoked before any slow work begins.
+ *
+ * @param {string} id     callback_query.id
+ * @param {string} [text] a short toast; omit for a silent acknowledgement
+ * @param {boolean} [alert] show it as a modal rather than a toast
+ */
+export async function answerCallback(id, text = '', { alert = false } = {}) {
+  if (!id) return { ok: false };
+  return tryCall('answerCallbackQuery', {
+    callback_query_id: id,
+    // Telegram truncates at 200 characters and rejects longer ones outright.
+    ...(text ? { text: String(text).slice(0, 190) } : {}),
+    show_alert: alert,
+  });
+}
+
+/**
+ * Takes the buttons off a message we have already acted on.
+ *
+ * Without this, yesterday's confirmation card still offers a live "Confirm"
+ * button. The state machine refuses a stale press anyway, but a button that
+ * does nothing is a support call, so the buttons are removed once used.
+ */
+export async function clearButtons(chatId, messageId) {
+  if (!chatId || !messageId) return { ok: false };
+  return tryCall('editMessageReplyMarkup', {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: { inline_keyboard: [] },
+  });
 }
 
 export async function sendTyping(chatId) {
@@ -206,7 +259,9 @@ export async function setWebhook(url, secret) {
   return call('setWebhook', {
     url,
     secret_token: secret,
-    allowed_updates: ['message'],
+    // callback_query was missing, so every inline button in the bot was dead:
+    // Telegram simply never delivered the press.
+    allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true,
   });
 }
@@ -220,9 +275,11 @@ export async function setCommands() {
   return call('setMyCommands', {
     commands: [
       { command: 'start', description: 'Start / show the main menu' },
+      { command: 'menu', description: 'Main menu' },
       { command: 'track', description: 'Track a shipment' },
       { command: 'book', description: 'Request a new booking' },
-      { command: 'help', description: 'Talk to a human department' },
+      { command: 'cancel', description: 'Stop what we are in the middle of' },
+      { command: 'help', description: 'What this bot can do' },
       { command: 'reset', description: 'Forget this conversation' },
     ],
   });

@@ -29,7 +29,7 @@ const MUTED = '#5b6b7c';
 const RULE = '#c9d3dd';
 
 // One vehicle, one set of numbers, so the cross-check has something to agree on.
-const VIN = (process.argv[2] || 'WDB96340310777421').toUpperCase();
+let VIN = (process.argv[2] || 'WDB96340310777421').toUpperCase();
 const NAME = process.argv[3] || 'MKY Global Forwarding';
 
 /**
@@ -147,6 +147,60 @@ async function invoice() {
   return done;
 }
 
+// --- 1b. transport document (CMR) - the flow's "brief" -----------------------
+//
+// The booking flow asks for an invoice, a BRIEF and an MRN. Nothing here made a
+// brief, so a tester who sent all three of the old files was still told
+// "Almost there - we just need your Brief" and had nothing to send. A CMR
+// consignment note is what actually accompanies a truck out of Lithuania, and
+// the reader classifies it as `brief` from the letters CMR.
+
+async function transportDocument() {
+  const { doc, done } = newDoc();
+  watermark(doc);
+
+  doc.font('Helvetica-Bold').fontSize(19).fillColor(INK).text('CMR', 50, 50);
+  doc.fontSize(13).text('INTERNATIONAL CONSIGNMENT NOTE', 50, 74);
+  doc.font('Helvetica').fontSize(9.5).fillColor(MUTED)
+    .text('Lettre de voiture internationale · Internationaler Frachtbrief', 50, 93);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(INK)
+    .text(`No. CMR-${digits(seed, 7)}    Date: 2026-09-19`, 50, 112);
+
+  let y = heading(doc, '1 · SENDER / EXPÉDITEUR', 142);
+  y = row(doc, 'Name', seller.name, y);
+  y = row(doc, 'Address', seller.address, y);
+
+  y = heading(doc, '2 · CONSIGNEE / DESTINATAIRE', y + 8);
+  y = row(doc, 'Name', buyer.name, y);
+  y = row(doc, 'Address', buyer.address, y);
+
+  y = heading(doc, '3 · PLACE OF DELIVERY', y + 8);
+  y = row(doc, 'Place', 'Klaipeda Port, Lithuania', y);
+  y = row(doc, 'Place of loading', 'Vilnius, Lithuania', y);
+  y = row(doc, 'Date of loading', '2026-09-19', y);
+
+  y = heading(doc, '6-12 · GOODS', y + 8);
+  y = row(doc, 'Marks and numbers', `VIN ${VIN}`, y, { size: 11 });
+  y = row(doc, 'Number of packages', '1 unit, unpacked (self-propelled)', y);
+  y = row(doc, 'Description', `${unit.make} ${unit.model}, ${unit.year} — ${unit.type}`, y);
+  y = row(doc, 'Gross weight', unit.weight, y);
+  y = row(doc, 'Attached documents', `Invoice INV-2026-4471, EUR.1 ${EUR1}, MRN ${MRN}`, y);
+
+  y = heading(doc, '16 · CARRIER / TRANSPORTEUR', y + 8);
+  y = row(doc, 'Name', 'UAB Baltic Auto Logistics', y);
+  y = row(doc, 'Vehicle', 'Volvo FH 460, plate LT ABC 123', y);
+
+  y = heading(doc, '21 · ESTABLISHED IN', y + 8);
+  y = row(doc, 'Place and date', 'Vilnius, 2026-09-19', y);
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+    .text('Specimen consignment note generated for testing the MKY Global assistant. '
+      + 'No carriage is represented and no carrier is bound by it.', 50, y + 24, { width: 495 });
+
+  doc.end();
+  return done;
+}
+
 // --- 2. export declaration (MRN) -------------------------------------------
 
 async function exportDeclaration() {
@@ -255,10 +309,31 @@ async function acidRegistration() {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The same invoice for a DIFFERENT vehicle.
+ *
+ * The single most expensive mistake on this lane is paperwork that disagrees
+ * about the chassis: customs rejects the declaration and nobody notices until
+ * the truck is on the water. The bot is built to catch it, so there has to be
+ * something to catch. Sending this alongside the matched set should produce the
+ * "this document is for a different chassis" warning, and it must NOT count as
+ * the invoice having been received.
+ */
+async function mismatchedInvoice() {
+  const real = VIN;
+  // One character different, in the middle, exactly as a typo looks.
+  VIN = VIN.slice(0, 8) + (VIN[8] === '9' ? '8' : '9') + VIN.slice(9);
+  const buffer = await invoice();
+  VIN = real;
+  return buffer;
+}
+
 const files = [
   ['test-invoice.pdf', await invoice()],
+  ['test-cmr-transport.pdf', await transportDocument()],
   ['test-mrn-export-declaration.pdf', await exportDeclaration()],
   ['test-acid-nafeza.pdf', await acidRegistration()],
+  ['test-invoice-WRONG-CHASSIS.pdf', await mismatchedInvoice()],
 ];
 
 for (const [name, buffer] of files) {
@@ -266,6 +341,17 @@ for (const [name, buffer] of files) {
   console.log(`${name.padEnd(36)} ${(buffer.length / 1024).toFixed(0)} KB`);
 }
 
-console.log(`\nAll three name chassis ${VIN}`);
-console.log(`MRN  ${MRN}`);
-console.log(`ACID ${ACID}`);
+console.log(`
+The matched set names chassis ${VIN}
+  MRN   ${MRN}
+  ACID  ${ACID}
+  EUR.1 ${EUR1}
+
+The booking flow asks for three of them, in this order:
+  test-invoice.pdf              -> invoice
+  test-cmr-transport.pdf        -> brief
+  test-mrn-export-declaration.pdf -> mrn
+
+test-acid-nafeza.pdf is only asked for when bot_settings.acid_required is true.
+test-invoice-WRONG-CHASSIS.pdf is for exercising the mismatch warning; it should
+be refused as an invoice for this unit.`);
