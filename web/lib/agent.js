@@ -686,7 +686,8 @@ export async function respond(userText, ctx) {
   const proposedEarlier = turnCtx.draft?.raw?.turn_id && turnCtx.draft.raw.turn_id !== turnCtx.turnId;
 
   if (showedCard && proposedEarlier && !toolsUsed.includes('create_booking')
-      && (looksLikeAgreement(turnCtx.customerSaid) || /^(later|\u0628\u0639\u062f\u064a\u0646)\b/i.test(turnCtx.customerSaid.trim()))) {
+      && (looksLikeAgreement(turnCtx.customerSaid)
+          || /^(later|done|continue|\u0628\u0639\u062f\u064a\u0646|\u062a\u0645|\u062e\u0644\u0635\u062a)\b/i.test(turnCtx.customerSaid.trim()))) {
     const result = await runTool('create_booking', turnCtx.draft.raw, turnCtx);
     toolsUsed.push('create_booking');
     if (result?.display && !displays.includes(result.display)) displays.push(result.display);
@@ -694,9 +695,12 @@ export async function respond(userText, ctx) {
     messages.push({
       role: 'user',
       content:
-        `[The customer agreed to the summary, so create_booking was called for you. Its result: ` +
-        `${JSON.stringify(result).slice(0, 4000)}. Tell them the outcome now, following next_step. ` +
-        'Do not ask them to confirm anything again.]',
+        `[The customer answered the last card, so create_booking was called for you. Its result: ` +
+        `${JSON.stringify({ ...result, display: undefined }).slice(0, 4000)}. ` +
+        (result?.needs_confirmation
+          ? 'Their summary is attached to your reply: add ONE line in both languages asking them to confirm it.'
+          : 'Tell them the outcome now, following next_step. Do not ask them to confirm anything again.') +
+        ']',
     });
     const { content } = await chat({ system: systemPrompt(turnCtx), messages, tools: [] });
     if (content?.trim()) finalText = content.trim();

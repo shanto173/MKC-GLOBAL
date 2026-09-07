@@ -212,11 +212,24 @@ async function handleAttachment(attachment, caption, ctx) {
   const bookingVin = open?.vin ?? result.extracted?.vin ?? null;
   const status = await documentStatus({ chatId: ctx.chatId, vin: bookingVin });
 
+  // A customer mid-way through the papers step needs to know how to move on.
+  const { data: waiting } = await db()
+    .from('bookings')
+    .select('raw')
+    .eq('chat_id', String(ctx.chatId))
+    .eq('status', 'draft')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextStep = waiting?.raw?.documents_asked && !waiting?.raw?.summary_shown
+    ? '\n\n\u0644\u0645\u0627 \u062a\u062e\u0644\u0635 \u0627\u0643\u062a\u0628 "\u062a\u0645" / When you have sent everything, reply "done"'
+    : '';
+
   // Written here, not by the model: what was read, and where the paperwork
   // stands, in four plain buckets. Asked to write this itself the model turned
   // "you sent an invoice for another vehicle" into "still missing: invoice",
   // and the customer sent the same file again.
-  await sendMessage(ctx.chatId, documentReadCard(result, status, bookingVin), { keyboard: MAIN_KEYBOARD });
+  await sendMessage(ctx.chatId, documentReadCard(result, status, bookingVin) + nextStep, { keyboard: MAIN_KEYBOARD });
 }
 
 /** Turns bare slash commands into normal sentences the model handles well. */

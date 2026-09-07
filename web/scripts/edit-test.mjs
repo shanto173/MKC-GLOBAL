@@ -22,6 +22,7 @@ const { db } = await import('../lib/supabase.js');
 
 const VIN = `TEST${Date.now().toString(36).toUpperCase()}EDIT`;
 const chatId = `edit-${Math.random().toString(36).slice(2, 8)}`;
+const LATER = 'ok, I will send the papers later';
 const ctx = (turn, said = '') => ({ channel: 'web', chatId, turnId: `t${turn}`, customerLanguage: 'en', customerSaid: said });
 
 const DETAILS = {
@@ -55,10 +56,15 @@ const draftRow = async () => (await db()
 
 console.log(`chassis ${VIN}, chat ${chatId}\n`);
 
-// 1 - the first call only proposes.
-console.log('turn 1: customer gives every detail');
-const first = await runTool('create_booking', DETAILS, ctx(1));
-check('not booked on the first call', first.needs_confirmation === true && first.ok === false, JSON.stringify(first).slice(0, 160));
+// 1 - the first call asks for the papers. No summary yet, nothing booked.
+console.log('turn 1: customer gives every detail - papers are asked for first');
+const papers = await runTool('create_booking', DETAILS, ctx(1));
+check('asks for the documents before anything else', papers.needs_documents === true && papers.ok === false, JSON.stringify(papers).slice(0, 160));
+check('as a block the customer can read', /Before this goes to Operations/.test(papers.display ?? ''), (papers.display ?? '').slice(0, 120));
+
+console.log('\nturn 1b: "later" - now the summary');
+const first = await runTool('create_booking', DETAILS, ctx(1, LATER));
+check('not booked yet', first.needs_confirmation === true && first.ok === false, JSON.stringify(first).slice(0, 160));
 check('summary shows EXW', /EXW/.test(first.display ?? ''), (first.display ?? '').slice(0, 120));
 
 // 2 - the customer corrects the Incoterm instead of agreeing.
@@ -73,14 +79,9 @@ check('still a draft, not a real booking', afterEdit?.status === 'draft', afterE
 
 // 3 - now they agree. The model sends a shorter argument list, as models do;
 // nothing the customer said may be lost.
-console.log('\nturn 3: "yes, book it" - but no papers have been sent');
+console.log('\nturn 3: "yes, book it" (model drops the notes and the weight)');
 const { notes: _n, gross_weight_kg: _w, ready_date: _r, ...terse } = DETAILS;
-const asked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(3, 'yes that is correct, please book it'));
-check('asks for the documents before booking', asked.needs_documents === true && asked.ok === false, JSON.stringify(asked).slice(0, 200));
-check('as a block the customer can read', /Before this goes to Operations/.test(asked.display ?? ''), (asked.display ?? '').slice(0, 120));
-
-console.log('\nturn 4: "later" (model drops the notes and the weight)');
-const booked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(4, 'later'));
+const booked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(3, 'yes that is correct, please book it'));
 check('the booking is created', booked.ok === true && Boolean(booked.booking_ref), JSON.stringify(booked).slice(0, 200));
 
 const finalRow = await draftRow();
@@ -93,7 +94,7 @@ check('the dropped damage note survived', /damaged/i.test(finalRow?.raw?.notes ?
 console.log('\nseparate chat: update_booking called with no reference during confirmation');
 const chat2 = `edit2-${Math.random().toString(36).slice(2, 8)}`;
 const ctx2 = { channel: 'web', chatId: chat2, turnId: 'x1', customerLanguage: 'en' };
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'B' }, ctx2);
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'B' }, { ...ctx2, customerSaid: LATER });
 const redirect = await runTool('update_booking', { incoterm: 'FOB' }, { ...ctx2, turnId: 'x2' });
 check('redirects to create_booking', redirect.use_create_booking === true, JSON.stringify(redirect).slice(0, 200));
 check('does not ask for a reference', !/which booking reference/i.test(redirect.message ?? ''), redirect.message);
@@ -112,7 +113,7 @@ check('hands back the open reference', afterBooked.booking_ref === booked.bookin
 console.log('\ndrift: same booking, the model rewords its own values');
 const chat3 = `edit3-${Math.random().toString(36).slice(2, 8)}`;
 const ctx3 = (turn) => ({ channel: 'web', chatId: chat3, turnId: `d${turn}`, customerLanguage: 'en' });
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'C' }, ctx3(1));
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'C' }, { ...ctx3(1), customerSaid: LATER });
 const drifted = await runTool('create_booking', {
   ...DETAILS,
   vin: VIN + 'C',
@@ -121,7 +122,7 @@ const drifted = await runTool('create_booking', {
   gross_weight_kg: '8266',
   incoterm: 'exw',
   notes: 'Engine is damaged and the unit does not run',
-}, { ...ctx3(2), customerSaid: 'yes, I will send the papers later' });
+}, { ...ctx3(2), customerSaid: 'yes, book it' });
 check('reworded values still book', drifted.ok === true, JSON.stringify(drifted).slice(0, 200));
 
 // 5c - damage appearing or disappearing is a change the customer must see.
@@ -129,7 +130,7 @@ console.log('\ndamage: added after the summary was shown');
 const chat4 = `edit4-${Math.random().toString(36).slice(2, 8)}`;
 const ctx4 = (turn) => ({ channel: 'web', chatId: chat4, turnId: `g${turn}`, customerLanguage: 'en' });
 const { notes: _dn, ...sound } = DETAILS;
-await runTool('create_booking', { ...sound, vin: VIN + 'D' }, ctx4(1));
+await runTool('create_booking', { ...sound, vin: VIN + 'D' }, { ...ctx4(1), customerSaid: LATER });
 const damaged = await runTool('create_booking', { ...sound, vin: VIN + 'D', engine_condition: 'damaged engine' }, ctx4(2));
 check('added damage is re-confirmed, not booked', damaged.ok === false && damaged.needs_confirmation === true, JSON.stringify(damaged).slice(0, 200));
 check('the damage shows on the summary', /damaged engine/i.test(damaged.display ?? ''), (damaged.display ?? '').slice(0, 200));
@@ -141,10 +142,10 @@ console.log('\nmodel ignores the correction: same values, customer asked for a c
 const chat5 = `edit5-${Math.random().toString(36).slice(2, 8)}`;
 const said = 'the weight you have is wrong, please fix it';
 const ctx5 = (turn, s = '') => ({ channel: 'web', chatId: chat5, turnId: `c${turn}`, customerLanguage: 'en', customerSaid: s });
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(1, `book chassis ${VIN}E`));
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(1, LATER));
 const ignored = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(2, said));
 check('does not book when nothing changed but a change was asked for', ignored.ok === false && ignored.needs_correction === true, JSON.stringify(ignored).slice(0, 200));
-const secondTry = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(3, 'ok, and I will send the documents later'));
+const secondTry = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(3, said));
 check('held back only once, never stuck in a loop', secondTry.ok === true, JSON.stringify(secondTry).slice(0, 200));
 
 // 5e - an Incoterm is a closed list, so when the customer names one and the
@@ -153,7 +154,7 @@ check('held back only once, never stuck in a loop', secondTry.ok === true, JSON.
 console.log('\nthe customer names the Incoterm, the model re-sends the old one');
 const chat6 = `edit6-${Math.random().toString(36).slice(2, 8)}`;
 const ctx6 = (turn, s = '') => ({ channel: 'web', chatId: chat6, turnId: `i${turn}`, customerLanguage: 'en', customerSaid: s });
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'F' }, ctx6(1, 'book it please'));
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'F' }, ctx6(1, LATER));
 const rescued = await runTool('create_booking', { ...DETAILS, vin: VIN + 'F' }, ctx6(2, 'i want to change incotermn EXW to FOB'));
 check('the correction is applied from the customer words', /FOB/.test(rescued.display ?? '') && !/EXW/.test(rescued.display ?? ''), (rescued.display ?? '').slice(0, 200));
 check('and still asks before booking', rescued.ok === false && rescued.needs_confirmation === true, JSON.stringify(rescued).slice(0, 160));
@@ -168,11 +169,14 @@ const liveVin = VIN + 'L';
 const liveChat = `live-${Math.random().toString(36).slice(2, 8)}`;
 const live = { channel: 'web', chatId: liveChat, userName: 'Ariful Islam' };
 
-await respond(
+const opening = await respond(
   `I want to book a shipment. Chassis ${liveVin}, Mercedes-Benz Actros 1845, tractor unit, ` +
   'my name is Ariful Islam, from Vilnius to Alexandria Port, 8266 kg, EXW, ready 20 September 2026.',
   live,
 );
+check('live: papers are asked for before any summary', opening.reply.includes('Before this goes to Operations'), opening.reply.replace(/\s+/g, ' ').slice(0, 160));
+const summary = await respond('later', live);
+check('live: "later" brings the summary', /\u{1F4CB}/u.test(summary.reply) && !/MKY-BKG-/.test(summary.reply), summary.reply.replace(/\s+/g, ' ').slice(0, 160));
 const corrected = await respond('i want to change incotermn EXW to FOB', live);
 check(
   'never asks for a booking reference that does not exist',
@@ -185,9 +189,7 @@ check('does not claim it is booked', !/\b(is booked|has been booked|booking (is 
 const liveDraft = (await db().from('bookings').select('status, raw').eq('chat_id', liveChat).maybeSingle()).data;
 check('the draft holds FOB and is still a draft', liveDraft?.status === 'draft' && liveDraft?.raw?.incoterm === 'FOB', `${JSON.stringify(liveDraft?.raw?.incoterm)} / ${liveDraft?.status} / tools: ${corrected.toolsUsed.join(',') || 'none'}`);
 
-const askedLive = await respond('yes that is correct, please book it', live);
-check('live: asked for papers before booking', askedLive.reply.includes('Before this goes to Operations'), askedLive.reply.replace(/\s+/g, ' ').slice(0, 160));
-const agreed = await respond('later', live);
+const agreed = await respond('yes that is correct, please book it', live);
 const liveFinal = (await db().from('bookings').select('booking_ref, status, incoterm, raw').eq('chat_id', liveChat).maybeSingle()).data;
 check('booking created after agreement', liveFinal?.status === 'pending_review', JSON.stringify(liveFinal?.status));
 check('booked as FOB', (liveFinal?.incoterm ?? liveFinal?.raw?.incoterm) === 'FOB', JSON.stringify(liveFinal?.incoterm));
@@ -209,8 +211,8 @@ const { forgetConversation, saveHistory, loadHistory } = await import('../lib/se
 const chat7 = `fresh-${Math.random().toString(36).slice(2, 8)}`;
 const ctx7 = { channel: 'web', chatId: chat7, turnId: 'f1', customerLanguage: 'en' };
 await saveHistory('web', chat7, [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }]);
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'G' }, ctx7);                       // a draft
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f2' });  // and another
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'G' }, { ...ctx7, customerSaid: LATER });   // a draft
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f2', customerSaid: LATER });  // and another
 await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f3', customerSaid: 'yes, papers later' });  // ...confirmed
 
 const beforeFresh = (await db().from('bookings').select('status').eq('chat_id', chat7)).data ?? [];
@@ -234,7 +236,7 @@ const { saveHistory: saveH } = await import('../lib/session.js');
 const chat8 = `agree-${Math.random().toString(36).slice(2, 8)}`;
 const vin8 = VIN + 'J';
 const ctx8 = { channel: 'web', chatId: chat8, turnId: 'a1', customerLanguage: 'en' };
-const proposal = await runTool('create_booking', { ...DETAILS, vin: vin8 }, ctx8);
+const proposal = await runTool('create_booking', { ...DETAILS, vin: vin8 }, { ...ctx8, customerSaid: LATER });
 
 // The card was shown to them, in an earlier turn, exactly as the bot would.
 await saveH('web', chat8, [
@@ -242,8 +244,7 @@ await saveH('web', chat8, [
   { role: 'assistant', content: `${proposal.display}\n\nPlease confirm these details.` },
 ]);
 
-await respond('yes that is correct, please book it', { channel: 'web', chatId: chat8 });   // -> asks for papers
-const agreedReply = await respond('later', { channel: 'web', chatId: chat8 });
+const agreedReply = await respond('yes that is correct, please book it', { channel: 'web', chatId: chat8 });
 const booked8 = (await db().from('bookings').select('booking_ref, status').eq('chat_id', chat8).maybeSingle()).data;
 check('saying yes to the summary books it', booked8?.status === 'pending_review', JSON.stringify(booked8));
 check('and the customer is told the reference', Boolean(booked8?.booking_ref) && agreedReply.reply.includes(booked8.booking_ref), agreedReply.reply.replace(/\s+/g, ' ').slice(0, 200));

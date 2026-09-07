@@ -346,12 +346,14 @@ const executors = {
     // list, but they must not stop the booking reaching its summary - doing so
     // left a customer who had given everything staring at a checklist.
     const missingBasics = !openBooking && missingRequiredDetails(ctx?.customerSaid);
-    // Documents are listed here only alongside missing basics, as a heads-up.
-    // Once the basics are in, they are asked for properly - once - just before
-    // the booking goes to the desk, so the customer is not asked twice.
-    const checklist = openBooking
+    // The checklist goes out only when a basic is missing. With the basics in
+    // hand there is nothing to stop for: create_booking asks for the papers and
+    // then the optional details alongside the summary. Listing "any damage" as
+    // missing at this point made the model ask for it and never propose the
+    // booking at all.
+    const checklist = openBooking || !missingBasics
       ? null
-      : detailsNeededCard(ctx?.customerSaid, { opening, includeDocuments: missingBasics });
+      : detailsNeededCard(ctx?.customerSaid, { opening, includeDocuments: true });
 
     return {
       verdict,
@@ -364,8 +366,14 @@ const executors = {
       // The block says everything, in both languages, one line per item. A
       // sentence added to it only repeats it as a paragraph, so this reply is
       // the block by itself.
-      verbatim: Boolean(checklist) && missingBasics,
-      next_step: checklist ? 'The list has already gone to the customer as it is.' : next_step,
+      verbatim: Boolean(checklist),
+      next_step: checklist
+        ? 'The list has already gone to the customer as it is.'
+        : openBooking
+          ? next_step
+          : 'Everything a booking needs is in what the customer wrote. Call create_booking NOW with ' +
+            'those values - do not ask for anything first. It asks for the papers itself, and any ' +
+            'optional detail is asked for alongside the summary.',
     };
   },
 
@@ -534,7 +542,7 @@ const executors = {
     if (draft?.raw) {
       // challenged is bookkeeping, not a booking detail: dropping it here means
       // a genuinely revised proposal gets its own safety net again.
-      const { turn_id: _turn, challenged: _challenged, details_asked: _asked, documents_asked: _docs, ...held } = draft.raw;
+      const { turn_id: _turn, challenged: _challenged, details_asked: _asked, documents_asked: _docs, summary_shown: _shown, ...held } = draft.raw;
       args = { ...held, ...provided };
     }
 
@@ -590,8 +598,23 @@ const executors = {
       };
     }
 
-    if (!draft || proposedThisTurn || differsFromDraft) {
+    // Roadmap order: step 3 papers, THEN step 4 the summary and the yes. A
+    // draft made at the papers step has not had its summary shown yet, so it
+    // comes back through here to get one rather than being booked.
+    const summaryShown = Boolean(draft?.raw?.summary_shown);
+
+    if (!draft || proposedThisTurn || differsFromDraft || !summaryShown) {
       const draftRef = draft?.booking_ref ?? makeRef('BKG');
+
+      // Step 3 before step 4. On the first pass with no paper received, the
+      // customer is asked for the documents and the summary waits; "later"
+      // skips straight to it. A customer who pasted everything and was shown
+      // "confirm?" first read that as never having been asked at all.
+      const docs = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
+      const nothingYet = !docs || (docs.received ?? []).length === 0;
+      const saidLater = /\b(later|afterwards|not now|don'?t have|done|continue|skip)\b|\u0628\u0639\u062f\u064a\u0646|\u0645\u0634 \u0645\u0639\u0627\u064a|\u0645\u0639\u0646\u062f\u064a\u0634|\u062a\u0645|\u062e\u0644\u0635\u062a/i.test(String(ctx?.customerSaid ?? ''));
+      const askForPapers = !draft?.raw?.documents_asked && nothingYet && !saidLater;
+
       const { error: draftErr } = await db().from('bookings').upsert({
         booking_ref: draftRef,
         channel: ctx.channel,
@@ -609,7 +632,13 @@ const executors = {
         make: canonicalMake(args.make),
         model: latinizeName(args.model) || null,
         status: 'draft',
-        raw: { ...args, turn_id: ctx.turnId, details_asked: true },
+        raw: {
+          ...args,
+          turn_id: ctx.turnId,
+          details_asked: true,
+          documents_asked: true,
+          summary_shown: !askForPapers,
+        },
       }, { onConflict: 'booking_ref' });
       // One conversation, one proposal on the table. Correcting the chassis
       // used to leave the old draft behind, invisible but real.
@@ -634,11 +663,15 @@ const executors = {
 
       const lang = args.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en';
 
-      // What paperwork is still outstanding comes from the documents actually
-      // received, so the customer is told the whole list at once. Asked for the
-      // ACID and the MRN and nothing else, they sent both - and were then asked
-      // for the invoice, which is how a two-minute booking becomes four rounds.
-      const docs = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
+      if (askForPapers) {
+        return {
+          ok: false,
+          needs_documents: true,
+          display: documentsRequestCard(docs),
+          verbatim: true,
+          message: 'Not booked and no summary yet: the customer has been asked for their documents first.',
+        };
+      }
 
       // Only five fields are needed to book, so the moment they arrived the bot
       // jumped to the summary and never asked about the weight, the Incoterm,
@@ -690,30 +723,6 @@ const executors = {
           'booking exists until then.',
         edited: differsFromDraft ? changedFields : false,
       };
-    }
-
-    // Roadmap step 3, which a customer who pasted everything and said "yes"
-    // skipped straight past: the papers are asked for once before the request
-    // goes to the desk. "Later" - or a second yes - still books, with them
-    // marked outstanding, because a customer without the invoice to hand is
-    // still a customer.
-    if (!draft.raw?.documents_asked) {
-      const papers = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
-      const nothingYet = !papers || (papers.received ?? []).length === 0;
-      const saidLater = /\b(later|afterwards|not now|don'?t have)\b|\u0628\u0639\u062f\u064a\u0646|\u0645\u0634 \u0645\u0639\u0627\u064a|\u0645\u0639\u0646\u062f\u064a\u0634/i.test(String(ctx?.customerSaid ?? ''));
-      if (nothingYet && !saidLater) {
-        await db()
-          .from('bookings')
-          .update({ raw: { ...draft.raw, documents_asked: true } })
-          .eq('booking_ref', draft.booking_ref);
-        return {
-          ok: false,
-          needs_documents: true,
-          display: documentsRequestCard(papers),
-          verbatim: true,
-          message: 'Not booked yet: the customer has been asked for their documents. Say nothing further.',
-        };
-      }
     }
 
     const row = {
