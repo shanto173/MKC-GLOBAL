@@ -354,3 +354,56 @@ export async function findBookingForClient(identifier, viewer) {
 
   return { found: true, booking: row };
 }
+
+/**
+ * The client has come back.
+ *
+ * A request parked as "waiting for client" is invisible work: the desk has
+ * stopped looking at it, correctly, and nothing brings it back when the client
+ * finally answers. So any inbound message or document flips it to under review,
+ * stamps when they replied, and raises a task - and the console shows it with a
+ * "client responded" badge rather than leaving it in the waiting pile.
+ *
+ * Safe to call on every inbound message: it matches only requests actually
+ * waiting on the client, so an ordinary chat changes nothing.
+ *
+ * @returns {Promise<{reopened: string|null}>}
+ */
+export async function noteClientResponse(chatId, { clientId = null } = {}) {
+  const { data, error } = await db()
+    .from('bookings')
+    .update({ status: 'under_review', client_responded_at: new Date().toISOString() })
+    .eq('chat_id', String(chatId))
+    .eq('status', 'needs_client_action')
+    .select('booking_ref, assigned_to');
+
+  if (error) {
+    console.error('reopening after a client response failed:', error.message);
+    return { reopened: null };
+  }
+  if (!data?.length) return { reopened: null };
+
+  const booking = data[0];
+  logEvent('client_response_received', { booking_ref: booking.booking_ref, chat_id: String(chatId) });
+
+  const { createTask } = await import('./operations.js');
+  await createTask({
+    taskType: 'client_action_response',
+    bookingRef: booking.booking_ref,
+    clientId,
+    chatId,
+    priority: 'high',
+    payload: { responded_at: new Date().toISOString() },
+    notes: booking.assigned_to ? `Back with ${booking.assigned_to}.` : 'Nobody owns this yet.',
+    // One task per reply, not one per message in a burst of three photos.
+    idempotencyKey: `client_response:${booking.booking_ref}:${new Date().toISOString().slice(0, 13)}`,
+  }).catch(() => null);
+
+  await audit({
+    actor_type: 'client', actor_id: chatId,
+    action: 'client_responded',
+    entity_type: 'booking', entity_id: booking.booking_ref,
+  });
+
+  return { reopened: booking.booking_ref };
+}

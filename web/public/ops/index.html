@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>MKY Operations</title>
+  <link rel="stylesheet" href="./console.css" />
+</head>
+<body>
+
+<!-- Sign in. Not authentication in the real sense - everyone here holds the
+     same admin secret - but the NAME is checked against ops_users, so every
+     decision is attributable to somebody who exists and is still employed. -->
+<div class="card gate" id="gate" hidden>
+  <h2>MKY Operations</h2>
+  <div class="body">
+    <label for="who">Your name</label>
+    <input id="who" placeholder="e.g. Ariful" autocomplete="off" />
+    <label for="secret">Console secret</label>
+    <input id="secret" type="password" placeholder="ADMIN_SECRET" autocomplete="off" />
+    <button class="btn primary" id="enter" style="width:100%">Open the console</button>
+    <p id="gateErr" style="color:#b3261e;margin:10px 0 0;font-size:13px" hidden></p>
+  </div>
+</div>
+
+<div class="shell" id="app" hidden>
+  <aside class="sidebar">
+    <div class="brand">MKY Forwarding<small>Operations</small></div>
+    <div id="nav"></div>
+    <div class="whoami">
+      <b id="whoName"></b>
+      <span id="whoRole"></span>
+      <button id="signout">Sign out</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1 id="title">Dashboard</h1>
+      <span class="sp"></span>
+      <div class="searchbox">
+        <input id="search" type="search" placeholder="Search chassis, reference, client…" />
+      </div>
+    </header>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

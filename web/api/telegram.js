@@ -32,6 +32,7 @@ import { M } from '../lib/flow/messages.js';
 import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
 import { upsertTelegramClient } from '../lib/clients.js';
+import { noteClientResponse } from '../lib/bookings.js';
 import { ingestDocument } from '../lib/documents.js';
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
@@ -125,6 +126,11 @@ export default async function handler(req, res) {
       await finishUpdate(update.update_id, 'processed');
       return res.status(200).json({ ok: true, skipped: true });
     }
+
+    // Anything the client sends while we are waiting on them brings the request
+    // back to the desk. Done before the flow runs, so the status the flow reads
+    // is already the reopened one.
+    await noteClientResponse(chatId, { clientId: ctx.clientId }).catch(() => null);
 
     await sendTyping(chatId);
 

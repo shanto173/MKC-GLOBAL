@@ -4,6 +4,7 @@
  *   /api/admin/tasks      ->  ?resource=tasks      the Operations work queue
  *   /api/admin/mrn        ->  ?resource=mrn        MRN applications
  *   /api/admin/read-test  ->  ?resource=read-test  why a document would not read
+ *   /api/ops/*            ->  ?resource=console    the operations console's API
  *   /api/cron/outbox      ->  ?resource=outbox     drain queued notifications
  *
  * WHY THIS IS ONE FILE AND NOT FOUR.
@@ -26,9 +27,10 @@ import { config } from '../../lib/config.js';
 import tasks from '../../lib/admin/tasks.js';
 import mrn from '../../lib/admin/mrn.js';
 import readTest from '../../lib/admin/read-test.js';
+import consoleApi from '../../lib/admin/console.js';
 import { drain } from '../../lib/outbox.js';
 
-const RESOURCES = { tasks, mrn, 'read-test': readTest };
+const RESOURCES = { tasks, mrn, 'read-test': readTest, console: consoleApi };
 
 export default async function handler(req, res) {
   const resource = String(req.query.resource ?? '').trim();

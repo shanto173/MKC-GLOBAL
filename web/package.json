@@ -27,8 +27,8 @@
     "guide": "node scripts/make-guide.mjs",
     "reread": "node scripts/reread-documents.mjs",
     "testdocs": "node scripts/make-test-docs.mjs",
-    "test": "node --test tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs",
-    "test:watch": "node --test --watch tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs",
+    "test": "node --test tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs",
+    "test:watch": "node --test --watch tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs",
     "outbox": "node scripts/drain-outbox.mjs"
   },
   "dependencies": {
