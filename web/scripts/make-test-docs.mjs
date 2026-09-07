@@ -30,9 +30,19 @@ const RULE = '#c9d3dd';
 
 // One vehicle, one set of numbers, so the cross-check has something to agree on.
 const VIN = (process.argv[2] || 'WDB96340310777421').toUpperCase();
-const MRN = '26LTVR1400X38145B3';          // 2-digit year, country, 13+ alphanumerics
-const ACID = '5403381091024512207';        // Egyptian ACID: 19 digits
-const EUR1 = 'AA 0039958';
+const NAME = process.argv[3] || 'MKY Global Forwarding';
+
+/**
+ * Every set gets its own MRN and ACID, derived from the chassis.
+ *
+ * Two people testing at once with the same numbers would collide: an ACID is
+ * unique across shipments, so the second confirmation would fail to open one.
+ */
+const seed = [...VIN].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 1e12, 7);
+const digits = (n, len) => String(n).padStart(len, '0').slice(-len);
+const MRN = `26LTVR${digits(seed, 8)}${VIN.slice(-4)}`;   // year, country, 13+ alphanumerics
+const ACID = `54033${digits(seed * 7, 14)}`;              // Egyptian ACID: 19 digits
+const EUR1 = `AA ${digits(seed, 7)}`;
 
 const unit = {
   make: 'Mercedes-Benz',
@@ -51,7 +61,7 @@ const seller = {
 };
 
 const buyer = {
-  name: 'MKY Global Forwarding',
+  name: NAME,
   address: '15 El Horreya Road, Alexandria, Egypt',
   vat: 'EG-334-889-021',
 };
