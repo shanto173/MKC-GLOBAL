@@ -124,14 +124,14 @@ async function handleCommand(text, ctx) {
 function welcome(userName) {
   const name = userName ? ' ' + userName : '';
   return splitLanguages(`👋 أهلاً${name}، مرحباً بك في ${config.companyName}!\n` +
-    'نقدر نساعدك في إيه النهاردة؟ 😊\n\n' +
+    'نقدر نساعدك في إيه النهاردة؟ 😄\n\n' +
     '1️⃣ 📦 احجز شحنة\n' +
     '2️⃣ 🚚 تتبع شحنتي\n' +
     '3️⃣ 💬 تواصل مع فريقنا\n\n' +
     'ابعت رقم 1 أو 2 أو 3.\n' +
     '|\n' +
     `👋 Welcome${name} to ${config.companyName}!\n` +
-    'How can we help you today? 😊\n\n' +
+    'How can we help you today? 😄\n\n' +
     '1️⃣ 📦 Book my shipment\n' +
     '2️⃣ 🚚 Track my shipment\n' +
     '3️⃣ 💬 Contact our team\n\n' +

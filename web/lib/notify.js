@@ -151,13 +151,15 @@ export async function notifyBookingDecision(booking, decision, note = '') {
     `${booking.vin ? `Chassis ${booking.vin}\n` : ''}` +
     `${booking.origin_port} to ${booking.destination_port}`;
 
+  // 👍 when it is good news, ⚠️ when the customer has to do something. Nothing
+  // celebratory on a refusal, and nothing at all beyond those two.
   const arabic = confirmed
-    ? `تم تأكيد حجزك.\n\n${detail}\n\n${note ? note + '\n\n' : ''}شكراً لاختيارك ${config.companyName}.`
-    : `للأسف مقدرناش نأكد الحجز ${booking.booking_ref} دلوقتي.\n\n${note || 'فريق عمليات الحجز هيتواصل معاك بالتفاصيل.'}`;
+    ? `👍 تم تأكيد حجزك.\n\n${detail}\n\n${note ? note + '\n\n' : ''}🙏 شكراً لحجز شحنتك مع ${config.companyName}.`
+    : `⚠️ للأسف مقدرناش نأكد الحجز ${booking.booking_ref} دلوقتي.\n\n${note || 'فريق عمليات الحجز هيتواصل معاك بالتفاصيل.'}`;
 
   const english = confirmed
-    ? `Your booking is confirmed.\n\n${detail}\n\n${note ? note + '\n\n' : ''}Thank you for choosing ${config.companyName}.`
-    : `We could not confirm booking ${booking.booking_ref} at this time.\n\n${note || 'Booking Operations will contact you with details.'}`;
+    ? `👍 Your booking is confirmed.\n\n${detail}\n\n${note ? note + '\n\n' : ''}🙏 Thank you for booking your freight with ${config.companyName}.`
+    : `⚠️ We could not confirm booking ${booking.booking_ref} at this time.\n\n${note || 'Booking Operations will contact you with details.'}`;
 
   // The customer booked in one language; send both, as the chat already does.
   if (booking.chat_id && booking.channel === 'telegram' && config.telegram.token) {

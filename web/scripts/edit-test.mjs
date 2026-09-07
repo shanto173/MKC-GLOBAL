@@ -184,7 +184,12 @@ const agreed = await respond('yes that is correct, please book it', live);
 const liveFinal = (await db().from('bookings').select('booking_ref, status, incoterm, raw').eq('chat_id', liveChat).maybeSingle()).data;
 check('booking created after agreement', liveFinal?.status === 'pending_review', JSON.stringify(liveFinal?.status));
 check('booked as FOB', (liveFinal?.incoterm ?? liveFinal?.raw?.incoterm) === 'FOB', JSON.stringify(liveFinal?.incoterm));
-check('the reference reaches the customer', Boolean(liveFinal?.booking_ref) && agreed.reply.includes(liveFinal.booking_ref), agreed.reply.replace(/\ns+/g, ' ').slice(0, 200));
+check('the reference reaches the customer', Boolean(liveFinal?.booking_ref) && agreed.reply.includes(liveFinal.booking_ref), agreed.reply.replace(/\s+/g, ' ').slice(0, 200));
+check(
+  'and the thank-you the company asked for',
+  /Thank you for booking your freight/i.test(agreed.reply) && agreed.reply.includes('🙏'),
+  agreed.reply.replace(/\s+/g, ' ').slice(0, 220),
+);
 
 await clearHistory('web', liveChat);
 await db().from('bookings').delete().eq('chat_id', liveChat);

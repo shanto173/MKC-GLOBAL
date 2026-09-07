@@ -660,7 +660,10 @@ const executors = {
       confirmation_emailed: notified.customer_email === true,
       confirmation_sent_in_chat: notified.customer_telegram === true,
       next_step:
-        'Tell the customer the booking reference. ' +
+        // The thank-you is written here rather than left to the model, so every
+        // customer gets the same sentence in the same place.
+        `Open with "🙏 Thank you for booking your freight with ${config.companyName.replace(/ Global Forwarding$/, '')}" ` +
+        '(in Arabic: "🙏 شكراً لحجز شحنتك مع MKY"). Then give them the booking reference. ' +
         // Only say the copy was delivered where it actually was. Claiming an
         // email that never left is how a customer waits for a PDF that will
         // never arrive.

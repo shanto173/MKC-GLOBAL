@@ -78,17 +78,28 @@ export async function downloadFile(fileId) {
 }
 
 /** Like call(), but silent: a sweep expects failures and would flood the log. */
-async function tryCall(method, payload) {
+async function tryCall(method, payload, { retryOn429 = true } = {}) {
+  let data;
   try {
     const res = await fetch(API(method), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return await res.json().catch(() => ({ ok: false }));
+    data = await res.json().catch(() => ({ ok: false }));
   } catch {
     return { ok: false };
   }
+
+  // Deleting hundreds of messages runs into Telegram's rate limit. Counting a
+  // "too many requests" as a refusal would end the sweep early and leave the
+  // conversation half cleared, so it waits the time it is told and tries again.
+  if (!data.ok && data.error_code === 429 && retryOn429) {
+    const wait = Math.min(Number(data.parameters?.retry_after) || 1, 3);
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    return tryCall(method, payload, { retryOn429: false });
+  }
+  return data;
 }
 
 /**

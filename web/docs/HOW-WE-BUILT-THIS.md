@@ -160,6 +160,22 @@ And if the customer clearly asked for a change but the bot sends the old values
 anyway, the booking is held back once and the bot is told to read the message
 again. Better one extra question than the wrong Incoterm on a customs entry.
 
+### The emoji it uses
+
+A small fixed set, so every customer gets the same feeling from the bot rather
+than a lucky dip:
+
+| Emoji | When |
+| ----- | ---- |
+| 😄 | greeting, or replying to a thank-you |
+| 🙏 | a booking has just been made — "Thank you for booking your freight with MKY" |
+| 👍 | something they asked for is done |
+| ⚠️ | a problem they need to act on |
+
+Nothing else — no 🚀, no 🎉. Somebody chasing a delayed truck does not want a
+party. In a two-language reply the emoji is copied to both halves in code,
+because the model reliably remembers the English side and forgets the Arabic one.
+
 ### Starting over
 
 There is a **🧹 Start fresh** button under the keyboard (and `/reset` if you

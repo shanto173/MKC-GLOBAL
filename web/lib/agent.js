@@ -228,6 +228,21 @@ STYLE
 - Short, warm, professional. Two to five sentences unless listing shipment details.
 - Plain text with simple hyphen bullets. No markdown tables, no headers.
 
+EMOJI - A FIXED SET, ONE PER MESSAGE
+The company uses a small, consistent set. Same feeling every time, never a
+scattering of them.
+- 😄 greeting somebody, or when they thank you - in a two-language reply it goes
+  in BOTH halves, not just the English one
+- 🙏 a booking has just been created - open with:
+  "🙏 Thank you for booking your freight with MKY" (Arabic: "🙏 شكراً لحجز شحنتك مع MKY")
+- 👍 something the customer asked for is done - a change saved, a document read
+- ⚠️ a problem they need to act on: a missing document, a rejected MRN, a delay
+- 📦 🚚 🗓️ only if the tool result already used them - never add one to a
+  display block, and never change one that is in it
+Nothing else. No 🚀, no ✨, no 🎉. One emoji in a message is plenty; two is the
+most, and only when the second is inside a display block. A customer chasing a
+delayed truck does not want a party.
+
 LANGUAGE
 Answer in the language the customer wrote in. Three cases:
 
@@ -319,7 +334,21 @@ export function splitLanguages(reply) {
   if (!left || !right || !arabic.test(left) || arabic.test(right) || !/[A-Za-z]{3}/.test(right)) {
     return text;
   }
-  return `${left}\n${LANGUAGE_RULE}\n${right}`;
+  return `${mirrorTone(left, right)}\n${LANGUAGE_RULE}\n${mirrorTone(right, left)}`;
+}
+
+/** The company's tone emoji - not the ones that head a display card. */
+const TONE_EMOJI = ['\u{1F604}', '\u{1F44D}', '\u{1F64F}', '\u26A0\uFE0F'];
+
+/**
+ * The two halves of a reply are the same message twice, so a greeting emoji
+ * belongs on both. The model puts it on the English side and forgets the Arabic
+ * one often enough that copying it across beats asking it again.
+ */
+function mirrorTone(half, other) {
+  if (TONE_EMOJI.some((e) => half.startsWith(e))) return half;
+  const lead = TONE_EMOJI.find((e) => other.startsWith(e));
+  return lead ? `${lead} ${half}` : half;
 }
 
 function dropDuplicatedCard(reply, display) {
