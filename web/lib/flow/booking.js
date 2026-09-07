@@ -22,6 +22,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
+import { parsePastedFields, looksLikePaste, splitMakeModel } from './paste.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
@@ -96,7 +97,21 @@ async function newDraft(session, ctx) {
  * itself.
  */
 export async function handleVin(session, text, ctx, { editing = false } = {}) {
-  const typed = String(text ?? '').trim();
+  let typed = String(text ?? '').trim();
+
+  // A block pasted at the chassis step carries the chassis and everything else.
+  // The other fields are stored first, then the chassis goes through the normal
+  // lookup below - it is the one value that decides whether a booking may
+  // happen at all, so it is never simply written down.
+  let pastedNote = null;
+  if (!editing && looksLikePaste(typed)) {
+    const { patch, vin } = await applyPastedFields(session, typed, ctx);
+    if (Object.keys(patch).length) {
+      await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId }).catch(() => null);
+      pastedNote = Object.keys(patch);
+    }
+    if (vin) typed = vin;
+  }
 
   if (!looksLikeVin(typed)) {
     return reply(say(M.vinTooShort(), kb.homeOnly()));
@@ -208,17 +223,86 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
   return reply([...preface, prompts[next]()], { current_state: states[next] });
 }
 
+/**
+ * Everything in a pasted block that survives validation.
+ *
+ * The parser suggests; this decides. A port still has to be one of the five and
+ * a chassis still has to look like a chassis, exactly as if each value had been
+ * typed on its own - a paste is a faster way to answer, never a way around the
+ * checks.
+ */
+async function applyPastedFields(session, text, ctx) {
+  const parsed = parsePastedFields(text);
+  const patch = {};
+  const rejected = [];
+
+  if (parsed.make) {
+    const { make, model } = splitMakeModel(parsed.make);
+    if (make.length <= 120) {
+      patch.make = make;
+      if (model) patch.model = model;
+    }
+  }
+
+  if (parsed.customer_name && parsed.customer_name.length <= 120) {
+    patch.customer_name = parsed.customer_name;
+  }
+
+  if (parsed.origin_port && parsed.origin_port.length <= 120) {
+    patch.origin_port = parsed.origin_port;
+  }
+
+  if (parsed.destination_port) {
+    const port = matchPort(parsed.destination_port);
+    if (port) patch.destination_port = port;
+    else rejected.push(parsed.destination_port);
+  }
+
+  // The chassis is deliberately NOT taken from a paste. It decides whether the
+  // unit may be booked at all, and that verdict runs through handleVin - which
+  // has to look it up, not just store it.
+  return { patch, rejected, vin: parsed.vin ?? null };
+}
+
 /** Make, client name and port of loading: free text, stored as given. */
 export async function handleBasicField(session, field, text, ctx, { editing = false } = {}) {
   const value = String(text ?? '').trim();
   if (!value) return reply(say(M.notUnderstood(), kb.homeOnly()));
 
+  // A pasted block of details, answering several questions at once. Taking it
+  // beats refusing it: everything asked for is in the message, and a client who
+  // is told "that is rather long" has to retype what they already sent.
+  if (!editing && looksLikePaste(value)) {
+    const { patch, rejected } = await applyPastedFields(session, value, ctx);
+
+    if (Object.keys(patch).length) {
+      const saved = await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId });
+      if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+
+      logEvent('booking_information_pasted', {
+        booking_ref: session.active_booking_ref, fields: Object.keys(patch),
+      });
+
+      const messages = [];
+      // A port we do not serve is said out loud rather than silently dropped,
+      // or the client sees us ask for a destination they believe they gave.
+      for (const bad of rejected) {
+        messages.push(say(M.destinationNotServed(bad, DESTINATION_PORTS)));
+      }
+
+      const next = await askNextBasic(saved.draft, ctx);
+      return reply([...messages, ...next.messages], next.patch);
+    }
+  }
+
   // "yes" to the suggested name means the suggestion, not the word "yes".
   const resolved = field === 'customer_name' && isYes(value) && ctx.userName ? ctx.userName : value;
 
   if (resolved.length > 120) {
-    return reply(say(both('الرد ده طويل أوي. ابعت القيمة بس من فضلك.',
-      'That is rather long. Please send just the value.'), kb.homeOnly()));
+    return reply(say(both(
+      'الرد ده طويل أوي. ابعت القيمة بس - أو ابعت البيانات كلها في جدول والاسم قدام كل قيمة.',
+      'That is rather long. Send just the value - or paste the whole table with a label in front of each value.',
+    ), kb.homeOnly()));
   }
 
   const saved = await updateDraft(session.active_booking_ref, { [field]: resolved }, { chatId: ctx.chatId });

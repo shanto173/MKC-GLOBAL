@@ -44,15 +44,22 @@ const MRN = `26LTVR${digits(seed, 8)}${VIN.slice(-4)}`;   // year, country, 13+ 
 const ACID = `54033${digits(seed * 7, 14)}`;              // Egyptian ACID: 19 digits
 const EUR1 = `AA ${digits(seed, 7)}`;
 
+// Make, model and loading point are arguments too, so a second test unit is
+// genuinely a different vehicle on a different lane rather than the same truck
+// with a new chassis number. Everything defaults to the original set.
 const unit = {
-  make: 'Mercedes-Benz',
-  model: 'Actros 1845 LS',
+  make: process.argv[4] || 'Mercedes-Benz',
+  model: process.argv[5] || 'Actros 1845 LS',
   year: '2016',
   type: 'Tractor unit / used commercial vehicle',
   weight: '8,266 kg',
   value: '18,500.00',
   currency: 'EUR',
 };
+
+/** Where it loads, and the port it leaves from. */
+const LOADING_CITY = process.argv[6] || 'Vilnius';
+const LOADING_PORT = process.argv[7] || 'Klaipeda';
 
 const seller = {
   name: 'UAB V.I.P INVESTMENT',
@@ -131,7 +138,7 @@ async function invoice() {
   y = row(doc, 'Quantity', '1 unit', y);
   y = row(doc, 'Unit price', `${unit.value} ${unit.currency}`, y);
   y = row(doc, 'Total amount', `${unit.value} ${unit.currency}`, y, { size: 12 });
-  y = row(doc, 'Incoterm', 'FOB Klaipeda', y);
+  y = row(doc, 'Incoterm', `FOB ${LOADING_PORT}`, y);
   y = row(doc, 'Country of origin', 'Lithuania (EU)', y);
   y = row(doc, 'EUR.1 certificate', `EUR.1 Nr. ${EUR1}`, y);
 
@@ -175,8 +182,8 @@ async function transportDocument() {
   y = row(doc, 'Address', buyer.address, y);
 
   y = heading(doc, '3 · PLACE OF DELIVERY', y + 8);
-  y = row(doc, 'Place', 'Klaipeda Port, Lithuania', y);
-  y = row(doc, 'Place of loading', 'Vilnius, Lithuania', y);
+  y = row(doc, 'Place', `${LOADING_PORT} Port, Lithuania`, y);
+  y = row(doc, 'Place of loading', `${LOADING_CITY}, Lithuania`, y);
   y = row(doc, 'Date of loading', '2026-09-19', y);
 
   y = heading(doc, '6-12 · GOODS', y + 8);
@@ -191,7 +198,7 @@ async function transportDocument() {
   y = row(doc, 'Vehicle', 'Volvo FH 460, plate LT ABC 123', y);
 
   y = heading(doc, '21 · ESTABLISHED IN', y + 8);
-  y = row(doc, 'Place and date', 'Vilnius, 2026-09-19', y);
+  y = row(doc, 'Place and date', `${LOADING_CITY}, 2026-09-19`, y);
 
   doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
     .text('Specimen consignment note generated for testing the MKY Global assistant. '
@@ -343,6 +350,9 @@ for (const [name, buffer] of files) {
 
 console.log(`
 The matched set names chassis ${VIN}
+  Make    ${unit.make} ${unit.model}
+  Client  ${NAME}
+  Loading ${LOADING_CITY}
   MRN   ${MRN}
   ACID  ${ACID}
   EUR.1 ${EUR1}

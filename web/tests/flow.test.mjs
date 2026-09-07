@@ -1213,3 +1213,95 @@ test('a probe failure that is NOT a missing table does not revert a working bot'
   assert.equal(r.handled, true);
   assert.match(said(r), /Welcome/);
 });
+
+// ---------------------------------------------------------------------------
+// A client pasting the table they were given
+// ---------------------------------------------------------------------------
+
+const PASTED_TABLE = `Make        │ Volvo FH 460 Globetrotter │
+├─────────────┼───────────────────────────┤
+│ Client      │ Delta Trans Egypt         │
+├─────────────┼───────────────────────────┤
+│ Loading     │ Klaipeda, Lithuania       │
+├─────────────┼───────────────────────────┤
+│ Destination │ Port Said`;
+
+test('regression: a pasted table is read, not refused as "too long"', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('YV2RT40A8FB712905');
+
+  const r = await h.text(PASTED_TABLE);
+
+  assert.doesNotMatch(said(r), /rather long/);
+  const b = h.booking();
+  assert.equal(b.make, 'Volvo');
+  assert.equal(b.model, 'FH 460 Globetrotter');
+  assert.equal(b.customer_name, 'Delta Trans Egypt');
+  assert.equal(b.origin_port, 'Klaipeda, Lithuania');
+  assert.equal(b.destination_port, 'Port Said');
+
+  // Everything was supplied, so the next thing asked is the MRN question.
+  assert.match(said(r), /Do you already have an MRN/);
+  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
+
+test('a table pasted at the chassis step carries the chassis and the rest', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text(
+    'Chassis: YV2RT40A8FB712905\nMake: Volvo\nClient: Delta Trans Egypt\nLoading: Klaipeda\nDestination: Port Said',
+  );
+
+  const b = h.booking();
+  assert.equal(b.vin, 'YV2RT40A8FB712905');
+  assert.equal(b.make, 'Volvo');
+  assert.equal(b.customer_name, 'Delta Trans Egypt');
+  assert.equal(b.destination_port, 'Port Said');
+  assert.match(said(r), /Do you already have an MRN/);
+});
+
+test('a pasted chassis still faces the duplicate check, it is not just stored', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260907-TAKEN', status: 'confirmed', chat_id: OTHER_CHAT,
+      vin: 'YV2RT40A8FB712905', make: 'Volvo', customer_name: 'Someone Else',
+      origin_port: 'Koper', destination_port: 'Suez Port',
+    }],
+  });
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('Chassis: YV2RT40A8FB712905\nMake: Volvo\nClient: Delta Trans Egypt\nDestination: Port Said');
+
+  assert.match(said(r), /already booked/);
+  assert.match(said(r), /MKY-BKG-260907-TAKEN/);
+});
+
+test('a port we do not serve in a paste is said out loud, not silently dropped', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('YV2RT40A8FB712905');
+
+  const r = await h.text('Make: Volvo\nClient: Delta Trans Egypt\nLoading: Klaipeda\nDestination: Aswan');
+
+  assert.match(said(r), /is not a port we serve/);
+  assert.equal(h.booking().make, 'Volvo', 'the valid fields were still taken');
+  assert.equal(h.booking().destination_port, undefined);
+  assert.equal(r.state, S.BOOK_DESTINATION, 'and it asks for the one it could not accept');
+});
+
+test('an ordinary one-word answer is still an answer, not a paste', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('YV2RT40A8FB712905');
+  await h.text('Volvo');
+
+  assert.equal(h.booking().make, 'Volvo');
+  assert.equal(h.booking().customer_name, undefined);
+});
