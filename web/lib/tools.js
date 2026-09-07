@@ -349,7 +349,43 @@ const executors = {
     const required = ['vin', 'make', 'customer_name', 'origin_port', 'destination_port'];
     const missing = required.filter((k) => !String(args[k] ?? '').trim());
     if (missing.length) {
-      return { ok: false, missing_fields: missing, message: 'Ask the customer for the missing fields, then call this tool again.' };
+      // What IS missing is worked out here, from the values actually passed,
+      // rather than left to the model's recollection of the conversation - it
+      // has asked customers for details they had already given, twice.
+      const have = {};
+      for (const [k, v] of Object.entries(args)) {
+        if (v !== null && v !== undefined && String(v).trim() !== '') have[k] = v;
+      }
+      const label = {
+        vin: 'the chassis / VIN number',
+        make: 'the manufacturer',
+        customer_name: 'the name to book under',
+        origin_port: 'the port or city of loading',
+        destination_port: 'the Egyptian destination port',
+      };
+      return {
+        ok: false,
+        missing_fields: missing,
+        already_given: have,
+        message:
+          `Still needed: ${missing.map((f) => label[f] ?? f).join(', ')}. ` +
+          'Ask for ALL of them in ONE short message - not one at a time. ' +
+          'Do NOT ask about anything under already_given: the customer has said it, ' +
+          'and asking twice is the complaint we hear most. Read it back to them instead.',
+      };
+    }
+
+    // A customer pasting our own field list back at us sends the menu with it:
+    // "EXW / FOB / CIF / DAP" arrived as the Incoterm and went onto a summary
+    // card as though they had chosen it. A value that is not one of the eleven
+    // is not an answer, so it is dropped and asked about instead of recorded.
+    const unclear = [];
+    if (args.incoterm !== undefined && args.incoterm !== null && String(args.incoterm).trim() !== '') {
+      const term = String(args.incoterm).trim().toUpperCase();
+      if (!INCOTERMS.includes(term)) {
+        unclear.push('incoterm');
+        args = { ...args, incoterm: null };
+      }
     }
 
     const port = matchPort(args.destination_port);
@@ -578,7 +614,12 @@ const executors = {
         // Shown from the canonical values, so what the customer approves is
         // exactly what the operations desk will read back out of the database.
         display: bookingCard(canonical(args), lang),
+        unclear_fields: unclear.length ? unclear : undefined,
         message:
+          (unclear.length
+            ? `The ${unclear.join(' and ')} you sent was a list of choices, not a choice, so it was left ` +
+              'blank. Ask the customer which one applies, along with the confirmation. '
+            : '') +
           (differsFromDraft
             ? `Updated ${changedFields.join(', ') || 'the summary'}, but NOT booked. Show the customer the corrected `
             : 'NOT booked yet. Show the customer the ') +

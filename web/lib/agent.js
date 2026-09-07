@@ -6,6 +6,7 @@
 import { chat } from './llm.js';
 import { toolDefinitions, runTool } from './tools.js';
 import { loadHistory, saveHistory } from './session.js';
+import { db } from './supabase.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
 
 const MAX_STEPS = 5;
@@ -31,7 +32,11 @@ export function detectLanguage(text) {
  * writing "el sha7na fen?" should not be answered in English alone.
  */
 function isFrancoArabic(text) {
-  const s = text.toLowerCase();
+  // A chassis number is a Latin string full of digits, and to this test
+  // "TESTTBLMTR2LC19" reads exactly like "sha7na" does - which answered an
+  // English customer in Arabic because their VIN happened to contain a 2.
+  // A word carries at most one stand-in digit; two or more means a code.
+  const s = text.toLowerCase().replace(/\b[\w-]*\d[\w-]*\d[\w-]*\b/g, ' ');
 
   // A digit used as a letter, i.e. sitting inside a word between letters
   // (sha7na, bta3ty) or opening one (3ayez, 7abibi). Reference numbers such as
@@ -47,6 +52,7 @@ function isFrancoArabic(text) {
 export function systemPrompt(ctx) {
   const today = new Date().toISOString().slice(0, 10);
   const lang = ctx.customerLanguage;
+  const known = knownSoFar(ctx.draft);
   return `You are the virtual assistant for ${config.companyName}, an international freight
 forwarding company. You talk to customers on ${ctx.channel === 'telegram' ? 'Telegram' : 'the company website'}.
 Today is ${today}.
@@ -93,6 +99,7 @@ WHAT YOU DO
    payment state that did not come back from that tool.
 2. New bookings - follow these steps in order.
 
+${known}
    STEP 1 - IDENTIFY THE UNIT.
    Ask for the chassis / VIN number first, before anything else. The moment you
    have it, call lookup_vehicle. Then obey its verdict:
@@ -152,6 +159,20 @@ WHAT YOU DO
    everything you already have plus their correction. It returns the corrected
    summary; show that and ask them to confirm again.
    update_booking is only for a booking that already HAS a reference.
+
+   NEVER ASK FOR SOMETHING THE CUSTOMER HAS ALREADY GIVEN.
+   Before you ask a single question, read back through the conversation. If a
+   value is anywhere in it - in a sentence, a list, a pasted table, a document
+   they sent - it has been given, and asking again makes us look like we were
+   not listening. It is the complaint customers make most.
+   A customer who pastes a filled-in list or table is answering, not showing you
+   a form. Take every row that holds a real value. Only a row that is still
+   obviously blank or still a menu of choices - "EXW / FOB / CIF / DAP" - is
+   unanswered.
+   When something genuinely is missing, ask for EVERYTHING missing in one short
+   message, not one field per turn. And call create_booking as soon as you have
+   a chassis number and anything else: it answers with exactly what is still
+   needed, worked out from the data rather than from memory.
 
    USE THE CUSTOMER'S OWN VALUES - THIS IS NOT NEGOTIABLE.
    Never replace something the customer told you with a value of your own.
@@ -321,6 +342,52 @@ ${lang === 'ar'
  */
 const LANGUAGE_RULE = '━━━━━━━━━━━━';
 
+/** The unconfirmed booking this chat is in the middle of, if there is one. */
+async function draftFor(ctx) {
+  try {
+    const { data } = await db()
+      .from('bookings')
+      .select('raw')
+      .eq('chat_id', String(ctx.chatId))
+      .eq('status', 'draft')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data ?? null;
+  } catch {
+    return null;   // the conversation must not stop because a lookup failed
+  }
+}
+
+/**
+ * What this conversation has already recorded for a booking in progress, so the
+ * model is told rather than expected to remember. Asking a customer twice for
+ * the same detail is the thing they complain about most.
+ */
+function knownSoFar(draft) {
+  const raw = draft?.raw;
+  if (!raw) return '';
+
+  const SHOW = [
+    ['vin', 'chassis'], ['make', 'make'], ['model', 'model'], ['vehicle_type', 'vehicle type'],
+    ['engine_condition', 'condition'], ['customer_name', 'customer'], ['company', 'company'],
+    ['customer_contact', 'contact'], ['origin_port', 'loading'], ['destination_port', 'destination'],
+    ['gross_weight_kg', 'weight'], ['incoterm', 'incoterm'], ['ready_date', 'ready date'],
+    ['mrn_number', 'MRN'], ['acid_number', 'ACID'], ['notes', 'notes'],
+  ];
+  const lines = SHOW
+    .filter(([key]) => raw[key] !== null && raw[key] !== undefined && String(raw[key]).trim() !== '')
+    .map(([key, label]) => `     ${label}: ${raw[key]}`);
+  if (!lines.length) return '';
+
+  return `
+   WHAT THIS CONVERSATION HAS ALREADY TOLD YOU - DO NOT ASK FOR ANY OF IT AGAIN.
+${lines.join('\n')}
+   Pass every one of these back when you call create_booking. If the customer
+   corrects one, use their new value; otherwise use what is here.
+`;
+}
+
 export function splitLanguages(reply) {
   const text = String(reply ?? '');
   const bar = text.indexOf('|');
@@ -390,6 +457,7 @@ export async function respond(userText, ctx) {
   const turnCtx = {
     ...ctx,
     customerLanguage,
+    draft: await draftFor(ctx),
     // What the customer actually typed, so a tool can tell "yes, book it" from
     // "no, change the Incoterm" instead of trusting the arguments the model
     // chose to send. Our own synthetic notes are not the customer speaking.
