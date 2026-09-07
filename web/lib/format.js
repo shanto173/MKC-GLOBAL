@@ -160,6 +160,31 @@ export function checklistCard(sections) {
   return blocks.join('\n\n');
 }
 
+/**
+ * The departments, numbered, as the roadmap's contact panel has them.
+ *
+ * "Tell me what kind of help you need" is not a menu: the customer has to guess
+ * what our desks are called. They pick a number instead, and the number cannot
+ * be mistaken for the main menu because of what was on screen before it.
+ */
+export const DEPARTMENT_MENU = [
+  ['\u0627\u0644\u062d\u062c\u0648\u0632\u0627\u062a', 'Booking Operations', '\u0637\u0644\u0628 \u062c\u062f\u064a\u062f\u060c \u062a\u0639\u062f\u064a\u0644 \u062d\u062c\u0632\u060c \u0645\u0633\u0627\u062d\u0629 \u0648\u0645\u0648\u0627\u0639\u064a\u062f', 'new requests, changes, space and schedules'],
+  ['\u0627\u0644\u062d\u0633\u0627\u0628\u0627\u062a \u0648\u0627\u0644\u0645\u062f\u0641\u0648\u0639\u0627\u062a', 'Accounts & Payments', '\u0641\u0648\u0627\u062a\u064a\u0631\u060c \u062a\u062d\u0648\u064a\u0644\u0627\u062a\u060c \u0623\u0631\u0635\u062f\u0629', 'invoices, transfers, balances'],
+  ['\u0645\u062a\u0627\u0628\u0639\u0629 \u0627\u0644\u0634\u062d\u0646\u0627\u062a', 'Tracking Desk', '\u0627\u0644\u0634\u062d\u0646\u0629 \u0641\u064a\u0646\u060c \u0645\u0648\u0627\u0639\u064a\u062f \u0627\u0644\u0648\u0635\u0648\u0644', 'where a shipment is, arrival dates'],
+  ['\u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a \u0627\u0644\u062c\u0645\u0631\u0643\u064a\u0629', 'Customs Documentation', 'ACID\u060c MRN\u060c \u0634\u0647\u0627\u062f\u0627\u062a \u0627\u0644\u0645\u0646\u0634\u0623', 'ACID, MRN, certificates of origin'],
+  ['\u062e\u062f\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621', 'Customer Care', '\u0623\u064a \u062d\u0627\u062c\u0629 \u062a\u0627\u0646\u064a\u0629 \u0623\u0648 \u0634\u0643\u0648\u0649', 'anything else, or a complaint'],
+];
+
+export function departmentsCard() {
+  const lines = DEPARTMENT_MENU.map(([ar, en, arHint, enHint], i) =>
+    `${i + 1} \u00b7 ${ar} / ${en}\n   ${arHint} / ${enHint}`);
+  return [
+    '\u{1F4AC} \u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0641\u0631\u064a\u0642\u0646\u0627 / Contact our team',
+    ...lines,
+    '\u0627\u0628\u0639\u062a \u0631\u0642\u0645 \u0645\u0646 1 \u0644\u0640 5 / Reply with a number from 1 to 5',
+  ].join('\n\n');
+}
+
 /** The document checklist: what arrived, what is still needed. */
 export function documentsCard(status, lang = 'en') {
   const names = (list) => (list ?? []).map((d) => (typeof d === 'string' ? d : d.label));
