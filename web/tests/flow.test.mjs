@@ -1305,3 +1305,33 @@ test('an ordinary one-word answer is still an answer, not a paste', async () => 
   assert.equal(h.booking().make, 'Volvo');
   assert.equal(h.booking().customer_name, undefined);
 });
+
+test('regression: a labelled single row does not put the label in the value', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  await h.text('Chassis │ YV2RT40A8FB712905');
+  assert.equal(h.booking().vin, 'YV2RT40A8FB712905', 'not "CHASSIS│YV2RT40A8FB712905"');
+
+  await h.text('Make │ Volvo FH 460 Globetrotter');
+  assert.equal(h.booking().make, 'Volvo');
+  assert.equal(h.booking().model, 'FH 460 Globetrotter');
+
+  await h.text('Client: Delta Trans Egypt');
+  assert.equal(h.booking().customer_name, 'Delta Trans Egypt');
+});
+
+test('a labelled chassis still faces the duplicate check', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260907-DUP', status: 'confirmed', chat_id: OTHER_CHAT,
+      vin: 'YV2RT40A8FB712905', make: 'Volvo', customer_name: 'Other',
+      origin_port: 'Koper', destination_port: 'Suez Port',
+    }],
+  });
+  await h.command('/start');
+  await h.tap('menu:book');
+  const r = await h.text('Chassis │ YV2RT40A8FB712905');
+  assert.match(said(r), /already booked/);
+});

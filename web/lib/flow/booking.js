@@ -22,7 +22,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
-import { parsePastedFields, looksLikePaste, splitMakeModel } from './paste.js';
+import { parsePastedFields, looksLikePaste, splitMakeModel, valueFor } from './paste.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
@@ -112,6 +112,11 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
     }
     if (vin) typed = vin;
   }
+
+  // "Chassis │ YV2RT40A8FB712905" is one row, not a paste, so it never reached
+  // the parser above - and the label and the box character went into the
+  // database as part of the chassis number.
+  typed = valueFor('vin', typed);
 
   if (!looksLikeVin(typed)) {
     return reply(say(M.vinTooShort(), kb.homeOnly()));
@@ -295,8 +300,12 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
     }
   }
 
+  // A single labelled row - "Make │ Volvo" - answers the question that was
+  // asked; the label is not part of the answer.
+  const bare = valueFor(field, value);
+
   // "yes" to the suggested name means the suggestion, not the word "yes".
-  const resolved = field === 'customer_name' && isYes(value) && ctx.userName ? ctx.userName : value;
+  const resolved = field === 'customer_name' && isYes(bare) && ctx.userName ? ctx.userName : bare;
 
   if (resolved.length > 120) {
     return reply(say(both(
@@ -305,7 +314,14 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
     ), kb.homeOnly()));
   }
 
-  const saved = await updateDraft(session.active_booking_ref, { [field]: resolved }, { chatId: ctx.chatId });
+  const fields = { [field]: resolved };
+  if (field === 'make') {
+    const { make, model } = splitMakeModel(resolved);
+    fields.make = make;
+    if (model) fields.model = model;
+  }
+
+  const saved = await updateDraft(session.active_booking_ref, fields, { chatId: ctx.chatId });
   if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
   logEvent('booking_information_updated', { booking_ref: session.active_booking_ref, field });

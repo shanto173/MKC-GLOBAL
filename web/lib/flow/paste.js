@@ -105,6 +105,31 @@ export function parsePastedFields(text) {
 }
 
 /**
+ * The value for ONE field, from a message that may or may not be a table row.
+ *
+ * "Chassis │ YV2RT40A8FB712905" is a single row, so it is not a paste by the
+ * test below - and without this it was stored whole, label, box character and
+ * all, as the chassis number. A labelled answer to the question that was asked
+ * is still an answer to that question.
+ *
+ * @param {string} field the field being asked for
+ * @param {string} text  what the client sent
+ * @returns {string} the value, with any label and table borders removed
+ */
+export function valueFor(field, text) {
+  const parsed = parsePastedFields(text);
+  if (parsed[field]) return parsed[field];
+
+  // Not labelled, or labelled as something else: take it as typed, minus the
+  // table decoration a copy-paste drags along.
+  return String(text ?? '')
+    .replace(DECORATION, ' ')
+    .split(COLUMN).join(' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/**
  * Is this message a pasted block rather than an answer to the question asked?
  *
  * Two or more recognised labels. One is not enough: a client answering "Make"
