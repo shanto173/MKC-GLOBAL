@@ -132,6 +132,7 @@
     <button role="tab" data-tab="bookings" aria-selected="true">Bookings</button>
     <button role="tab" data-tab="shipments" aria-selected="false">Shipments</button>
     <button role="tab" data-tab="customers" aria-selected="false">Customers</button>
+    <button role="tab" data-tab="tickets" aria-selected="false">Tickets</button>
   </div>
 
   <div class="bar">
@@ -159,6 +160,7 @@
     bookings: [['pending_review','Awaiting review'],['confirmed','Confirmed'],['rejected','Rejected'],['all','All']],
     shipments: [['','In progress'],['delivered','Delivered'],['all','All']],
     customers: [['','All customers']],
+    tickets: [['open','Open'],['resolved','Resolved'],['all','All']],
   };
   let SHIPMENT_STATUSES = [];
 
@@ -325,6 +327,33 @@
     </div>`;
   }
 
+  // ---------- tickets ----------
+  function ticketCard(k) {
+    const open = k.status === 'open';
+    return `<div class="card" data-ref="${esc(k.ticket_ref)}" data-kind="ticket">
+      <div class="top">
+        <span class="ref">${esc(k.ticket_ref)}</span>
+        <span class="veh">${esc(k.department)}</span>
+        <span class="sp"></span>
+        <span class="dim">${k.age_hours}h old</span>
+        <span class="pill ${open ? 'pending' : 'ok'}">${esc(k.status)}</span>
+      </div>
+      <dl class="grid">
+        ${f('Customer', k.customer)}${f('Call them on', k.contact)}${f('Channel', k.channel)}
+        ${f('Raised', k.created_at ? new Date(k.created_at).toLocaleString() : '')}
+        ${f('Resolved by', k.resolved_by)}${f('Resolved', k.resolved_at ? new Date(k.resolved_at).toLocaleString() : '')}
+      </dl>
+      <div class="note-line" style="color:var(--ink);font-size:13.5px"><strong style="font-weight:600">Problem:</strong> ${esc(k.summary)}</div>
+      ${k.resolution_note ? `<div class="note-line"><strong style="font-weight:600">Resolution:</strong> ${esc(k.resolution_note)}</div>` : ''}
+      <div class="act">
+        ${open
+          ? `<input class="note" placeholder="What was done - sent to the customer with the resolved message" />
+             <button class="btn confirm" data-action="resolve">Mark resolved</button>`
+          : `<button class="btn ghost" data-action="reopen">Reopen</button>`}
+      </div>
+    </div>`;
+  }
+
   // ---------- loading ----------
   function fillFilter() {
     $('filter').innerHTML = FILTERS[tab].map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
@@ -365,6 +394,18 @@
         $('list').innerHTML = loaded.length ? loaded.map(shipmentCard).join('') : '<div class="empty">Nothing here.</div>';
         offset = loaded.length;
         $('more').hidden = !d.has_more;
+      } else if (tab === 'tickets') {
+        const d = await api('/api/admin/tickets?status=' + encodeURIComponent(status || 'open') + page);
+        loaded = append ? loaded.concat(d.tickets) : d.tickets;
+        let shown = loaded;
+        if (q) {
+          const needle = q.toLowerCase();
+          shown = loaded.filter((k) => JSON.stringify(k).toLowerCase().includes(needle));
+        }
+        $('count').textContent = loaded.length + ' of ' + d.total + ' ticket' + (d.total === 1 ? '' : 's');
+        $('list').innerHTML = shown.length ? shown.map(ticketCard).join('') : '<div class="empty">No tickets.</div>';
+        offset = loaded.length;
+        $('more').hidden = !d.has_more;
       } else {
         const d = await api('/api/admin/customers' + (q ? '?q=' + encodeURIComponent(q) : ''));
         $('count').textContent = d.count + ' customer' + (d.count === 1 ? '' : 's');
@@ -391,7 +432,16 @@
 
     try {
       let r, message;
-      if (card.dataset.kind === 'booking') {
+      if (card.dataset.kind === 'ticket') {
+        r = await api('/api/admin/tickets', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ticket_ref: card.dataset.ref, action, note, operator }),
+        });
+        message = r.ok
+          ? `${card.dataset.ref} ${r.status}.` +
+            (r.customer_told?.telegram ? ' Customer told on Telegram.' : r.customer_told ? ' Customer could not be reached on Telegram.' : '')
+          : (r.error || 'Failed');
+      } else if (card.dataset.kind === 'booking') {
         r = await api('/api/admin/bookings', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ booking_ref: card.dataset.ref, action, note, operator }),

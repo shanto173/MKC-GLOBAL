@@ -181,6 +181,19 @@ more thing to fall out of step.
 
 The website has the same thing as a strip under the header.
 
+### Talking to a person
+
+Reply **3** (or say you want to speak to someone) and the bot lists the five
+desks, numbered. Pick one, and it asks for two things in one message: what the
+problem is, and a phone number to call you on. Nothing is raised until it has
+both — a ticket with no problem and no number is a note to nobody.
+
+The ticket then goes out as a card with its reference, and lands in the
+**Tickets** tab of the ops console with the customer's name, the desk, the
+problem in their words and the number to call. When somebody on the desk marks
+it resolved — with a line on what was done — the customer gets that line in the
+chat they raised it from, with ✅ and the reference.
+
 ### The emoji it uses
 
 A small fixed set, so every customer gets the same feeling from the bot rather

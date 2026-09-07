@@ -407,6 +407,9 @@ export function contactIntent(text, lastFromUs = '') {
 
   // Straight after the department list, anything short is an answer to it.
   if (String(lastFromUs).includes('Contact our team') && s.length < 60) return 'answer';
+  // And straight after the "what is the problem, and a number" card, whatever
+  // they send is those details - not a new question to be answered afresh.
+  if (String(lastFromUs).includes('To open this with the team')) return 'details';
 
   const named = DEPARTMENT_MENU.some(([ar, en]) =>
     s.toLowerCase().includes(en.toLowerCase()) || s.includes(ar));
@@ -425,9 +428,10 @@ export function departmentAnswer(text) {
   return `[The customer is choosing which department to be put through to. The list is: ` +
     `${names.map((n, i) => `${i + 1} ${n}`).join(', ')}. They answered: "${text}". ` +
     `${picked ? `That is ${picked}. ` : 'Work out which one they mean from that answer. '}` +
-    'Call create_support_ticket for that department with what you know of their situation, then ' +
-    'give them the ticket reference and say when the desk will reply. Do NOT treat this as a ' +
-    'request to track a shipment or to make a booking.]';
+    'Call create_support_ticket for that department with what you know of their situation. If you ' +
+    'do not yet have BOTH what the problem is and a phone number to call them on, call it anyway with ' +
+    'what you have - it asks the customer for the rest itself. Do NOT treat this as a request to ' +
+    'track a shipment or to make a booking.]';
 }
 
 export async function respond(userText, ctx) {
@@ -448,7 +452,13 @@ export async function respond(userText, ctx) {
     return { reply: card, toolsUsed: [] };
   }
 
-  const spokenText = contact === 'answer' ? departmentAnswer(userText) : userText;
+  const spokenText = contact === 'answer'
+    ? departmentAnswer(userText)
+    : contact === 'details'
+      ? `[The customer is answering the card that asked for their problem and a phone number. They ` +
+        `wrote: "${userText}". Pick the department they chose earlier in this conversation, take the ` +
+        'problem and the number from this message, and call create_support_ticket now.]'
+      : userText;
   const messages = [...history, { role: 'user', content: spokenText }];
 
   // A message we composed ourselves - the note that a document arrived - is

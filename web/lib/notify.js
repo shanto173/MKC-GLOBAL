@@ -216,6 +216,35 @@ export async function notifyBookingDecision(booking, decision, note = '') {
   return result;
 }
 
+/**
+ * Tells the customer their ticket is closed, in the chat they raised it from.
+ * The desk's note goes with it, so "resolved" means something specific.
+ */
+export async function notifyTicketResolved(ticket, { operator = 'operations' } = {}) {
+  const result = { telegram: false, errors: [] };
+  if (!(ticket.chat_id && ticket.channel === 'telegram' && config.telegram.token)) {
+    result.errors.push('no Telegram chat on this ticket');
+    return result;
+  }
+  const note = String(ticket.resolution_note ?? '').trim();
+  const arabic =
+    `\u2705 \u062a\u0645 \u062d\u0644 \u0637\u0644\u0628\u0643 ${ticket.ticket_ref} (${ticket.department}).` +
+    (note ? `\n\n${note}` : '') +
+    `\n\n\u0644\u0648 \u0644\u0633\u0647 \u0641\u064a \u062d\u0627\u062c\u0629\u060c \u0627\u0628\u0639\u062a 3 \u0648\u0647\u0646\u0641\u062a\u062d \u0637\u0644\u0628 \u062c\u062f\u064a\u062f.`;
+  const english =
+    `\u2705 Your ticket ${ticket.ticket_ref} (${ticket.department}) has been resolved.` +
+    (note ? `\n\n${note}` : '') +
+    '\n\nIf anything is still outstanding, reply 3 and we will open a new one.';
+  try {
+    await sendMessage(ticket.chat_id, splitLanguages(`${arabic} | ${english}`));
+    result.telegram = true;
+  } catch (err) {
+    result.errors.push(`telegram: ${err.message}`);
+    console.error('ticket resolved message failed:', err.message);
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Resend (https://resend.com) - free tier, no domain needed for testing.
 // ---------------------------------------------------------------------------

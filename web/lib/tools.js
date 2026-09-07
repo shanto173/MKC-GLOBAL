@@ -9,7 +9,7 @@ import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
-import { shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard } from './format.js';
+import { shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard, ticketAskCard, ticketCard } from './format.js';
 
 export const toolDefinitions = [
   {
@@ -1022,6 +1022,26 @@ const executors = {
 
   async create_support_ticket(args, ctx) {
     const department = DEPARTMENTS.includes(args.department) ? args.department : 'Customer Care';
+
+    // A ticket with no problem and no number is a note to nobody. Both are
+    // asked for together, once, before anything is raised - the desk has to be
+    // able to call the customer, and has to know what about.
+    const summary = String(args.summary ?? '').trim();
+    const contact = String(args.contact ?? '').trim();
+    const looksLikePhone = /(\+?\d[\d\s-]{7,}\d)/.test(contact);
+    const looksLikeEmail = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(contact);
+    const needProblem = summary.length < 8 || /^(no summary|none|-|contact|help)/i.test(summary);
+    const needContact = !(looksLikePhone || looksLikeEmail);
+    if (needProblem || needContact) {
+      return {
+        ok: false,
+        needs_details: true,
+        display: ticketAskCard(department, { needProblem, needContact }),
+        verbatim: true,
+        message: 'Not raised yet: the customer has been asked for the problem and a phone number.',
+      };
+    }
+
     const row = {
       ticket_ref: makeRef('TKT'),
       channel: ctx.channel,
@@ -1037,7 +1057,12 @@ const executors = {
       ok: true,
       ticket_ref: data.ticket_ref,
       department,
-      next_step: 'Give the customer the ticket reference and say the department will reply during business hours.',
+      // The ticket goes to the customer as a card, in both languages, exactly
+      // as it was taken down - so what the desk reads and what the customer
+      // was told are the same thing.
+      display: ticketCard(data),
+      verbatim: true,
+      next_step: 'The ticket card has been sent to the customer as it is.',
     };
   },
 };

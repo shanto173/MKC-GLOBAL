@@ -209,6 +209,33 @@ export function documentsRequestCard(status = null) {
   ].join('\n');
 }
 
+/**
+ * What a ticket needs before it is worth raising: the problem in the customer's
+ * words, and a number the desk can actually call. Asked for together, once.
+ */
+export function ticketAskCard(department, { needProblem = true, needContact = true } = {}) {
+  const lines = [];
+  if (needProblem) lines.push('\u2022 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 \u0628\u0627\u0644\u0638\u0628\u0637 - \u062c\u0645\u0644\u0629 \u0623\u0648 \u0627\u062a\u0646\u064a\u0646 / What the problem is - a sentence or two');
+  if (needContact) lines.push('\u2022 \u0631\u0642\u0645 \u0645\u0648\u0628\u0627\u064a\u0644 \u0646\u0643\u0644\u0645\u0643 \u0639\u0644\u064a\u0647 / A phone number we can call you on');
+  return [
+    `\u{1F4AC} ${department}`,
+    '\u0639\u0634\u0627\u0646 \u0646\u0641\u062a\u062d \u0627\u0644\u0637\u0644\u0628 \u0644\u0644\u0641\u0631\u064a\u0642\u060c \u0627\u0628\u0639\u062a \u0641\u064a \u0631\u0633\u0627\u0644\u0629 \u0648\u0627\u062d\u062f\u0629: / To open this with the team, send in one message:',
+    ...lines,
+  ].join('\n');
+}
+
+/** The ticket, as the customer sees it: what we took down and what happens next. */
+export function ticketCard(ticket) {
+  return block(`\u{1F3AB} ${ticket.ticket_ref}`, [
+    `\u0627\u0644\u0642\u0633\u0645 / Department: ${ticket.department}`,
+    ticket.summary ? `\u0627\u0644\u0645\u0634\u0643\u0644\u0629 / Problem: ${ticket.summary}` : null,
+    ticket.contact ? `\u0631\u0642\u0645 \u0627\u0644\u062a\u0648\u0627\u0635\u0644 / We will call: ${ticket.contact}` : null,
+    '\u0627\u0644\u062d\u0627\u0644\u0629 / Status: open',
+    '',
+    '\u0627\u0644\u0641\u0631\u064a\u0642 \u0647\u064a\u0643\u0644\u0645\u0643 \u0641\u064a \u0645\u0648\u0627\u0639\u064a\u062f \u0627\u0644\u0639\u0645\u0644\u060c \u0648\u0647\u0646\u0628\u0639\u062a\u0644\u0643 \u0647\u0646\u0627 \u0644\u0645\u0627 \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u064a\u062a\u062d\u0644 / The team will call you during business hours, and we will message you here when it is resolved.',
+  ]);
+}
+
 /** The document checklist: what arrived, what is still needed. */
 export function documentsCard(status, lang = 'en') {
   const names = (list) => (list ?? []).map((d) => (typeof d === 'string' ? d : d.label));

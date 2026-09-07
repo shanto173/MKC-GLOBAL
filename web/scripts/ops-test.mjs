@@ -142,6 +142,26 @@ const strangerEdit = await call(shipmentsApi, {
 });
 check('an unknown name cannot edit a shipment', strangerEdit.status === 400, `${strangerEdit.status} ${JSON.stringify(strangerEdit.body).slice(0, 160)}`);
 
+// --- tickets ----------------------------------------------------------------
+console.log('\ntickets: raised by a customer, worked from the desk');
+const ticketsApi = (await import('../api/admin/tickets.js')).default;
+const ticketRef = `TEST-TKT-${stamp}`;
+await db().from('support_tickets').insert({
+  ticket_ref: ticketRef, channel: 'web', chat_id: chatId, department: 'Accounts & Payments',
+  customer: 'Ops Test Customer', contact: '01001234567', summary: 'Invoice INV-4471 shows the wrong amount',
+});
+const openList = await call(ticketsApi, { query: { status: 'open' } });
+check('an open ticket is listed with its reason and number', openList.body.tickets.some((t) => t.ticket_ref === ticketRef && t.contact === '01001234567'), JSON.stringify(openList.body).slice(0, 160));
+const strangerTicket = await call(ticketsApi, { method: 'POST', body: { ticket_ref: ticketRef, action: 'resolve', operator: `Stranger ${stamp}` } });
+check('a name nobody knows cannot resolve a ticket', strangerTicket.status === 400, `${strangerTicket.status} ${JSON.stringify(strangerTicket.body).slice(0, 120)}`);
+const resolvedTicket = await call(ticketsApi, { method: 'POST', body: { ticket_ref: ticketRef, action: 'resolve', note: 'Invoice reissued.', operator: OPERATOR } });
+check('the desk can resolve it', resolvedTicket.status === 200 && resolvedTicket.body.status === 'resolved', JSON.stringify(resolvedTicket.body).slice(0, 160));
+const { data: ticketRow } = await db().from('support_tickets').select('status').eq('ticket_ref', ticketRef).maybeSingle();
+check('and the ticket is resolved in the database', ticketRow?.status === 'resolved', JSON.stringify(ticketRow));
+const twice = await call(ticketsApi, { method: 'POST', body: { ticket_ref: ticketRef, action: 'resolve', operator: OPERATOR } });
+check('resolving twice is refused, not repeated', twice.status === 409, `${twice.status}`);
+await db().from('support_tickets').delete().eq('ticket_ref', ticketRef);
+
 // --- cleanup ----------------------------------------------------------------
 if (shipmentId) {
   await db().from('shipment_events').delete().eq('shipment_id', shipmentId);
