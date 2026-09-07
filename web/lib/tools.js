@@ -788,6 +788,23 @@ const executors = {
     });
     if (notified.errors?.length) console.error('booking notification issues:', notified.errors);
 
+    // What is still outstanding is read from the papers actually attached, not
+    // recited. A customer who had sent all three was told "please prepare the
+    // MRN, ACID, commercial invoice and packing list" - from a fixed sentence.
+    const papersNow = await documentStatus({ chatId: ctx.chatId, vin: row.vin }).catch(() => null);
+    const outstanding = [
+      ...(papersNow?.missing_labels ?? []),
+      ...(papersNow?.wrong_vehicle_labels ?? []).map((l) => `${l} - for another chassis, we need one for this unit`),
+    ];
+    const papersLine = !papersNow
+      ? ''
+      : outstanding.length
+        ? `Say what is still needed from them: ${outstanding.join('; ')}. `
+        : 'Say their documents are all received and there is nothing more to send. ' +
+          (papersNow.to_follow_labels?.length
+            ? `The ${papersNow.to_follow_labels.join(', ')} comes later from the carrier - do not ask for it. `
+            : '');
+
     return {
       ok: true,
       booking_ref: data.booking_ref,
@@ -795,6 +812,9 @@ const executors = {
       display: bookingCard(data, data.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en'),
       confirmation_emailed: notified.customer_email === true,
       confirmation_sent_in_chat: notified.customer_telegram === true,
+      documents: papersNow
+        ? { received: papersNow.received.map((r) => r.label), outstanding, later: papersNow.to_follow_labels }
+        : undefined,
       next_step:
         // The thank-you is written here rather than left to the model, so every
         // customer gets the same sentence in the same place.
@@ -808,8 +828,7 @@ const executors = {
           : notified.customer_telegram
             ? 'Say their PDF copy has just been sent here in this chat. '
             : 'Do NOT say anything was emailed or sent. ') +
-        'Say Booking Operations will confirm within one business day, and list which documents to ' +
-        'prepare (MRN, ACID, commercial invoice, packing list).',
+        'Say Booking Operations will confirm within one business day. ' + papersLine,
       booking_form_url: config.bookingFormUrl || undefined,
     };
   },

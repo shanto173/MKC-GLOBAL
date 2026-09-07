@@ -176,17 +176,25 @@ export async function documentStatus({ chatId, vin = null }) {
  * otherwise the newest open booking in the chat.
  */
 async function attachToOpenBooking(document, chatId) {
+  // Drafts count: the papers step happens while the booking is still a draft,
+  // and a document sent then belongs to it. Left out, three papers for one
+  // chassis were filed against a different vehicle's confirmed booking.
   const { data: open } = await db()
     .from('bookings')
     .select('booking_ref, vin, vin_norm, status, created_at')
     .eq('chat_id', String(chatId))
-    .in('status', ['pending_review', 'confirmed'])
+    .in('status', ['draft', 'pending_review', 'confirmed'])
     .order('created_at', { ascending: false })
     .limit(5);
   if (!open?.length) return null;
 
+  // A document that names a chassis goes only to that chassis. One that names
+  // none - a Nafeza printout carries no VIN - goes to the newest booking in the
+  // chat. There is no "nearest" for a paper that names a different vehicle.
   const docVin = document.vin ? normalizeVin(document.vin) : null;
-  const match = (docVin && open.find((b) => normalizeVin(b.vin ?? '') === docVin)) || open[0];
+  const match = docVin
+    ? open.find((b) => normalizeVin(b.vin ?? '') === docVin)
+    : open[0];
   if (!match) return null;
 
   const { error } = await db()
