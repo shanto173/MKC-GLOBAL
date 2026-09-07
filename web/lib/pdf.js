@@ -170,10 +170,20 @@ export function bookingConfirmationPdf(b, opts = {}) {
     y += 4;
 
     heading(s.cargo);
-    row(s.description, b.cargo_description);
+    // The chassis number identifies the unit on every other document in the
+    // file - invoice, MRN, ACID, bill of lading - so it belongs at the top of
+    // the cargo block, not only in the database.
+    const vehicle = [b.make, b.model].filter(Boolean).join(' ');
+    row(s.chassis, b.vin);
+    row(s.vehicle, vehicle);
+    row(s.condition, b.engine_condition ?? b.raw?.engine_condition ?? null);
+    // Skip a description that only repeats the vehicle line above it.
+    row(s.description, b.cargo_description === vehicle ? null : b.cargo_description);
     row(s.grossWeight, b.gross_weight_kg ? `${fmt(b.gross_weight_kg)} ${s.kg}` : null);
     row(s.volume, b.volume_cbm ? `${fmt(b.volume_cbm)} ${s.cbm}` : null);
     row(s.readyDate, b.ready_date);
+    row(s.mrn, b.mrn_number);
+    row(s.acid, b.acid_number);
     row(s.notes, b.notes);
     y += 4;
 

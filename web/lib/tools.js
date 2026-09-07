@@ -417,7 +417,93 @@ const executors = {
 
     const proposedThisTurn = draft?.raw?.turn_id === ctx.turnId;
 
-    if (!draft || proposedThisTurn) {
+    // A second call can mean two different things: "yes, book that" or "no,
+    // change the Incoterm". Treating both as confirmation booked corrections
+    // without asking - roadmap step 4's "Edit information" branch never ran.
+    //
+    // But comparing raw arguments does not work either: the model rewrites its
+    // own values between turns - Mercedes one turn, Mercedes-Benz the next,
+    // "Alexandria Port" then the full port name - and every one of those looked
+    // like a customer edit, so an Arabic conversation that said "yes, book it"
+    // was asked to confirm the very same card again.
+    //
+    // The honest test is the one the customer applied: would the summary they
+    // approved now read differently? So both versions are rendered as the card,
+    // in one language, from canonical values, and compared.
+    const canonical = (a) => ({
+      ...a,
+      booking_ref: '',
+      status: null,
+      vin: normalizeVin(a.vin),
+      make: canonicalMake(a.make),
+      model: latinizeName(a.model),
+      origin_port: latinizeName(a.origin_port),
+      destination_port: matchPort(a.destination_port) ?? a.destination_port,
+      gross_weight_kg: numOrNull(a.gross_weight_kg),
+      incoterm: String(a.incoterm ?? '').trim().toUpperCase() || null,
+      ready_date: dateOrNull(a.ready_date) ?? a.ready_date ?? null,
+    });
+
+    // Wording of the damage note drifts the same way, so for comparison only it
+    // is reduced to a flag: what the customer approved is that there IS damage,
+    // not the sentence describing it.
+    const cardOf = (a) => bookingCard(
+      { ...canonical(a), engine_condition: String(a.engine_condition ?? '').trim() ? 'reported damage' : null },
+      'en',
+    );
+
+    // Only a field the model actually sent counts. A field it simply left off
+    // the second call is not the customer deleting it - it is the model being
+    // terse - and anything missing is taken from the draft, so a correction
+    // that mentions only the Incoterm keeps the chassis, the route and the rest.
+    const provided = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (v !== null && v !== undefined && String(v).trim() !== '') provided[k] = v;
+    }
+    if (draft?.raw) {
+      const { turn_id: _turn, ...held } = draft.raw;
+      args = { ...held, ...provided };
+    }
+
+    const beforeCard = draft?.raw ? cardOf(draft.raw) : null;
+    const afterCard = cardOf(args);
+    const differsFromDraft = Boolean(beforeCard) && beforeCard !== afterCard;
+
+    // Named only so the model can say what it changed; the decision above is
+    // the card, not this list.
+    const CARD_FIELDS = ['vin', 'make', 'model', 'engine_condition', 'customer_name', 'origin_port',
+      'destination_port', 'gross_weight_kg', 'incoterm', 'ready_date', 'mrn_number', 'acid_number'];
+    const changedFields = differsFromDraft
+      ? CARD_FIELDS.filter((k) => {
+          const before = canonical(draft.raw)[k] ?? null;
+          const after = canonical(args)[k] ?? null;
+          return String(before ?? '').trim().toLowerCase() !== String(after ?? '').trim().toLowerCase();
+        })
+      : [];
+
+    // The model does not always carry a correction into its arguments: asked to
+    // change EXW to FOB it has re-sent EXW, and because those arguments matched
+    // the draft exactly, that counted as agreement and booked the wrong term.
+    // So when the customer's own words ask for a change and nothing on the card
+    // moved, the booking is held back once and the model is sent to read again.
+    if (draft && !proposedThisTurn && !differsFromDraft && !draft.raw?.challenged
+        && asksForChange(ctx?.customerSaid)) {
+      await db()
+        .from('bookings')
+        .update({ raw: { ...draft.raw, challenged: true } })
+        .eq('booking_ref', draft.booking_ref);
+      return {
+        ok: false,
+        needs_correction: true,
+        message:
+          'The customer asked for a change, but every value you sent is identical to the summary ' +
+          'they were already shown, so nothing would change. Read their last message again and ' +
+          'call create_booking with the corrected value. If you cannot tell what they want ' +
+          'changed, ask them - do not book.',
+      };
+    }
+
+    if (!draft || proposedThisTurn || differsFromDraft) {
       const draftRef = draft?.booking_ref ?? makeRef('BKG');
       const { error: draftErr } = await db().from('bookings').upsert({
         booking_ref: draftRef,
@@ -433,7 +519,7 @@ const executors = {
         origin_port: latinizeName(args.origin_port),
         destination_port: port,
         vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
-        make: latinizeName(args.make),
+        make: canonicalMake(args.make),
         model: latinizeName(args.model) || null,
         status: 'draft',
         raw: { ...args, turn_id: ctx.turnId },
@@ -454,14 +540,17 @@ const executors = {
       return {
         ok: false,
         needs_confirmation: true,
-        display: bookingCard(
-          { ...args, booking_ref: '', vin: String(args.vin).toUpperCase(), destination_port: port, status: null },
-          lang,
-        ),
+        // Shown from the canonical values, so what the customer approves is
+        // exactly what the operations desk will read back out of the database.
+        display: bookingCard(canonical(args), lang),
         message:
-          'NOT booked yet. Show the customer the display block above EXACTLY as written and ask ' +
-          'them to confirm it. When they reply agreeing, call create_booking again with the same ' +
-          'details. Do not tell the customer a booking exists until then.',
+          (differsFromDraft
+            ? `Updated ${changedFields.join(', ') || 'the summary'}, but NOT booked. Show the customer the corrected `
+            : 'NOT booked yet. Show the customer the ') +
+          'display block above EXACTLY as written and ask them to confirm it. When they reply ' +
+          'agreeing, call create_booking again with the same details. Do not tell the customer a ' +
+          'booking exists until then.',
+        edited: differsFromDraft ? changedFields : false,
       };
     }
 
@@ -478,11 +567,11 @@ const executors = {
       origin_port: latinizeName(args.origin_port),
       destination_port: port,
       vin: String(args.vin).toUpperCase().replace(/\s+/g, ''),
-      make: latinizeName(args.make),
+      make: canonicalMake(args.make),
       model: latinizeName(args.model) || null,
       cargo_description: [args.make, args.model, args.vehicle_type].map(latinizeName).filter(Boolean).join(' ').trim() || null,
       gross_weight_kg: numOrNull(args.gross_weight_kg),
-      incoterm: args.incoterm?.trim() || null,
+      incoterm: args.incoterm?.trim().toUpperCase() || null,   // one spelling, so the card and the row agree
       mrn_number: args.mrn_number?.trim() || null,
       acid_number: args.acid_number?.trim() || null,
       mrn_needed: Boolean(args.mrn_needed),
@@ -544,7 +633,60 @@ const executors = {
 
   async update_booking(args, ctx) {
     const ref = String(args.booking_ref ?? '').trim().toUpperCase();
-    if (!ref) return { ok: false, message: 'Ask the customer which booking reference they mean.' };
+
+    // A customer correcting a detail while the summary is still on screen has
+    // no booking reference - nothing has been booked. Asking them for one is a
+    // dead end, so the tool says what to do instead of demanding the impossible.
+    if (!ref) {
+      // Which booking they mean depends on what this chat has been doing. The
+      // newest row is the one on screen: if it is still a draft, nothing has
+      // been created, there is no reference to quote, and asking for one - as
+      // the bot did in the field - leaves the customer with nowhere to go.
+      const { data: recent } = await db()
+        .from('bookings')
+        .select('booking_ref, status, vin, raw, created_at')
+        .eq('chat_id', String(ctx.chatId))
+        .not('status', 'in', '("cancelled","rejected")')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const newest = recent?.[0];
+      if (newest?.status === 'draft') {
+        return {
+          ok: false,
+          use_create_booking: true,
+          message:
+            'This conversation has a booking still awaiting confirmation from the customer, not a ' +
+            'created booking, so there is no reference yet. Do NOT ask the customer for one. Call ' +
+            'create_booking again with every detail you already have plus their correction; it ' +
+            'returns the corrected summary for them to confirm.',
+          current_details: newest.raw ?? null,
+        };
+      }
+
+      // Past the draft stage there IS a reference, so use it rather than making
+      // the customer dig it out - but only when there is no room for doubt.
+      const open = (recent ?? []).filter((b) => b.status === 'pending_review');
+      if (open.length === 1) {
+        return {
+          ok: false,
+          booking_ref: open[0].booking_ref,
+          message:
+            `This chat has one booking still open, ${open[0].booking_ref} (chassis ${open[0].vin}). ` +
+            'Call update_booking again with that reference and the change.',
+        };
+      }
+      if (open.length > 1) {
+        return {
+          ok: false,
+          message:
+            'This chat has more than one open booking: ' +
+            open.map((b) => `${b.booking_ref} (chassis ${b.vin})`).join(', ') +
+            '. Ask the customer which one they mean.',
+        };
+      }
+      return { ok: false, message: 'Ask the customer which booking reference they mean.' };
+    }
 
     const { data: booking, error } = await db()
       .from('bookings')
@@ -571,7 +713,7 @@ const executors = {
 
     const editable = {
       vin: (v) => String(v).toUpperCase().replace(/\s+/g, ''),
-      make: latinizeName,
+      make: canonicalMake,
       model: latinizeName,
       customer_name: (v) => String(v).trim(),
       customer_contact: (v) => String(v).trim(),
@@ -684,6 +826,9 @@ const executors = {
 export async function runTool(name, args, ctx) {
   const fn = executors[name];
   if (!fn) return { error: `Unknown tool: ${name}` };
+  // TOOL_DEBUG=1 prints what the model actually asked for, which is the only
+  // way to tell a wrong answer from a wrongly-called tool.
+  if (process.env.TOOL_DEBUG) console.error(`[tool] ${name} ${JSON.stringify(args).slice(0, 500)}`);
   try {
     return await fn(args ?? {}, ctx);
   } catch (err) {
@@ -768,6 +913,40 @@ export function latinizeName(value) {
     return LATIN_NAMES.get(w) ?? LATIN_NAMES.get(bare) ?? w;
   });
   return words.join(' ');
+}
+
+/**
+ * One spelling per manufacturer. Customers write "Mercedes", the model writes
+ * "Mercedes-Benz" a turn later, and comparing those two as text made an
+ * unchanged booking look edited. It also keeps the operations list sortable.
+ */
+const MAKES = new Map(Object.entries({
+  mercedes: 'Mercedes-Benz', mercedesbenz: 'Mercedes-Benz', benz: 'Mercedes-Benz', merc: 'Mercedes-Benz',
+  volvo: 'Volvo', volvotrucks: 'Volvo',
+  scania: 'Scania', man: 'MAN', mantrucks: 'MAN', daf: 'DAF', iveco: 'Iveco',
+  renault: 'Renault', renaulttrucks: 'Renault', ford: 'Ford', fordtrucks: 'Ford',
+  isuzu: 'Isuzu', hino: 'Hino', mitsubishi: 'Mitsubishi', toyota: 'Toyota',
+  schmitz: 'Schmitz Cargobull', schmitzcargobull: 'Schmitz Cargobull',
+  krone: 'Krone', kogel: 'Kögel', wielton: 'Wielton',
+}));
+
+/**
+ * Does the customer's message ask for something to be different? Deliberately
+ * narrow: "correct" is not here, because "yes that is correct" is agreement.
+ */
+function asksForChange(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return false;
+  return /\b(change|changing|instead|make it|update|edit|fix|wrong|incorrect|mistake|should be|actually|rather|no,)\b/i.test(s)
+    || /غير|غيّر|بدل|بدّل|تعديل|عدل|عدّل|غلط|خطأ|مش صح|مش كده/.test(s)
+    || /\b(ghalat|8alat|mesh|badal|3ayez\s+a8ayar|a3'ayar|a8ayar)\b/i.test(s);
+}
+
+export function canonicalMake(value) {
+  const text = latinizeName(value);
+  if (!text) return text;
+  const key = text.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return MAKES.get(key) ?? text;
 }
 
 function matchPort(value) {

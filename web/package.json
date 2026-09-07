@@ -19,7 +19,8 @@
     "flowtest": "node scripts/flow-test.mjs",
     "artest": "node scripts/arabic-test.mjs",
     "db:push": "supabase db push",
-    "db:link": "supabase link --project-ref kverwgcnvnferjewvvyr"
+    "db:link": "supabase link --project-ref kverwgcnvnferjewvvyr",
+    "edittest": "node scripts/edit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

@@ -35,10 +35,15 @@ const STRINGS = {
     incoterm: 'Incoterm',
 
     cargo: 'CARGO',
+    chassis: 'Chassis / VIN',
+    vehicle: 'Vehicle',
+    condition: 'Reported condition',
     description: 'Description',
     grossWeight: 'Gross weight',
     volume: 'Volume',
     readyDate: 'Cargo ready date',
+    mrn: 'MRN',
+    acid: 'ACID number',
     notes: 'Notes',
 
     documents: 'DOCUMENTS TO PREPARE',
@@ -97,10 +102,15 @@ const STRINGS = {
     incoterm: 'شرط التسليم',
 
     cargo: 'بيانات البضاعة',
+    chassis: 'رقم الشاسيه',
+    vehicle: 'المركبة',
+    condition: 'حالة المركبة',
     description: 'وصف البضاعة',
     grossWeight: 'الوزن الإجمالي',
     volume: 'الحجم',
     readyDate: 'تاريخ جاهزية البضاعة',
+    mrn: 'رقم MRN',
+    acid: 'رقم ACID',
     notes: 'ملاحظات',
 
     documents: 'المستندات المطلوبة',

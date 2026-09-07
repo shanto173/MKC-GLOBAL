@@ -137,6 +137,29 @@ The PDF clearly says **"this is a request, not a confirmed booking"**. Space and
 price are always confirmed by a human. The bot never quotes a price — that would
 create real liability if it got it wrong.
 
+### If the customer wants to change something first
+
+Customers rarely just say yes. They read the summary and say "make it FOB", or
+"the weight is wrong". The bot used to answer that by asking for a booking
+reference - a number that does not exist yet, because nothing has been booked -
+and the customer was stuck.
+
+Now a change before confirming goes back through the same door the booking came
+in. The bot re-sends everything it already has plus the correction, gets a
+corrected summary, and asks again. Two things make that reliable:
+
+- **The bot cannot lose the rest.** Anything it forgets to repeat is filled in
+  from the saved draft, so correcting the Incoterm never drops the chassis
+  number or the damage note.
+- **We compare what the customer saw, not the words the bot used.** "Mercedes"
+  one turn and "Mercedes-Benz" the next is the same lorry, so that books. A
+  different Incoterm, weight, route or damage note changes the summary, so that
+  is confirmed again first.
+
+And if the customer clearly asked for a change but the bot sends the old values
+anyway, the booking is held back once and the bot is told to read the message
+again. Better one extra question than the wrong Incoterm on a customs entry.
+
 **Important safety design:** the booking is saved to the database *first*, and
 only then do the emails go out. If the email service is down, the booking is
 still safe. We never lose a customer's booking because of an email problem.

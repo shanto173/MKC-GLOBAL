@@ -18,6 +18,7 @@ const L = {
   booking:     ['رقم الحجز', 'Booking'],
   chassis:     ['الشاسيه', 'Chassis'],
   vehicle:     ['المركبة', 'Vehicle'],
+  condition:   ['حالة المركبة', 'Condition'],
   status:      ['الحالة', 'Status'],
   vessel:      ['السفينة', 'Vessel'],
   location:    ['الموقع', 'Location'],
@@ -82,6 +83,9 @@ export function bookingCard(b, lang = 'en', { documents = null } = {}) {
   return block(`📋 ${b.booking_ref ?? ''}`.trim(), [
     line('chassis', b.vin, lang),
     line('vehicle', vehicle, lang),
+    // Damage belongs on the summary the customer approves. It has been the
+    // single most expensive thing to get wrong on a declaration.
+    line('condition', b.engine_condition, lang),
     line('customer', b.customer_name, lang),
     line('route', `${b.origin_port} → ${b.destination_port}`, lang),
     line('weight', b.gross_weight_kg ? `${Number(b.gross_weight_kg).toLocaleString('en-US')} kg` : null, lang),

@@ -204,6 +204,7 @@
       </div>
       <dl class="grid">
         ${f('Chassis / VIN', b.vin)}${f('Customer', b.customer_name)}${f('Contact', b.customer_contact)}
+        ${f('Condition', b.engine_condition || (b.raw && b.raw.engine_condition) || '')}
         ${f('Company', b.company)}${f('Route', (b.origin_port||'?') + ' → ' + (b.destination_port||'?'))}
         ${f('Origin country', b.origin_country)}${f('Gross weight', b.gross_weight_kg ? b.gross_weight_kg + ' kg' : '')}
         ${f('Incoterm', b.incoterm)}${f('Ready date', b.ready_date)}${f('MRN', b.mrn_number)}

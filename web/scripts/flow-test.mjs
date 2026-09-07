@@ -158,7 +158,73 @@ const scenarios = [
       if (/\b(is booked|has been booked|booking (is )?(created|confirmed)|successfully booked)\b/i.test(reply)) {
         return 'told the customer a booking exists when the tool refused: ' + reply.slice(0, 120);
       }
-      if (!/[?؟]/.test(reply)) return 'did not ask the customer anything: ' + reply.slice(0, 120);
+      // Asking can be a question or a polite imperative - "Please provide the
+      // model" is a request, and insisting on a question mark failed the test
+      // over punctuation while the reply was doing exactly the right thing.
+      const asks = /[?؟]/.test(reply)
+        || /(please (provide|send|share|confirm)|could you|can you|let me know|kindly)/i.test(reply)
+        || /(ممكن|ابعت|ابعتلي|من فضلك|لو سمحت)/.test(reply);
+      if (!asks) return 'did not ask the customer anything: ' + reply.slice(0, 120);
+      return true;
+    },
+  },
+  {
+    name: 'correcting a detail during confirmation goes back to create_booking',
+    // The customer reads the summary and changes the Incoterm instead of
+    // agreeing. Nothing has been booked, so there is no reference to quote -
+    // asking for one strands the customer, which is exactly what happened live.
+    turns: (() => {
+      const state = { turn: 0, drafted: null, booked: null, lastArgs: null };
+      const booking = (args) => {
+        const changed = state.lastArgs && String(state.lastArgs.incoterm ?? '').toUpperCase() !== String(args.incoterm ?? '').toUpperCase();
+        state.lastArgs = args;
+        if (state.drafted === null || state.drafted === state.turn || changed) {
+          state.drafted = state.turn;
+          return {
+            ok: false,
+            needs_confirmation: true,
+            display: [
+              `Chassis: ${String(args.vin).toUpperCase()}`,
+              `Vehicle: ${[args.make, args.model].filter(Boolean).join(' ')}`,
+              `Route: ${args.origin_port} to ${args.destination_port}`,
+              `Incoterm: ${args.incoterm ?? '-'}`,
+            ].join('\n'),
+            message: 'NOT booked yet. Show the display block above exactly and ask them to confirm.',
+          };
+        }
+        state.booked = state.turn;
+        return { ok: true, booking_ref: 'MKY-BKG-260907-CD34', status: 'pending_review' };
+      };
+      const turn = (n, user) => ({
+        user,
+        onTurn: () => { state.turn = n; },
+        results: {
+          lookup_vehicle: { verdict: 'new', known: false, next_step: 'New unit. Ask for make and model, customer name, and route.' },
+          create_booking: booking,
+          update_booking: {
+            ok: false,
+            use_create_booking: true,
+            message: 'There is no booking reference yet. Call create_booking again with the correction.',
+          },
+        },
+      });
+      return Object.assign([
+        turn(0, 'Book chassis W1T96340310484233, Mercedes-Benz Actros 1845, I am Ariful Islam, Vilnius to Alexandria, 8266 kg, EXW, ready 20 September 2026'),
+        turn(1, 'i want to change incoterm EXW to FOB'),
+        turn(2, 'yes that is correct now, please book it'),
+      ], { state });
+    })(),
+    check: ({ turns, byTurn, all, reply }) => {
+      const correction = byTurn[1] ?? [];
+      if (!correction.some((c) => c.name === 'create_booking')) {
+        return 'the correction turn did not call create_booking: ' + (correction.map((c) => c.name).join('+') || 'no tool at all');
+      }
+      const fob = all.filter((c) => c.name === 'create_booking').find((c) => /FOB/i.test(c.args.incoterm ?? ''));
+      if (!fob) return 'never passed the corrected Incoterm';
+      if (String(fob.args.vin).toUpperCase().replace(/\s/g, '') !== 'W1T96340310484233') return `lost the chassis on the correction: ${fob.args.vin}`;
+      if (turns.state.booked === null) return 'never booked after the customer agreed';
+      if (turns.state.booked <= 1) return 'booked the correction without asking again';
+      if (!/CD34/.test(reply)) return 'did not give the customer the reference';
       return true;
     },
   },

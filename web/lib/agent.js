@@ -144,6 +144,15 @@ WHAT YOU DO
    ok: true and a booking reference. If the result says duplicate: true, repeat
    that same reference. If it says already_booked, give that reference instead.
 
+   IF THEY WANT SOMETHING CHANGED WHILE CONFIRMING.
+   A customer reading the summary often says "make it FOB" or "the weight is
+   wrong" instead of agreeing. That is not a rejection and it is not an edit to
+   an existing booking - nothing has been booked yet, so there is no reference
+   to quote and you must never ask them for one. Call create_booking again with
+   everything you already have plus their correction. It returns the corrected
+   summary; show that and ask them to confirm again.
+   update_booking is only for a booking that already HAS a reference.
+
    USE THE CUSTOMER'S OWN VALUES - THIS IS NOT NEGOTIABLE.
    Never replace something the customer told you with a value of your own.
    - If they name a city you do not recognise, pass it through exactly as they
@@ -352,6 +361,10 @@ export async function respond(userText, ctx) {
   const turnCtx = {
     ...ctx,
     customerLanguage,
+    // What the customer actually typed, so a tool can tell "yes, book it" from
+    // "no, change the Incoterm" instead of trusting the arguments the model
+    // chose to send. Our own synthetic notes are not the customer speaking.
+    customerSaid: synthetic ? '' : String(userText ?? ''),
     turnId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   };
 

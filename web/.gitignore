@@ -7,3 +7,5 @@ data/sample-booking.pdf
 vercel-env-to-add.txt
 _*.pdf
 _*.mjs
+data/sample-booking-ar.pdf
+data/*.png
