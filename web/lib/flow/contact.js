@@ -237,36 +237,65 @@ const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 const PHONE = /(\+?\d[\d\s().-]{7,}\d)/;
 
 /**
- * Takes the problem and a way to reach the client, and raises the ticket.
+ * A ticket needs two things: what the problem is, and a number to call.
  *
- * Both are asked for together, once. A ticket with no number is a note to
- * nobody, but a client who will not give one still gets a ticket - with the
- * chat as the contact - rather than being asked a fourth time.
+ * They arrive in either order. A client who taps "share my number" first has
+ * given us the number and NOT the problem - and raising the ticket there put
+ * "The client asked to speak to someone" on the operations desk along with a
+ * phone number and nothing else. Two of those reached the real desk.
+ *
+ * So both are collected, whichever comes first, and the ticket is raised when
+ * both are in hand - or when the client says they will not give a number, in
+ * which case the chat itself is the contact.
+ *
+ * @param {{problem?: string|null, phone?: string|null, declined?: boolean}} incoming
  */
-export async function handleTicketDetails(session, text, ctx) {
-  const body = String(text ?? '').trim();
+async function progressTicket(session, incoming, ctx) {
+  const held = session.context?.ticket ?? {};
   const department = DEPARTMENTS.includes(session.context?.department)
     ? session.context.department
     : DEPARTMENT_FOR.other;
 
-  const phone = body.match(PHONE)?.[0]?.trim() ?? null;
-  const email = body.match(EMAIL)?.[0] ?? null;
-  const contact = phone || email || ctx.sharedPhone || null;
+  const ticket = {
+    department,
+    problem: incoming.problem ?? held.problem ?? null,
+    phone: incoming.phone ?? held.phone ?? null,
+    declined: Boolean(incoming.declined || held.declined),
+  };
 
-  if (body.length < 8 && !contact) {
-    return reply(askForContact(), { current_state: S.CONTACT_TICKET_DETAILS });
+  const context = { ...session.context, department, ticket };
+
+  // The problem first: without it the desk cannot route the call, and a number
+  // on its own is a message to nobody.
+  if (!ticket.problem) {
+    return reply(
+      say(ticket.phone ? M.askProblemOnly() : M.askProblemAndPhone(), kb.homeOnly()),
+      { current_state: S.CONTACT_TICKET_DETAILS, context },
+    );
   }
 
-  const ticketRef = `${config.refPrefix}-TKT-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  if (!ticket.phone && !ticket.declined) {
+    return reply(
+      { text: M.askPhoneOnly(), keyboard: kb.SHARE_PHONE_KEYBOARD, oneTime: true },
+      { current_state: S.CONTACT_TICKET_DETAILS, context },
+    );
+  }
+
+  return raiseTicket(ticket, ctx, session);
+}
+
+async function raiseTicket(ticket, ctx, session) {
+  const ref = `${config.refPrefix}-TKT-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
   const row = {
-    ticket_ref: ticketRef,
+    ticket_ref: ref,
     channel: ctx.channel,
     chat_id: String(ctx.chatId),
-    department,
+    department: ticket.department,
     customer: ctx.userName ?? null,
-    contact: contact ?? `${ctx.channel}:${ctx.chatId}`,
-    summary: body || 'The client asked to speak to someone.',
+    // The chat is a real way to reach someone when they will not give a number.
+    contact: ticket.phone || `${ctx.channel}:${ctx.chatId}`,
+    summary: ticket.problem,
   };
 
   const { data, error } = await db().from('support_tickets').insert(row).select().single();
@@ -281,7 +310,7 @@ export async function handleTicketDetails(session, text, ctx) {
     chatId: ctx.chatId,
     channel: ctx.channel,
     priority: 'normal',
-    payload: { ticket_ref: data.ticket_ref, department, contact: row.contact },
+    payload: { ticket_ref: data.ticket_ref, department: ticket.department, contact: row.contact },
     idempotencyKey: `ticket:${data.ticket_ref}`,
   });
 
@@ -291,19 +320,47 @@ export async function handleTicketDetails(session, text, ctx) {
     actor_type: 'client', actor_id: ctx.chatId,
     action: 'support_ticket_created',
     entity_type: 'support_ticket', entity_id: data.ticket_ref,
-    metadata: { department, has_phone: Boolean(phone) },
+    metadata: { department: ticket.department, has_phone: Boolean(ticket.phone) },
   });
 
-  return reply(say(M.ticketOpened(data.ticket_ref, department), kb.mainMenu()), {
-    active_flow: null, current_state: S.MAIN_MENU, context: {},
+  const context = { ...session.context };
+  delete context.ticket;
+  delete context.department;
+
+  return reply(say(M.ticketOpened(data.ticket_ref, ticket.department), kb.mainMenu()), {
+    active_flow: null, current_state: S.MAIN_MENU, context,
   });
+}
+
+/** The client typed something while we were collecting a ticket. */
+export async function handleTicketDetails(session, text, ctx) {
+  const body = String(text ?? '').trim();
+
+  const phone = body.match(PHONE)?.[0]?.trim() ?? null;
+  const email = body.match(EMAIL)?.[0] ?? null;
+
+  // "I will type it" is the reply-keyboard's other button, not a problem
+  // description - and neither is a bare phone number.
+  const isJustAContact = Boolean((phone || email) && body.replace(PHONE, '').replace(EMAIL, '').trim().length < 8);
+  const wantsToType = /^\s*(✏️)?\s*(i will type it|هكتبه بنفسي)/i.test(body);
+  const declines = /\b(not now|no number|skip|later|prefer not)\b|مش دلوقتي|مش هدي|بعدين/i.test(body);
+
+  const problem = isJustAContact || wantsToType || declines || body.length < 8 ? null : body;
+
+  return progressTicket(session, { problem, phone: phone || email, declined: declines }, ctx);
+}
+
+/** Telegram handed us a verified number through the contact button. */
+export async function handleSharedPhone(session, phone, ctx) {
+  return progressTicket(session, { phone: String(phone ?? '').trim() || null }, ctx);
 }
 
 /** "Request a document" - a ticket with the request in it. */
 export async function handleDocumentRequest(session, text, ctx) {
-  return handleTicketDetails(
+  const asked = String(text ?? '').trim();
+  return progressTicket(
     { ...session, context: { ...session.context, department: DEPARTMENT_FOR.documents } },
-    `Document requested: ${String(text ?? '').trim()}`,
+    { problem: asked.length >= 3 ? `Document requested: ${asked}` : null },
     ctx,
   );
 }

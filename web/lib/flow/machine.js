@@ -121,13 +121,11 @@ async function dispatch(session, input, ctx) {
   // 3. A shared phone number is an answer to the ticket question, wherever we
   //    are - Telegram sends it as its own kind of message.
   if (input.kind === 'contact') {
+    // A shared number is a number, not a problem description. Treating it as
+    // both raised tickets that told the desk a phone number and nothing else.
     return {
       handled: true,
-      ...(await contact.handleTicketDetails(
-        session,
-        `${session.context?.pending_problem ?? 'The client asked to speak to someone.'} ${input.phone}`,
-        { ...ctx, sharedPhone: input.phone },
-      )),
+      ...(await contact.handleSharedPhone(session, input.phone, ctx)),
     };
   }
 

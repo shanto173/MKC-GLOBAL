@@ -72,6 +72,7 @@ function harness(seed = {}) {
   return {
     db,
     ctx,
+    send,
     text: (t) => send({ kind: 'text', text: t }),
     tap: (data) => send({ kind: 'callback', callback: { ...parseCallback(data), id: 'cbq' } }),
     command: (c) => send({ kind: 'command', command: c, text: c }),
@@ -1334,4 +1335,85 @@ test('a labelled chassis still faces the duplicate check', async () => {
   await h.tap('menu:book');
   const r = await h.text('Chassis │ YV2RT40A8FB712905');
   assert.match(said(r), /already booked/);
+});
+
+// ---------------------------------------------------------------------------
+// A ticket needs the problem, not just a phone number
+// ---------------------------------------------------------------------------
+
+test('regression: sharing a number asks for the problem instead of raising a ticket', async () => {
+  const h = harness();
+  await h.tap('menu:contact');
+  await h.tap('ct:ops');
+
+  const r = await h.send({ kind: 'contact', phone: '+8801818488624' });
+
+  assert.equal((h.db._tables.support_tickets ?? []).length, 0, 'nothing raised yet');
+  assert.match(said(r), /What is the problem/);
+  assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
+
+  const done = await h.text('My invoice shows the wrong gross weight for chassis YV2RT40A8FB712905.');
+
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 1);
+  assert.match(tickets[0].summary, /wrong gross weight/);
+  assert.equal(tickets[0].contact, '+8801818488624');
+  assert.doesNotMatch(tickets[0].summary, /asked to speak to someone/);
+  assert.match(said(done), /Ticket MKY-TKT-/);
+});
+
+test('describing the problem first then sharing a number also works', async () => {
+  const h = harness();
+  await h.tap('menu:contact');
+  await h.tap('ct:ops');
+
+  const asked = await h.text('The vessel on my shipment is wrong.');
+  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.match(said(asked), /phone number/i);
+
+  await h.send({ kind: 'contact', phone: '+201005551234' });
+
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 1);
+  assert.match(tickets[0].summary, /vessel on my shipment is wrong/);
+  assert.equal(tickets[0].contact, '+201005551234');
+});
+
+test('problem and number in one message still raises one ticket', async () => {
+  const h = harness();
+  await h.tap('menu:contact');
+  await h.tap('ct:ops');
+
+  await h.text('My ACID is missing from the paperwork. Call me on +20 100 555 1234');
+
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 1);
+  assert.match(tickets[0].summary, /ACID is missing/);
+  assert.match(tickets[0].contact, /\+20 100 555 1234/);
+});
+
+test('a client who will not give a number still gets a ticket, reachable in the chat', async () => {
+  const h = harness();
+  await h.tap('menu:contact');
+  await h.tap('ct:ops');
+
+  await h.text('The booking reference on my PDF is wrong.');
+  const r = await h.text('not now');
+
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 1);
+  assert.match(tickets[0].summary, /booking reference on my PDF/);
+  assert.equal(tickets[0].contact, 'telegram:555', 'the chat is the contact');
+  assert.match(said(r), /Ticket MKY-TKT-/);
+});
+
+test('a bare phone number is never mistaken for a problem description', async () => {
+  const h = harness();
+  await h.tap('menu:contact');
+  await h.tap('ct:ops');
+
+  const r = await h.text('+8801818488624');
+
+  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.match(said(r), /What is the problem/);
 });

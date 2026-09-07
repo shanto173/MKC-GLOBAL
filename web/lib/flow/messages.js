@@ -342,6 +342,24 @@ export const M = {
     'I have logged your request and our Operations Team will get in touch. A direct contact number has not been configured for me to give out.',
   ),
 
+  // Asked separately, because the two arrive in either order: some clients tap
+  // "share my number" first, some describe the problem first. Asking for both
+  // again once one is in hand reads as not having listened.
+  askProblemOnly: () => both(
+    'تمام، وصلني رقمك. المشكلة إيه بالظبط؟ اكتبها في جملة أو اتنين.',
+    'Thanks, I have your number. What is the problem? A sentence or two is enough.',
+  ),
+
+  askPhoneOnly: () => both(
+    'تمام. وابعتلي رقم موبايل نكلمك عليه.',
+    'Noted. And a phone number we can call you on?',
+  ),
+
+  ticketNeedsProblem: () => both(
+    'محتاج أعرف المشكلة الأول عشان أفتح الطلب للفريق الصح.',
+    'I need to know what the problem is first, so it reaches the right team.',
+  ),
+
   askProblemAndPhone: () => both(
     'عشان نفتح الطلب للفريق، ابعت في رسالة واحدة:\n• المشكلة بالظبط\n• رقم موبايل نكلمك عليه',
     'To open this with the team, send in one message:\n• What the problem is\n• A phone number we can call you on',
