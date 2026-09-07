@@ -16,6 +16,7 @@ import { notifyBookingDecision } from '../../lib/notify.js';
 import { signedUrl } from '../../lib/storage.js';
 import { createShipmentFromBooking } from '../../lib/shipments.js';
 import { knownOperator } from './users.js';
+import { refreshPinSafely } from '../../lib/pinned.js';
 
 const ACTIONS = { confirm: 'confirmed', reject: 'rejected', cancel: 'cancelled' };
 
@@ -203,6 +204,13 @@ async function decide(req, res) {
           ? `${note ? note + ' ' : ''}Track it with ${shipment.shipment_id} or your chassis number.`
           : note,
       );
+
+  // A cancellation is not announced to the customer, so nothing else would have
+  // refreshed the card at the top of their chat - and it would have gone on
+  // showing a booking that no longer exists.
+  if (updated.channel === 'telegram' && updated.chat_id) {
+    await refreshPinSafely(updated.chat_id);
+  }
 
   if (told.telegram || told.email) {
     await db().from('bookings').update({ customer_told_at: new Date().toISOString() }).eq('booking_ref', ref);
