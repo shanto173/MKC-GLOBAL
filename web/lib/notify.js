@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { bookingConfirmationPdf } from './pdf.js';
 import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
+import { splitLanguages } from './agent.js';
 
 /**
  * @param {object} booking row from the bookings table
@@ -170,7 +171,9 @@ export async function notifyBookingDecision(booking, decision, note = '') {
   // The customer booked in one language; send both, as the chat already does.
   if (booking.chat_id && booking.channel === 'telegram' && config.telegram.token) {
     try {
-      await sendMessage(booking.chat_id, `${arabic}\n|\n${english}`);
+      // Through the same divider as every other reply; a bare "|" reached the
+      // customer as a literal bar between the two halves.
+      await sendMessage(booking.chat_id, splitLanguages(`${arabic} | ${english}`));
       result.telegram = true;
     } catch (err) {
       result.errors.push(`telegram: ${err.message}`);

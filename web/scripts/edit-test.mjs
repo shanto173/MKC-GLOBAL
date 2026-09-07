@@ -73,9 +73,14 @@ check('still a draft, not a real booking', afterEdit?.status === 'draft', afterE
 
 // 3 - now they agree. The model sends a shorter argument list, as models do;
 // nothing the customer said may be lost.
-console.log('\nturn 3: "yes, book it" (model drops the notes and the weight)');
+console.log('\nturn 3: "yes, book it" - but no papers have been sent');
 const { notes: _n, gross_weight_kg: _w, ready_date: _r, ...terse } = DETAILS;
-const booked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(3, 'yes that is correct, please book it'));
+const asked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(3, 'yes that is correct, please book it'));
+check('asks for the documents before booking', asked.needs_documents === true && asked.ok === false, JSON.stringify(asked).slice(0, 200));
+check('as a block the customer can read', /Before this goes to Operations/.test(asked.display ?? ''), (asked.display ?? '').slice(0, 120));
+
+console.log('\nturn 4: "later" (model drops the notes and the weight)');
+const booked = await runTool('create_booking', { ...terse, incoterm: 'FOB' }, ctx(4, 'later'));
 check('the booking is created', booked.ok === true && Boolean(booked.booking_ref), JSON.stringify(booked).slice(0, 200));
 
 const finalRow = await draftRow();
@@ -116,7 +121,7 @@ const drifted = await runTool('create_booking', {
   gross_weight_kg: '8266',
   incoterm: 'exw',
   notes: 'Engine is damaged and the unit does not run',
-}, ctx3(2));
+}, { ...ctx3(2), customerSaid: 'yes, I will send the papers later' });
 check('reworded values still book', drifted.ok === true, JSON.stringify(drifted).slice(0, 200));
 
 // 5c - damage appearing or disappearing is a change the customer must see.
@@ -139,7 +144,7 @@ const ctx5 = (turn, s = '') => ({ channel: 'web', chatId: chat5, turnId: `c${tur
 await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(1, `book chassis ${VIN}E`));
 const ignored = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(2, said));
 check('does not book when nothing changed but a change was asked for', ignored.ok === false && ignored.needs_correction === true, JSON.stringify(ignored).slice(0, 200));
-const secondTry = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(3, said));
+const secondTry = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(3, 'ok, and I will send the documents later'));
 check('held back only once, never stuck in a loop', secondTry.ok === true, JSON.stringify(secondTry).slice(0, 200));
 
 // 5e - an Incoterm is a closed list, so when the customer names one and the
@@ -180,7 +185,9 @@ check('does not claim it is booked', !/\b(is booked|has been booked|booking (is 
 const liveDraft = (await db().from('bookings').select('status, raw').eq('chat_id', liveChat).maybeSingle()).data;
 check('the draft holds FOB and is still a draft', liveDraft?.status === 'draft' && liveDraft?.raw?.incoterm === 'FOB', `${JSON.stringify(liveDraft?.raw?.incoterm)} / ${liveDraft?.status} / tools: ${corrected.toolsUsed.join(',') || 'none'}`);
 
-const agreed = await respond('yes that is correct, please book it', live);
+const askedLive = await respond('yes that is correct, please book it', live);
+check('live: asked for papers before booking', askedLive.reply.includes('Before this goes to Operations'), askedLive.reply.replace(/\s+/g, ' ').slice(0, 160));
+const agreed = await respond('later', live);
 const liveFinal = (await db().from('bookings').select('booking_ref, status, incoterm, raw').eq('chat_id', liveChat).maybeSingle()).data;
 check('booking created after agreement', liveFinal?.status === 'pending_review', JSON.stringify(liveFinal?.status));
 check('booked as FOB', (liveFinal?.incoterm ?? liveFinal?.raw?.incoterm) === 'FOB', JSON.stringify(liveFinal?.incoterm));
@@ -204,7 +211,7 @@ const ctx7 = { channel: 'web', chatId: chat7, turnId: 'f1', customerLanguage: 'e
 await saveHistory('web', chat7, [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }]);
 await runTool('create_booking', { ...DETAILS, vin: VIN + 'G' }, ctx7);                       // a draft
 await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f2' });  // and another
-await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f3' });  // ...confirmed
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f3', customerSaid: 'yes, papers later' });  // ...confirmed
 
 const beforeFresh = (await db().from('bookings').select('status').eq('chat_id', chat7)).data ?? [];
 check('one draft at a time, not one per chassis', beforeFresh.filter((b) => b.status === 'draft').length <= 1, JSON.stringify(beforeFresh.map((b) => b.status)));
@@ -235,7 +242,8 @@ await saveH('web', chat8, [
   { role: 'assistant', content: `${proposal.display}\n\nPlease confirm these details.` },
 ]);
 
-const agreedReply = await respond('yes that is correct, please book it', { channel: 'web', chatId: chat8 });
+await respond('yes that is correct, please book it', { channel: 'web', chatId: chat8 });   // -> asks for papers
+const agreedReply = await respond('later', { channel: 'web', chatId: chat8 });
 const booked8 = (await db().from('bookings').select('booking_ref, status').eq('chat_id', chat8).maybeSingle()).data;
 check('saying yes to the summary books it', booked8?.status === 'pending_review', JSON.stringify(booked8));
 check('and the customer is told the reference', Boolean(booked8?.booking_ref) && agreedReply.reply.includes(booked8.booking_ref), agreedReply.reply.replace(/\s+/g, ' ').slice(0, 200));

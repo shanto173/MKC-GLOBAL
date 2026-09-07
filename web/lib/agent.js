@@ -123,20 +123,20 @@ ${known}
      - gross weight in kg
      - the Incoterm: EXW, FOB, CIF or DAP
      - the cargo ready date
-   Ask for whatever is still missing in ONE message, as a short list, and put the
-   document list from step 3 in that same message. Asking for one thing per turn
-   is what makes a two-minute booking take twenty, and it is the complaint we
-   hear most.
+   Ask for whatever is still missing in ONE message, as a short list. Asking for
+   one thing per turn is what makes a two-minute booking take twenty, and it is
+   the complaint we hear most.
    If they answer only some of it, take what they gave and move on - ask once,
-   not twice.
+   not twice. Do NOT ask for documents here: once they agree to the summary,
+   create_booking asks for the papers itself, at the right moment, as a block.
 
    STEP 3 - DOCUMENTS.
-   Name the WHOLE list in one message. Asking for two of them, getting both, and
-   then asking for a third makes a two-minute booking into four rounds, and it
-   is what customers complain about. When a tool result carries
-   documents_outstanding or a missing list, read every item of it back - never a
-   subset you chose yourself.
-   Ask the customer to send these, as files or as photographs:
+   You do not ask for these yourself. When the customer agrees to the summary,
+   create_booking answers needs_documents and sends them the list as a block -
+   that is the moment, and it is asked once. Your job with documents is to READ
+   what arrives (check_documents) and to name what is still missing when a tool
+   result carries a missing list - every item of it, never a subset.
+   For reference, the papers are these, sent as files or as photographs:
      - the commercial invoice
      - the transport document or EUR.1 certificate of origin
      - the MRN from the export country
@@ -520,8 +520,13 @@ function stripCards(reply, displays) {
     }
   }
 
+  // A bullet list next to a card is the card again in the model's own words -
+  // "The booking details we have are: - Vehicle: ... - Name: ..." right under
+  // the block that already says so. With a block attached, the prose is a
+  // sentence, not a list.
   return text
     .split('\n')
+    .filter((l) => !/^\s*[-\u2022*]\s+\S/.test(l))
     .map((l) => l.trimEnd())
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -670,11 +675,14 @@ export async function respond(userText, ctx) {
   // Agreement is not something we can afford to lose: if the last thing we sent
   // was a summary card, they agreed to it, and nothing was booked this turn,
   // the booking is completed here and the model is asked only to say so.
-  const showedCard = /\u{1F4CB}/u.test([...history].reverse().find((m) => m.role === 'assistant')?.content ?? '');
+  const lastCard = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+  // The summary card, or the documents request that follows a yes to it: an
+  // agreement after either one means "book it".
+  const showedCard = /\u{1F4CB}/u.test(lastCard) || lastCard.includes('Before this goes to Operations');
   const proposedEarlier = turnCtx.draft?.raw?.turn_id && turnCtx.draft.raw.turn_id !== turnCtx.turnId;
 
   if (showedCard && proposedEarlier && !toolsUsed.includes('create_booking')
-      && looksLikeAgreement(turnCtx.customerSaid)) {
+      && (looksLikeAgreement(turnCtx.customerSaid) || /^(later|\u0628\u0639\u062f\u064a\u0646)\b/i.test(turnCtx.customerSaid.trim()))) {
     const result = await runTool('create_booking', turnCtx.draft.raw, turnCtx);
     toolsUsed.push('create_booking');
     if (result?.display && !displays.includes(result.display)) displays.push(result.display);

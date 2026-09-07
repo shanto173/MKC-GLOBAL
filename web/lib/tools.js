@@ -9,7 +9,7 @@ import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
-import { shipmentCard, bookingCard, documentsCard, checklistCard } from './format.js';
+import { shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard } from './format.js';
 
 export const toolDefinitions = [
   {
@@ -341,12 +341,17 @@ const executors = {
     const opening = verdict === 'new'
       ? 'الوحدة دي جديدة عندنا - دي البيانات اللي ناقصة / This unit is new to us - here is what we still need'
       : 'الوحدة دي عندنا بالفعل - دي البيانات اللي ناقصة / We already hold this unit - here is what we still need';
-    const checklist = openBooking ? null : detailsNeededCard(ctx?.customerSaid, { opening });
     // Only a field the booking cannot exist without makes the list the whole
     // answer. Weight, Incoterm, ready date and damage are asked for on the same
     // list, but they must not stop the booking reaching its summary - doing so
     // left a customer who had given everything staring at a checklist.
     const missingBasics = !openBooking && missingRequiredDetails(ctx?.customerSaid);
+    // Documents are listed here only alongside missing basics, as a heads-up.
+    // Once the basics are in, they are asked for properly - once - just before
+    // the booking goes to the desk, so the customer is not asked twice.
+    const checklist = openBooking
+      ? null
+      : detailsNeededCard(ctx?.customerSaid, { opening, includeDocuments: missingBasics });
 
     return {
       verdict,
@@ -529,7 +534,7 @@ const executors = {
     if (draft?.raw) {
       // challenged is bookkeeping, not a booking detail: dropping it here means
       // a genuinely revised proposal gets its own safety net again.
-      const { turn_id: _turn, challenged: _challenged, details_asked: _asked, ...held } = draft.raw;
+      const { turn_id: _turn, challenged: _challenged, details_asked: _asked, documents_asked: _docs, ...held } = draft.raw;
       args = { ...held, ...provided };
     }
 
@@ -685,6 +690,30 @@ const executors = {
           'booking exists until then.',
         edited: differsFromDraft ? changedFields : false,
       };
+    }
+
+    // Roadmap step 3, which a customer who pasted everything and said "yes"
+    // skipped straight past: the papers are asked for once before the request
+    // goes to the desk. "Later" - or a second yes - still books, with them
+    // marked outstanding, because a customer without the invoice to hand is
+    // still a customer.
+    if (!draft.raw?.documents_asked) {
+      const papers = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
+      const nothingYet = !papers || (papers.received ?? []).length === 0;
+      const saidLater = /\b(later|afterwards|not now|don'?t have)\b|\u0628\u0639\u062f\u064a\u0646|\u0645\u0634 \u0645\u0639\u0627\u064a|\u0645\u0639\u0646\u062f\u064a\u0634/i.test(String(ctx?.customerSaid ?? ''));
+      if (nothingYet && !saidLater) {
+        await db()
+          .from('bookings')
+          .update({ raw: { ...draft.raw, documents_asked: true } })
+          .eq('booking_ref', draft.booking_ref);
+        return {
+          ok: false,
+          needs_documents: true,
+          display: documentsRequestCard(papers),
+          verbatim: true,
+          message: 'Not booked yet: the customer has been asked for their documents. Say nothing further.',
+        };
+      }
     }
 
     const row = {
