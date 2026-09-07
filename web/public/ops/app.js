@@ -15,6 +15,8 @@
 import {
   STATUS, statusLabel, statusTone, whoseTurn, PRIORITY, priorityLabel,
   humanAge, DOC_STATUS, DOC_LABEL, REJECT_REASONS, TRANSITIONS,
+  REQUEST_STATUS, REQUEST_TRANSITIONS, REQUEST_TYPE,
+  requestStatusLabel, requestStatusTone, shipmentTone,
 } from './workflow.js';
 
 const SKEY = 'mky-ops-secret';
@@ -994,13 +996,16 @@ const TITLES = {
   dashboard: 'Dashboard', queue: 'Booking Queue', mrn: 'MRN Requests',
   documents: 'Document Review', confirmed: 'Confirmed Bookings', shipments: 'Shipments',
   requests: 'Client Requests', tasks: 'My Tasks', booking: 'Booking request', search: 'Search',
+  request: 'Client request', shipment: 'Shipment',
 };
 
 function parseHash() {
   const parts = (location.hash || '#/dashboard').replace(/^#\/?/, '').split('/');
   const page = parts[0] || 'dashboard';
-  if (page === 'booking') return { page, ref: decodeURIComponent(parts[1] ?? '') };
+  if (['booking', 'request', 'shipment'].includes(page)) return { page, ref: decodeURIComponent(parts[1] ?? '') };
   if (page === 'queue') return { page, filter: parts[1] || 'active' };
+  if (page === 'requests') return { page, filter: parts[1] || 'open' };
+  if (page === 'shipments') return { page, filter: parts[1] || 'active' };
   return { page };
 }
 
@@ -1027,13 +1032,10 @@ async function render() {
         ['By', (r) => r.confirmed_by], ['Shipment', (r) => r.shipment_id],
       ]);
     }
-    if (route.page === 'shipments' || route.page === 'requests') {
-      root.appendChild(emptyState(
-        `${TITLES[route.page]} lives in the old console for now`,
-        'Open /ops.html — this screen is next.',
-      ));
-      return;
-    }
+    if (route.page === 'requests') return await pageRequests(root);
+    if (route.page === 'request') return await pageRequest(root, route.ref);
+    if (route.page === 'shipments') return await pageShipments(root);
+    if (route.page === 'shipment') return await pageShipment(root, route.ref);
     root.appendChild(emptyState('Nothing here', 'Pick something from the sidebar.'));
   } catch (e) {
     root.replaceChildren(errorState('Something went wrong loading this screen.', render));
@@ -1095,4 +1097,453 @@ if (secret && operator) {
   enter();
 } else {
   gate('');
+}
+
+// ---------------------------------------------------------------------------
+// Client requests
+// ---------------------------------------------------------------------------
+
+const REQUEST_FILTERS = [
+  ['open', 'All open'], ['mine', 'Mine'], ['unassigned', 'Unassigned'],
+  ['booking', '📦 Booking'], ['tracking', '🚚 Tracking'], ['documents', '📄 Documents'],
+  ['other', '💬 Other'], ['resolved', 'Resolved'],
+];
+
+async function pageRequests(root) {
+  const filter = route.filter || 'open';
+
+  const bar = el('div', 'filters');
+  for (const [key, label] of REQUEST_FILTERS) {
+    const b = el('button', 'fchip', label);
+    b.setAttribute('aria-pressed', String(key === filter));
+    b.onclick = () => { location.hash = `#/requests/${key}`; };
+    bar.appendChild(b);
+  }
+  root.appendChild(bar);
+
+  const host = el('div');
+  host.appendChild(skeleton(7));
+  root.appendChild(host);
+
+  let data;
+  try {
+    data = await api(`view=requests&filter=${encodeURIComponent(filter)}&operator=${encodeURIComponent(operator)}`);
+  } catch {
+    host.replaceChildren(errorState('We could not load client requests.', render));
+    return;
+  }
+
+  if (filter === 'open') { counts.requests = data.total; renderShell(); }
+
+  if (!data.rows.length) {
+    host.replaceChildren(emptyState('No open client requests 🎉', 'Nobody is waiting to hear from us.'));
+    return;
+  }
+
+  const wrap = el('div', 'tablewrap');
+  const t = el('table', 'ops');
+  t.innerHTML = '<thead><tr>'
+    + '<th></th><th>Status</th><th>Turn</th><th>Type</th><th>Client</th><th>Call</th>'
+    + '<th>What they need</th><th>Booking</th><th>Owner</th><th>Next action</th><th>Waiting</th>'
+    + '</tr></thead>';
+  const tb = el('tbody');
+
+  for (const r of data.rows) {
+    const tr = el('tr');
+    tr.onclick = () => { location.hash = `#/request/${r.ticket_ref}`; };
+
+    const pri = el('td');
+    const mark = el('span', `pri ${r.priority}`);
+    mark.title = `${priorityLabel(r.priority)} priority`;
+    pri.appendChild(mark);
+
+    const type = REQUEST_TYPE[r.request_type] ?? REQUEST_TYPE.other;
+    const phone = r.contact && !/^(telegram|web):/i.test(r.contact) ? r.contact : null;
+
+    tr.append(
+      pri,
+      cell(chip(r.status_label, requestStatusTone(r.status))),
+      cell(ownerTag(r.next.owner)),
+      cell(el('span', null, `${type.icon} ${type.label}`)),
+      cell(el('span', null, r.customer || r.client_display_name || '—')),
+      cell(phone ? el('span', 'mono', phone) : el('span', 'sub', 'chat only')),
+      cell(el('span', null, (r.summary || '').slice(0, 70))),
+      cell(r.booking_ref ? el('span', 'mono', r.booking_ref.replace(/^MKY-BKG-/, '')) : el('span', 'sub', '—')),
+      cell(el('span', r.assigned_to ? null : 'sub', r.assigned_to || 'Unassigned')),
+      cell(el('span', null, r.next.label)),
+      cell(el('span', null, humanAge(r.waiting_since))),
+    );
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  host.replaceChildren(wrap);
+}
+
+let requestView = null;
+
+async function pageRequest(root, ref) {
+  root.appendChild(skeleton(6));
+  try {
+    requestView = await api(`view=request&ref=${encodeURIComponent(ref)}`);
+  } catch (e) {
+    root.replaceChildren(errorState(e.message || 'We could not load this request.', render));
+    return;
+  }
+  root.replaceChildren();
+
+  const r = requestView.request;
+  const next = requestView.next_action;
+  const type = REQUEST_TYPE[r.request_type] ?? REQUEST_TYPE.other;
+
+  const head = el('div', 'bkhead');
+  const row1 = el('div', 'row1');
+  row1.append(
+    el('h1', null, `${type.icon} ${type.label}`),
+    chip(r.status_label, requestStatusTone(r.status)),
+    ownerTag(next.owner),
+  );
+  head.appendChild(row1);
+  const meta = el('div', 'meta');
+  meta.append(
+    kv('Request', r.ticket_ref),
+    kv('Client', r.customer || r.client_display_name),
+    kv('Department', r.department),
+    kv('Owner', r.assigned_to || 'Unassigned'),
+    kv('Waiting', humanAge(r.status_changed_at || r.created_at)),
+  );
+  head.appendChild(meta);
+  root.appendChild(head);
+
+  const ws = el('div', 'workspace');
+  const main = el('div');
+  const side = el('div', 'side');
+
+  const nc = el('div', `nextcard ${next.owner === 'client' ? 'client' : next.owner === 'none' ? 'none' : ''}`);
+  nc.append(el('div', 'k', next.owner === 'client' ? 'Waiting on the client' : 'Next required action'));
+  nc.append(el('div', 'v', next.label));
+  main.appendChild(nc);
+
+  const what = el('div', 'card');
+  what.appendChild(el('h2', null, 'What the client said'));
+  const wb = el('div', 'body');
+  wb.appendChild(el('div', null, r.summary || '—'));
+  const phone = r.contact && !/^(telegram|web):/i.test(r.contact) ? r.contact : null;
+  wb.appendChild(el('div', 'sub', phone ? `Call: ${phone}` : 'No phone number — reply in the chat.'));
+  what.appendChild(wb);
+  main.appendChild(what);
+
+  if (requestView.conversation.length) {
+    const convo = el('div', 'card');
+    convo.style.marginTop = '14px';
+    convo.appendChild(el('h2', null, 'Recent conversation'));
+    const cb = el('div', 'body');
+    for (const m of requestView.conversation) {
+      const box = el('div', m.role === 'user' ? 'compose-client' : 'note-internal');
+      box.style.marginBottom = '8px';
+      box.style.padding = '9px 11px';
+      box.append(el('div', 'who', m.role === 'user' ? 'CLIENT' : 'BOT'));
+      box.append(el('div', null, String(m.content).slice(0, 600)));
+      cb.appendChild(box);
+    }
+    convo.appendChild(cb);
+    main.appendChild(convo);
+  }
+
+  if (requestView.bookings.length) {
+    const bk = el('div', 'card');
+    bk.style.marginTop = '14px';
+    bk.appendChild(el('h2', null, 'This client’s bookings'));
+    const bb = el('div', 'body');
+    for (const b of requestView.bookings) {
+      const line = el('div');
+      line.style.marginBottom = '5px';
+      const a = el('a', 'mono', b.booking_ref);
+      a.href = `#/booking/${b.booking_ref}`;
+      line.append(a, ' ', chip(statusLabel(b.status), statusTone(b.status)), ` ${b.vin ?? ''} ${b.make ?? ''}`);
+      bb.appendChild(line);
+    }
+    bk.appendChild(bb);
+    main.appendChild(bk);
+  }
+
+  // Blue, like every other thing that reaches the client. An internal note has
+  // no place on this screen: a client request is a conversation with them.
+  const reply = el('div', 'compose-client');
+  reply.style.marginTop = '14px';
+  reply.appendChild(el('h3', null, '💬 Reply to the client — this is sent to Telegram'));
+  const ta = el('textarea');
+  ta.oninput = () => { dirty = Boolean(ta.value.trim()); };
+  reply.appendChild(ta);
+  const acts = el('div', 'acts');
+  acts.style.marginTop = '9px';
+  const send = el('button', 'btn primary', 'Send reply');
+  send.onclick = () => {
+    if (!ta.value.trim()) return toast('Nothing to send.', true);
+    runAction(send, { action: 'request_reply', ticket_ref: r.ticket_ref, text: ta.value.trim() }, 'Reply queued.');
+  };
+  const sendWait = el('button', 'btn', 'Send and wait for them');
+  sendWait.onclick = () => {
+    if (!ta.value.trim()) return toast('Nothing to send.', true);
+    runAction(sendWait, {
+      action: 'request_reply', ticket_ref: r.ticket_ref, text: ta.value.trim(), wait_for_client: true,
+    }, 'Reply sent — now waiting on the client.');
+  };
+  acts.append(send, sendWait);
+  reply.appendChild(acts);
+  main.appendChild(reply);
+
+  const card = el('div', 'card');
+  card.appendChild(el('h2', null, 'This request'));
+  const body = el('div', 'body');
+
+  body.append(el('div', 'k', 'Status'));
+  const sel = el('select');
+  for (const s of [r.status, ...(REQUEST_TRANSITIONS[r.status] ?? [])]) {
+    const o = el('option', null, requestStatusLabel(s));
+    o.value = s;
+    if (s === r.status) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.disabled = !(REQUEST_TRANSITIONS[r.status] ?? []).length;
+  sel.onchange = () => {
+    if (sel.value === r.status) return;
+    // Resolving tells the client, so it needs a reason - never a silent status
+    // change from a dropdown.
+    if (sel.value === 'resolved') { sel.value = r.status; return modalResolveRequest(r); }
+    runAction(sel, { action: 'request_status', ticket_ref: r.ticket_ref, status: sel.value }, 'Status updated.');
+  };
+  body.appendChild(sel);
+
+  body.append(el('div', 'k', 'Owner'), el('div', 'v', r.assigned_to || 'Unassigned'));
+  const oacts = el('div', 'acts');
+  if ((r.assigned_to || '').toLowerCase() !== operator.toLowerCase()) {
+    const mine = el('button', 'btn small', 'Assign to me');
+    mine.onclick = () => runAction(mine, { action: 'request_assign', ticket_ref: r.ticket_ref, assignee: operator }, 'Assigned to you.');
+    oacts.appendChild(mine);
+  }
+  if (r.assigned_to) {
+    const un = el('button', 'btn small', 'Unassign');
+    un.onclick = () => runAction(un, { action: 'request_assign', ticket_ref: r.ticket_ref, clear: true }, 'Owner removed.');
+    oacts.appendChild(un);
+  }
+  body.appendChild(oacts);
+
+  if (!['resolved', 'closed'].includes(r.status)) {
+    const done = el('button', 'btn primary', 'Mark resolved');
+    done.style.marginTop = '12px';
+    done.style.width = '100%';
+    done.onclick = () => modalResolveRequest(r);
+    body.appendChild(done);
+  } else if (r.resolution_note) {
+    body.append(el('div', 'k', 'Resolution'), el('div', 'v', r.resolution_note));
+    if (r.resolved_by) body.appendChild(el('div', 'sub', `by ${r.resolved_by}`));
+  }
+
+  card.appendChild(body);
+  side.appendChild(card);
+
+  ws.append(main, side);
+  root.appendChild(ws);
+}
+
+function modalResolveRequest(r) {
+  const wrap = el('div');
+  wrap.appendChild(el('div', 'sub', 'What you write is sent to the client in their chat.'));
+  const ta = el('textarea');
+  ta.placeholder = 'Called and confirmed the sailing date. Nothing further needed.';
+  wrap.appendChild(ta);
+  const preview = el('div', 'preview');
+  const paint = () => { preview.textContent = `✅ ${r.ticket_ref} — ${ta.value || '…'}`; };
+  ta.oninput = paint;
+  paint();
+  wrap.appendChild(preview);
+
+  modal({
+    title: 'Resolve this request',
+    body: wrap,
+    confirmLabel: 'Resolve & tell the client',
+    onConfirm: async () => {
+      if (!ta.value.trim()) { toast('Say what was done.', true); throw new Error('empty'); }
+      await post({ action: 'request_resolve', ticket_ref: r.ticket_ref, note: ta.value.trim() });
+      toast('Resolved. The client has been told.');
+      await render();
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Shipments
+// ---------------------------------------------------------------------------
+
+async function pageShipments(root) {
+  const filter = route.filter || 'active';
+  const bar = el('div', 'filters');
+  for (const [key, label] of [['active', 'In progress'], ['delivered', 'Delivered'], ['all', 'All']]) {
+    const b = el('button', 'fchip', label);
+    b.setAttribute('aria-pressed', String(key === filter));
+    b.onclick = () => { location.hash = `#/shipments/${key}`; };
+    bar.appendChild(b);
+  }
+  root.appendChild(bar);
+
+  const host = el('div');
+  host.appendChild(skeleton(7));
+  root.appendChild(host);
+
+  let data;
+  try {
+    data = await api(`view=shipments&filter=${encodeURIComponent(filter)}`);
+  } catch {
+    host.replaceChildren(errorState('We could not load shipments.', render));
+    return;
+  }
+
+  if (!data.rows.length) {
+    host.replaceChildren(emptyState('No shipments here', 'Confirming a booking opens one automatically.'));
+    return;
+  }
+
+  const wrap = el('div', 'tablewrap');
+  const t = el('table', 'ops');
+  t.innerHTML = '<thead><tr>'
+    + '<th>Shipment</th><th>Booking</th><th>Chassis</th><th>Client</th><th>Route</th>'
+    + '<th>Status</th><th>Vessel</th><th>ETD</th><th>ETA</th><th>Updated</th>'
+    + '</tr></thead>';
+  const tb = el('tbody');
+  for (const s of data.rows) {
+    const tr = el('tr');
+    tr.onclick = () => { location.hash = `#/shipment/${s.shipment_id}`; };
+    // A value the database does not hold says so. Never a blank, never a guess.
+    tr.append(
+      cell(el('span', 'mono', s.shipment_id)),
+      cell(s.booking_ref ? el('span', 'mono', s.booking_ref.replace(/^MKY-BKG-/, '')) : el('span', 'sub', '—')),
+      cell(el('span', 'mono', s.vin || '—')),
+      cell(el('span', null, s.customer_name || '—')),
+      cell(el('span', 'sub', `${s.origin_port} → ${s.destination_port}`)),
+      cell(chip(s.status || 'Not started', shipmentTone(s.status))),
+      cell(el('span', s.vessel ? null : 'sub', s.vessel || 'Not assigned yet')),
+      cell(el('span', s.etd ? null : 'sub', s.etd || '—')),
+      cell(el('span', s.eta ? null : 'sub', s.eta || 'Not available yet')),
+      cell(el('span', 'sub', humanAge(s.updated_at))),
+    );
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  host.replaceChildren(wrap);
+}
+
+async function pageShipment(root, id) {
+  root.appendChild(skeleton(6));
+  let data;
+  try {
+    data = await api(`view=shipment&id=${encodeURIComponent(id)}`);
+  } catch (e) {
+    root.replaceChildren(errorState(e.message || 'We could not load this shipment.', render));
+    return;
+  }
+  root.replaceChildren();
+  const s = data.shipment;
+
+  const head = el('div', 'bkhead');
+  const row1 = el('div', 'row1');
+  row1.append(el('h1', null, s.shipment_id), chip(s.status || 'Not started', shipmentTone(s.status)));
+  head.appendChild(row1);
+  const meta = el('div', 'meta');
+  meta.append(
+    kv('Chassis', s.vin),
+    kv('Client', s.customer_name),
+    kv('Route', `${s.origin_port} → ${s.destination_port}`),
+    kv('Vessel', s.vessel || 'Not assigned yet'),
+    kv('ETA', s.eta || 'Not available yet'),
+  );
+  head.appendChild(meta);
+  if (s.booking_ref) {
+    const a = el('a', null, `Open booking ${s.booking_ref}`);
+    a.href = `#/booking/${s.booking_ref}`;
+    head.appendChild(a);
+  }
+  root.appendChild(head);
+
+  const ws = el('div', 'workspace');
+  const main = el('div');
+  const side = el('div', 'side');
+
+  const tl = el('div', 'card');
+  tl.appendChild(el('h2', null, 'Timeline'));
+  const tbody = el('div', 'body');
+  if (!data.events.length) tbody.appendChild(el('div', 'sub', 'Nothing recorded yet.'));
+  const ul = el('ul', 'timeline');
+  for (const e of data.events) {
+    const li = el('li');
+    li.append(el('time', null, new Date(e.event_time).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    })));
+    const txt = el('span', null, e.description + (e.location ? ` — ${e.location}` : ''));
+    if (e.operator) txt.appendChild(el('span', 'sub', ` (${e.operator})`));
+    li.appendChild(txt);
+    ul.appendChild(li);
+  }
+  tbody.appendChild(ul);
+  tl.appendChild(tbody);
+  main.appendChild(tl);
+
+  const upd = el('div', 'card');
+  upd.appendChild(el('h2', null, 'Record an update'));
+  const ub = el('div', 'body');
+  const field = (label, node) => { ub.append(el('div', 'k', label), node); return node; };
+
+  const st = el('select');
+  // A seeded or historic status that is not one of our milestones gets its own
+  // option, or the browser silently selects the first one and an operator
+  // saving a note would rewind a truck in customs back to "awaiting cargo".
+  const known = data.milestones.includes(s.status);
+  for (const m of (known ? data.milestones : [s.status, ...data.milestones])) {
+    const o = el('option', null, m);
+    o.value = m;
+    if (m === s.status) o.selected = true;
+    st.appendChild(o);
+  }
+  field('Status', st);
+
+  const loc = el('input'); loc.type = 'text'; loc.placeholder = 'Port Said';
+  field('Location (added to the timeline)', loc);
+  const vessel = el('input'); vessel.type = 'text'; vessel.value = s.vessel || '';
+  field('Vessel', vessel);
+  const etd = el('input'); etd.type = 'date'; etd.value = s.etd || '';
+  field('ETD', etd);
+  const eta = el('input'); eta.type = 'date'; eta.value = s.eta || '';
+  field('ETA', eta);
+  const note = el('textarea');
+  note.placeholder = 'What changed — in the client’s words if it is going to them.';
+  field('Note', note);
+
+  // Not every internal correction is worth a message. The client is told only
+  // when somebody decides they should be.
+  const tell = el('label');
+  tell.style.cssText = 'display:flex;gap:8px;align-items:center;margin:12px 0;font-size:13.5px';
+  const cb = el('input'); cb.type = 'checkbox';
+  tell.append(cb, document.createTextNode('Tell the client about this update'));
+  ub.appendChild(tell);
+
+  const save = el('button', 'btn primary', 'Save update');
+  save.onclick = () => runAction(save, {
+    action: 'shipment_update',
+    shipment_id: s.shipment_id,
+    status: st.value,
+    location: loc.value.trim(),
+    vessel: vessel.value.trim(),
+    etd: etd.value || '',
+    eta: eta.value || '',
+    note: note.value.trim(),
+    tell_customer: cb.checked,
+  }, cb.checked ? 'Updated, and the client is being told.' : 'Updated.');
+  ub.appendChild(save);
+
+  upd.appendChild(ub);
+  side.appendChild(upd);
+
+  ws.append(main, side);
+  root.appendChild(ws);
 }

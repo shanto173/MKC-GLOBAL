@@ -314,3 +314,75 @@ test('the missing-document scenario, including the client coming back', () => {
   n = nextAction(booking, docs);
   assert.equal(n.code, 'CONFIRM_BOOKING');
 });
+
+// ---------------------------------------------------------------------------
+// Client requests
+// ---------------------------------------------------------------------------
+
+import {
+  REQUEST_STATUS, REQUEST_OPEN, requestStatusLabel, requestOwner,
+  canTransitionRequest, requestNextAction, shipmentTone, SHIPMENT_MILESTONES,
+} from '../lib/ops/workflow.js';
+
+test('every request status reads as English and names an owner', () => {
+  for (const [key, def] of Object.entries(REQUEST_STATUS)) {
+    assert.ok(def.label && def.label !== key, key);
+    assert.doesNotMatch(def.label, /_/, `${key} leaks the database value`);
+    assert.ok(['ops', 'client', 'none'].includes(def.owner), key);
+  }
+  assert.equal(requestStatusLabel('waiting_client'), 'Waiting for Client');
+  assert.equal(requestStatusLabel('in_progress'), 'In Progress');
+});
+
+test('a request waiting on the client is not the desk\'s turn', () => {
+  assert.equal(requestOwner('waiting_client'), 'client');
+  assert.equal(requestOwner('open'), 'ops');
+  assert.equal(requestOwner('in_progress'), 'ops');
+  assert.equal(requestOwner('resolved'), 'none');
+});
+
+test('a closed request cannot be moved anywhere', () => {
+  for (const to of REQUEST_OPEN) {
+    assert.equal(canTransitionRequest('closed', to), false, `closed -> ${to}`);
+  }
+});
+
+test('a resolved request can be reopened but not re-resolved', () => {
+  assert.equal(canTransitionRequest('resolved', 'in_progress'), true);
+  assert.equal(canTransitionRequest('resolved', 'resolved'), false);
+  assert.equal(canTransitionRequest('open', 'open'), false, 'a no-op is not a transition');
+});
+
+test('the next action on a request names the actual thing to do', () => {
+  assert.match(requestNextAction({ status: 'open' }).label, /take it/i);
+
+  const withPhone = requestNextAction({ status: 'in_progress', assigned_to: 'Ariful', contact: '+8801818488624' });
+  assert.match(withPhone.label, /Call \+8801818488624/);
+  assert.equal(withPhone.owner, 'ops');
+
+  // The chat address is our own routing, not a number anybody can ring.
+  const chatOnly = requestNextAction({ status: 'in_progress', assigned_to: 'Ariful', contact: 'telegram:555' });
+  assert.match(chatOnly.label, /reply in the chat/i);
+
+  assert.equal(requestNextAction({ status: 'waiting_client' }).owner, 'client');
+  assert.equal(requestNextAction({ status: 'closed' }).action, null);
+});
+
+// ---------------------------------------------------------------------------
+// Shipments
+// ---------------------------------------------------------------------------
+
+test('shipment milestones are ordered and start before the cargo moves', () => {
+  assert.equal(SHIPMENT_MILESTONES[0], 'Booking confirmed, awaiting cargo');
+  assert.ok(SHIPMENT_MILESTONES.includes('Delivered'));
+  assert.ok(SHIPMENT_MILESTONES.indexOf('Vessel departed') < SHIPMENT_MILESTONES.indexOf('Arrived at destination port'));
+});
+
+test('shipment colour follows meaning, and a hold is the only red', () => {
+  assert.equal(shipmentTone('Delivered'), 'green');
+  assert.equal(shipmentTone('Customs cleared'), 'green');
+  assert.equal(shipmentTone('In transit'), 'blue');
+  assert.equal(shipmentTone('On hold'), 'red');
+  assert.equal(shipmentTone(null), 'gray');
+  assert.equal(shipmentTone('Booking confirmed, awaiting cargo'), 'gray');
+});

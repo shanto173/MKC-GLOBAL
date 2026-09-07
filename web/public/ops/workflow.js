@@ -392,3 +392,99 @@ export function slaBreach(booking, thresholds = {}, now = Date.now()) {
   const overBy = now - new Date(since).getTime() - hours * 3600_000;
   return overBy > 0 ? { overBy, hours } : null;
 }
+
+// ---------------------------------------------------------------------------
+// Client requests
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a client request has got to.
+ *
+ * The old vocabulary was open/resolved, which cannot tell a request nobody has
+ * touched from one somebody is already on the phone about. Both old values are
+ * still here, so every row written before this and the existing endpoint keep
+ * working unchanged.
+ */
+export const REQUEST_STATUS = {
+  open:           { label: 'New', tone: 'blue', owner: 'ops' },
+  assigned:       { label: 'Assigned', tone: 'blue', owner: 'ops' },
+  in_progress:    { label: 'In Progress', tone: 'blue', owner: 'ops' },
+  waiting_client: { label: 'Waiting for Client', tone: 'amber', owner: 'client' },
+  resolved:       { label: 'Resolved', tone: 'green', owner: 'none' },
+  closed:         { label: 'Closed', tone: 'gray', owner: 'none' },
+};
+
+export const REQUEST_OPEN = ['open', 'assigned', 'in_progress', 'waiting_client'];
+
+export const REQUEST_TRANSITIONS = {
+  open: ['assigned', 'in_progress', 'waiting_client', 'resolved', 'closed'],
+  assigned: ['in_progress', 'waiting_client', 'resolved', 'closed'],
+  in_progress: ['waiting_client', 'resolved', 'closed'],
+  waiting_client: ['in_progress', 'resolved', 'closed'],
+  resolved: ['closed', 'in_progress'],
+  closed: [],
+};
+
+export const requestStatusLabel = (s) => REQUEST_STATUS[s]?.label ?? String(s ?? '').replace(/_/g, ' ');
+export const requestStatusTone = (s) => REQUEST_STATUS[s]?.tone ?? 'gray';
+export const requestOwner = (s) => REQUEST_STATUS[s]?.owner ?? 'none';
+export const canTransitionRequest = (from, to) => (REQUEST_TRANSITIONS[from] ?? []).includes(to);
+
+/** What the client asked about, for grouping the queue. */
+export const REQUEST_TYPE = {
+  booking:   { label: 'Booking', icon: '📦' },
+  tracking:  { label: 'Shipment tracking', icon: '🚚' },
+  documents: { label: 'Documents', icon: '📄' },
+  accounts:  { label: 'Accounts', icon: '💳' },
+  other:     { label: 'Other', icon: '💬' },
+};
+
+/**
+ * What to do with a client request next.
+ *
+ * Same rule as a booking: deterministic, and honest about whose move it is. A
+ * request parked on the client is not the desk running late.
+ */
+export function requestNextAction(request = {}) {
+  const s = request.status;
+  if (s === 'resolved') return { label: 'Resolved — close it when you are done', owner: 'none', action: 'close' };
+  if (s === 'closed') return { label: 'Closed', owner: 'none', action: null };
+  if (s === 'waiting_client') return { label: 'Waiting for the client to come back', owner: 'client', action: 'reply' };
+  if (!request.assigned_to) return { label: 'Nobody owns this — take it', owner: 'ops', action: 'assign' };
+  if (!request.contact || /^(telegram|web):/i.test(request.contact)) {
+    return { label: 'No phone number — reply in the chat', owner: 'ops', action: 'reply' };
+  }
+  return { label: `Call ${request.contact}`, owner: 'ops', action: 'reply' };
+}
+
+// ---------------------------------------------------------------------------
+// Shipments
+// ---------------------------------------------------------------------------
+
+/**
+ * A booking being confirmed does not mean the vehicle is moving. These are the
+ * milestones the shipment itself passes, kept separate from the booking's
+ * status on purpose.
+ */
+export const SHIPMENT_MILESTONES = [
+  'Booking confirmed, awaiting cargo',
+  'Awaiting pickup at origin',
+  'Received at origin warehouse',
+  'Loaded on vessel',
+  'Vessel departed',
+  'In transit',
+  'Arrived at destination port',
+  'Customs clearance in progress',
+  'Customs cleared',
+  'Out for delivery',
+  'Delivered',
+  'On hold',
+];
+
+export function shipmentTone(status) {
+  if (!status) return 'gray';
+  if (/delivered|cleared|released/i.test(status)) return 'green';
+  if (/hold|delay/i.test(status)) return 'red';
+  if (/transit|departed|loaded|arrived|clearance|delivery/i.test(status)) return 'blue';
+  return 'gray';
+}

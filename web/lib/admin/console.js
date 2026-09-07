@@ -34,9 +34,13 @@ import { createTask, completeTask } from '../operations.js';
 import { settings } from '../settings.js';
 import { requiredDocuments } from '../settings.js';
 import decideBooking from '../../api/admin/bookings.js';
+import ticketsApi from '../../api/admin/tickets.js';
+import shipmentsApi from '../../api/admin/shipments.js';
 import {
   STATUS, OPEN_STATUSES, readiness, nextAction, availableActions,
   canTransition, statusLabel, DOC_LABEL,
+  REQUEST_OPEN, requestStatusLabel, requestNextAction, canTransitionRequest,
+  SHIPMENT_MILESTONES,
 } from '../ops/workflow.js';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +95,10 @@ export default async function handler(req, res) {
       if (view === 'dashboard') return dashboard(req, res);
       if (view === 'booking') return bookingDetail(req, res);
       if (view === 'search') return search(req, res);
+      if (view === 'requests') return requestQueue(req, res);
+      if (view === 'request') return requestDetail(req, res);
+      if (view === 'shipments') return shipmentQueue(req, res);
+      if (view === 'shipment') return shipmentDetail(req, res);
       return queue(req, res);
     }
     if (req.method === 'POST') return act(req, res);
@@ -284,6 +292,9 @@ async function act(req, res) {
     internal_note: 'notes', message_client: 'client',
     create_booking: 'booking', confirm: 'booking', reject: 'booking', cancel: 'booking',
     issue_mrn: 'mrn', mrn_need_info: 'mrn',
+    request_assign: 'assign_self', request_status: 'status',
+    request_reply: 'client', request_resolve: 'client',
+    shipment_update: 'booking',
   }[action];
 
   if (needs && !who.can(needs)) {
@@ -306,6 +317,11 @@ async function act(req, res) {
     case 'confirm': return delegate(req, res, who, 'confirm');
     case 'reject': return delegate(req, res, who, 'reject');
     case 'cancel': return delegate(req, res, who, 'cancel');
+    case 'request_assign': return requestAssign(req, res, who);
+    case 'request_status': return requestStatus(req, res, who);
+    case 'request_reply': return requestReply(req, res, who);
+    case 'request_resolve': return requestResolve(req, res, who);
+    case 'shipment_update': return shipmentUpdate(req, res, who);
     default: return res.status(400).json({ error: `Unknown action "${action}"` });
   }
 }
@@ -622,6 +638,228 @@ async function delegate(req, res, who, action) {
     body: { ...req.body, action, operator: who.name },
   };
   return decideBooking(proxied, res);
+}
+
+
+// ---------------------------------------------------------------------------
+// Client requests
+// ---------------------------------------------------------------------------
+
+async function requestQueue(req, res) {
+  const filter = String(req.query.filter ?? 'open');
+  const me = String(req.query.operator ?? '').trim();
+
+  const query = db().from('client_request_queue').select('*');
+  if (filter === 'resolved') query.in('status', ['resolved', 'closed']);
+  else if (filter !== 'all') query.in('status', REQUEST_OPEN);
+
+  const { data, error } = await query.order('status_changed_at', { ascending: true }).limit(400);
+  if (error) return res.status(500).json({ error: 'We could not load client requests.' });
+
+  const now = Date.now();
+  let rows = (data ?? []).map((r) => {
+    const next = requestNextAction(r);
+    const since = r.status_changed_at || r.created_at;
+    return {
+      ...r,
+      status_label: requestStatusLabel(r.status),
+      next,
+      waiting_since: since,
+      waiting_ms: now - new Date(since).getTime(),
+      priority_rank: { urgent: 0, high: 1, normal: 2 }[r.priority] ?? 2,
+    };
+  });
+
+  if (filter === 'mine') rows = rows.filter((r) => me && r.assigned_to?.toLowerCase() === me.toLowerCase());
+  if (filter === 'unassigned') rows = rows.filter((r) => !r.assigned_to && r.next.owner === 'ops');
+  if (['booking', 'tracking', 'documents', 'other'].includes(filter)) {
+    rows = rows.filter((r) => r.request_type === filter);
+  }
+
+  rows.sort((a, b) => (a.priority_rank - b.priority_rank) || (a.waiting_ms > b.waiting_ms ? -1 : 1));
+  res.status(200).json({ filter, total: rows.length, rows });
+}
+
+async function requestDetail(req, res) {
+  const ref = String(req.query.ref ?? '').trim();
+  const { data: request, error } = await db().from('client_request_queue').select('*').eq('ticket_ref', ref).maybeSingle();
+  if (error) return res.status(500).json({ error: 'We could not load this request.' });
+  if (!request) return res.status(404).json({ error: `No request ${ref}` });
+
+  // The conversation this came from, and only the recent part of it: the whole
+  // transcript is noise, and an operator is looking for what was just said.
+  const { data: convo } = await db()
+    .from('conversations')
+    .select('messages, updated_at')
+    .eq('id', `${request.channel}:${request.chat_id}`)
+    .maybeSingle();
+
+  const [notifications, activity, bookings] = await Promise.all([
+    db().from('notification_outbox').select('event_type, status, sent_at, last_error, created_at')
+      .eq('chat_id', String(request.chat_id)).order('created_at', { ascending: false }).limit(10).then((r) => r.data ?? []),
+    db().from('audit_logs').select('*').eq('entity_id', ref).order('created_at', { ascending: false }).limit(30).then((r) => r.data ?? []),
+    db().from('bookings').select('booking_ref, status, vin, make, customer_name')
+      .eq('chat_id', String(request.chat_id)).neq('status', 'draft')
+      .order('created_at', { ascending: false }).limit(5).then((r) => r.data ?? []),
+  ]);
+
+  res.status(200).json({
+    request: { ...request, status_label: requestStatusLabel(request.status) },
+    next_action: requestNextAction(request),
+    conversation: (convo?.messages ?? []).slice(-12),
+    bookings,
+    notifications,
+    activity: activity.map(describeActivity),
+  });
+}
+
+async function requestAssign(req, res, who) {
+  const ref = String(req.body.ticket_ref ?? '').trim();
+  const clear = Boolean(req.body.clear);
+  const to = clear ? null : String(req.body.assignee ?? who.name).trim();
+
+  if (!clear && to.toLowerCase() !== who.name.toLowerCase() && !who.can('assign_others')) {
+    return res.status(403).json({ error: 'Only a supervisor can assign work to somebody else.' });
+  }
+
+  const { data: before } = await db().from('support_tickets').select('status, assigned_to').eq('ticket_ref', ref).maybeSingle();
+  if (!before) return res.status(404).json({ error: `No request ${ref}` });
+
+  // Taking an untouched request also moves it out of "nobody has looked at
+  // this", so the queue does not show it as new once somebody owns it.
+  const patch = { assigned_to: to, assigned_at: clear ? null : new Date().toISOString() };
+  if (!clear && before.status === 'open') patch.status = 'assigned';
+
+  const { error } = await db().from('support_tickets').update(patch).eq('ticket_ref', ref);
+  if (error) return res.status(500).json({ error: 'We could not change the owner.' });
+
+  await audit({
+    actor_type: 'operator', actor_id: who.name,
+    action: clear ? 'request_unassigned' : 'request_assigned',
+    entity_type: 'support_ticket', entity_id: ref,
+    metadata: { from: before.assigned_to ?? null, to },
+  });
+  res.status(200).json({ ok: true, assigned_to: to, status: patch.status ?? before.status });
+}
+
+async function requestStatus(req, res, who) {
+  const ref = String(req.body.ticket_ref ?? '').trim();
+  const to = String(req.body.status ?? '').trim();
+
+  const { data: before } = await db().from('support_tickets').select('status').eq('ticket_ref', ref).maybeSingle();
+  if (!before) return res.status(404).json({ error: `No request ${ref}` });
+
+  if (!canTransitionRequest(before.status, to)) {
+    return res.status(409).json({
+      error: `A request that is "${requestStatusLabel(before.status)}" cannot become "${requestStatusLabel(to)}".`,
+    });
+  }
+
+  const { data, error } = await db().from('support_tickets')
+    .update({ status: to }).eq('ticket_ref', ref).eq('status', before.status).select('status');
+  if (error) return res.status(500).json({ error: 'We could not change the status.' });
+  if (!data?.length) return res.status(409).json({ error: 'Somebody else changed this a moment ago. Refresh and look again.' });
+
+  await audit({
+    actor_type: 'operator', actor_id: who.name, action: 'request_status_changed',
+    entity_type: 'support_ticket', entity_id: ref, metadata: { from: before.status, to },
+  });
+  res.status(200).json({ ok: true, status: to, status_label: requestStatusLabel(to) });
+}
+
+/** A reply to the client, through the outbox like everything else. */
+async function requestReply(req, res, who) {
+  const ref = String(req.body.ticket_ref ?? '').trim();
+  const text = String(req.body.text ?? '').trim();
+  if (text.length < 2) return res.status(400).json({ error: 'The message is empty.' });
+
+  const { data: t } = await db().from('support_tickets').select('chat_id, client_id, status').eq('ticket_ref', ref).maybeSingle();
+  if (!t?.chat_id) return res.status(404).json({ error: 'We have no chat to reply in.' });
+
+  const queued = await enqueue({
+    chatId: t.chat_id,
+    clientId: t.client_id ?? null,
+    eventType: 'operations_message',
+    entityType: 'support_ticket',
+    entityId: ref,
+    idempotencyKey: `request_reply:${ref}:${hash(text)}:${Date.now().toString(36)}`,
+    payload: { text },
+  });
+  await drain({ limit: 5 }).catch(() => null);
+
+  // Replying and then waiting is the normal shape of this work.
+  if (req.body.wait_for_client && canTransitionRequest(t.status, 'waiting_client')) {
+    await db().from('support_tickets').update({ status: 'waiting_client' }).eq('ticket_ref', ref);
+  }
+
+  await audit({
+    actor_type: 'operator', actor_id: who.name, action: 'request_reply_sent',
+    entity_type: 'support_ticket', entity_id: ref, metadata: { chars: text.length },
+  });
+  res.status(200).json({ ok: true, queued: queued.ok });
+}
+
+/** Resolving hands off to the existing endpoint, which also tells the client. */
+async function requestResolve(req, res, who) {
+  const ref = String(req.body.ticket_ref ?? '').trim();
+  const note = String(req.body.note ?? '').trim();
+  if (!note) return res.status(400).json({ error: 'Say what was done - the client is told this.' });
+
+  const proxied = {
+    method: 'POST',
+    query: { secret: config.adminSecret },
+    headers: { 'x-admin-secret': config.adminSecret },
+    body: { ticket_ref: ref, action: 'resolve', note, operator: who.name },
+  };
+  return ticketsApi(proxied, res);
+}
+
+// ---------------------------------------------------------------------------
+// Shipments
+// ---------------------------------------------------------------------------
+
+async function shipmentQueue(req, res) {
+  const filter = String(req.query.filter ?? 'active');
+  const query = db().from('shipments').select('*').order('updated_at', { ascending: false }).limit(300);
+  if (filter === 'delivered') query.eq('delivery_status', 'Complete');
+  else if (filter !== 'all') query.neq('delivery_status', 'Complete');
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: 'We could not load shipments.' });
+
+  res.status(200).json({
+    filter,
+    total: data.length,
+    milestones: SHIPMENT_MILESTONES,
+    rows: data,
+  });
+}
+
+async function shipmentDetail(req, res) {
+  const id = String(req.query.id ?? '').trim();
+  const { data: shipment, error } = await db().from('shipments').select('*').eq('shipment_id', id).maybeSingle();
+  if (error) return res.status(500).json({ error: 'We could not load this shipment.' });
+  if (!shipment) return res.status(404).json({ error: `No shipment ${id}` });
+
+  const { data: events } = await db()
+    .from('shipment_events')
+    .select('*')
+    .eq('shipment_id', id)
+    .order('event_time', { ascending: false })
+    .limit(60);
+
+  res.status(200).json({ shipment, events: events ?? [], milestones: SHIPMENT_MILESTONES });
+}
+
+/** Delegated to the shipments endpoint, which writes the event and can notify. */
+async function shipmentUpdate(req, res, who) {
+  const proxied = {
+    method: 'POST',
+    query: { secret: config.adminSecret },
+    headers: { 'x-admin-secret': config.adminSecret },
+    body: { ...req.body, operator: who.name },
+  };
+  return shipmentsApi(proxied, res);
 }
 
 // ---------------------------------------------------------------------------
