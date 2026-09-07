@@ -12,6 +12,7 @@ import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
+import { documentReadCard } from '../lib/format.js';
 import { refreshPinSafely } from '../lib/pinned.js';
 
 export default async function handler(req, res) {
@@ -198,22 +199,24 @@ async function handleAttachment(attachment, caption, ctx) {
     return;
   }
 
-  const status = await documentStatus({ chatId: ctx.chatId, vin: result.extracted?.vin });
+  // Which chassis are we booking? A document is judged against that, not
+  // against itself.
+  const { data: open } = await db()
+    .from('bookings')
+    .select('vin')
+    .eq('chat_id', String(ctx.chatId))
+    .in('status', ['draft', 'pending_review', 'confirmed'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const bookingVin = open?.vin ?? result.extracted?.vin ?? null;
+  const status = await documentStatus({ chatId: ctx.chatId, vin: bookingVin });
 
-  // The model writes the reply, so it stays in the customer's language and in
-  // the flow of the conversation - but only from what the tools actually found.
-  await sendTyping(ctx.chatId);
-  const { reply } = await respond(
-    `[The customer just sent a document: ${attachment.fileName}. It was read ` +
-      `${result.readVia === 'vision' ? 'by looking at the scan' : 'from its text'}. ` +
-      `What was found: ${JSON.stringify(result.extracted).slice(0, 1500)}. ` +
-      `Document status for this conversation: ${JSON.stringify(status).slice(0, 1500)}. ` +
-      `${caption ? `They also wrote: "${caption}". ` : ''}` +
-      'Tell them what you read from it - the chassis number above all - flag any problem, ' +
-      'and say what is still missing. Do not call check_documents again, you already have it.]',
-    ctx,
-  );
-  await sendMessage(ctx.chatId, reply, { keyboard: MAIN_KEYBOARD });
+  // Written here, not by the model: what was read, and where the paperwork
+  // stands, in four plain buckets. Asked to write this itself the model turned
+  // "you sent an invoice for another vehicle" into "still missing: invoice",
+  // and the customer sent the same file again.
+  await sendMessage(ctx.chatId, documentReadCard(result, status, bookingVin), { keyboard: MAIN_KEYBOARD });
 }
 
 /** Turns bare slash commands into normal sentences the model handles well. */

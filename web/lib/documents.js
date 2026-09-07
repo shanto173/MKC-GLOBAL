@@ -10,7 +10,7 @@
 import { db } from './supabase.js';
 import { storeDocument } from './storage.js';
 import { readDocument } from './read-file.js';
-import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS } from './extract.js';
+import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS, LATER_DOCS } from './extract.js';
 import { normalizeVin } from './tools.js';
 
 const DOC_LABELS = {
@@ -97,14 +97,37 @@ export async function documentStatus({ chatId, vin = null }) {
 
   if (error) return { error: error.message };
 
+  // The same file sent twice is one document, not two. A customer re-sending
+  // after a warning had "6 received" read back at them.
+  const seen = new Set();
+  const unique = (data ?? []).filter((d) => {
+    const key = `${d.doc_type}:${d.file_name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   // When a VIN is known, only papers for that vehicle count - a customer may be
   // moving several units through the same chat.
   const norm = vin ? normalizeVin(vin) : null;
-  const docs = (data ?? []).filter((d) => !norm || !d.vin || normalizeVin(d.vin) === norm);
+  const docs = unique.filter((d) => !norm || !d.vin || normalizeVin(d.vin) === norm);
+
+  // A paper that arrived but belongs to another vehicle is NOT missing. Saying
+  // "still missing: commercial invoice" to somebody who has just sent an invoice
+  // is how you lose an afternoon: they resend the same file, and we say it again.
+  const otherVehicle = norm
+    ? unique.filter((d) => d.vin && normalizeVin(d.vin) !== norm).map((d) => ({
+        type: d.doc_type,
+        label: DOC_LABELS[d.doc_type] ?? d.doc_type,
+        file: d.file_name,
+        vin: d.vin,
+      }))
+    : [];
 
   const extractedDocs = docs.map((d) => ({ ...d.extracted, doc_type: d.doc_type }));
   const check = crossCheck(extractedDocs);
   const missing = missingDocuments(extractedDocs);
+  const wrongVehicleTypes = new Set(otherVehicle.map((d) => d.type));
 
   return {
     count: docs.length,
@@ -115,8 +138,14 @@ export async function documentStatus({ chatId, vin = null }) {
       vin: d.vin,
       readable: d.extraction_ok,
     })),
-    missing,
-    missing_labels: missing.map((m) => DOC_LABELS[m] ?? m),
+    // Split three ways, because they mean three different things to a customer.
+    missing: missing.filter((m) => !wrongVehicleTypes.has(m)),
+    missing_labels: missing.filter((m) => !wrongVehicleTypes.has(m)).map((m) => DOC_LABELS[m] ?? m),
+    wrong_vehicle: otherVehicle,
+    wrong_vehicle_labels: otherVehicle.map((d) => `${d.label} (${d.vin})`),
+    to_follow_labels: LATER_DOCS
+      .filter((d) => !docs.some((doc) => doc.doc_type === d))
+      .map((d) => DOC_LABELS[d] ?? d),
     required: REQUIRED_DOCS,
     consistent: check.consistent,
     agreed_vin: check.vin,

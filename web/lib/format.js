@@ -162,11 +162,54 @@ export function checklistCard(sections) {
 
 /** The document checklist: what arrived, what is still needed. */
 export function documentsCard(status, lang = 'en') {
-  const received = (status.received ?? []).map((d) => d.label).join(', ');
-  const missing = (status.missing_labels ?? []).join(', ');
+  const names = (list) => (list ?? []).map((d) => (typeof d === 'string' ? d : d.label));
+  const received = [...new Set(names(status.received))];
+  const wrongVehicle = status.wrong_vehicle_labels ?? [];
+  const missing = status.missing_labels ?? [];
+  const later = status.to_follow_labels ?? [];
 
-  return block(`📄 ${label('documents', lang)}`, [
-    line('received', received || (lang === 'ar' ? 'لا شيء بعد' : 'nothing yet'), lang),
-    line('missing', missing || (lang === 'ar' ? 'لا شيء — مكتمل' : 'nothing — complete'), lang),
-  ]);
+  // Four buckets, because they mean four different things and a customer who
+  // has sent three documents must never read "still missing" about one of them.
+  const lines = [
+    received.length ? `\u2705 \u0648\u0635\u0644\u0646\u0627 / Received: ${received.join(', ')}` : null,
+    wrongVehicle.length
+      ? `\u26a0\ufe0f \u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a / Another chassis: ${wrongVehicle.join(', ')}`
+      : null,
+    missing.length
+      ? `\u274c \u0644\u0633\u0647 \u0645\u062d\u062a\u0627\u062c\u064a\u0646 / Still needed: ${missing.join(', ')}`
+      : `\u2705 \u0645\u0641\u064a\u0634 \u0646\u0627\u0642\u0635 / Nothing outstanding from you`,
+    later.length
+      ? `\u{1F552} \u0628\u0639\u062f\u064a\u0646 - \u0628\u064a\u0637\u0644\u0639 \u0645\u0646 \u0627\u0644\u0646\u0627\u0642\u0644 / Later, issued by the carrier: ${later.join(', ')}`
+      : null,
+  ].filter(Boolean);
+
+  return block('\u{1F4C4} \u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a / Documents', lines);
 }
+
+/**
+ * What one document turned out to be, said plainly: the file, what we read off
+ * it, and whether it belongs to the vehicle being booked.
+ */
+export function documentReadCard(result, status, bookingVin = null) {
+  const found = result?.extracted ?? {};
+  const vin = found.vin ?? null;
+  const mismatch = Boolean(bookingVin && vin && normalise(vin) !== normalise(bookingVin));
+
+  const lines = [
+    found.doc_type && found.doc_type !== 'other'
+      ? `\u0627\u0644\u0646\u0648\u0639 / Type: ${found.doc_type.toUpperCase()}`
+      : null,
+    vin ? `\u0627\u0644\u0634\u0627\u0633\u064a\u0647 / Chassis: ${vin}` : null,
+    found.mrn ? `\u0631\u0642\u0645 MRN / MRN: ${found.mrn}` : null,
+    found.acid ? `\u0631\u0642\u0645 ACID / ACID: ${found.acid}` : null,
+    mismatch
+      ? `\u26a0\ufe0f \u0627\u0644\u0645\u0633\u062a\u0646\u062f \u062f\u0647 \u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a / This document is for a different chassis (${bookingVin})`
+      : null,
+  ].filter(Boolean);
+
+  const head = `\u{1F4C4} ${result?.document?.file_name ?? 'document'}`;
+  return [block(head, lines.length ? lines : ['\u2014']), documentsCard(status)].join('\n\n');
+}
+
+const normalise = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+

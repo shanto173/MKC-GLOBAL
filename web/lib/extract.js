@@ -312,7 +312,18 @@ export function crossCheck(docs) {
 }
 
 /** Which of the required documents are still missing. */
-export const REQUIRED_DOCS = ['invoice', 'brief', 'mrn'];
+/**
+ * What a customer can actually produce when they book.
+ *
+ * The transport document is NOT here on purpose. A Bill of Lading or CMR does
+ * not exist until the vessel is booked and the unit is loaded - it is issued
+ * after this conversation, by the carrier. Asking for it up front told a
+ * customer who had sent everything he had that documents were still missing.
+ */
+export const REQUIRED_DOCS = ['invoice', 'mrn'];
+
+/** Issued later, by somebody else. Listed so nobody forgets it, never as missing. */
+export const LATER_DOCS = ['brief'];
 
 export function missingDocuments(docs, { mrnNeeded = false } = {}) {
   const have = new Set(docs.map((d) => d?.doc_type).filter(Boolean));
