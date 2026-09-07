@@ -14,6 +14,7 @@ import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
 import { notifyBookingDecision } from '../../lib/notify.js';
 import { signedUrl } from '../../lib/storage.js';
+import { createShipmentFromBooking } from '../../lib/shipments.js';
 
 const ACTIONS = { confirm: 'confirmed', reject: 'rejected', cancel: 'cancelled' };
 
@@ -108,15 +109,38 @@ async function decide(req, res) {
     .single();
   if (updErr) return res.status(500).json({ error: updErr.message });
 
+  // Roadmap step 4: confirming opens the shipment, so the customer can track
+  // what they booked. Until this existed, a confirmed booking was invisible to
+  // tracking by either its reference or its chassis number.
+  let shipment = null;
+  if (status === 'confirmed') {
+    shipment = await createShipmentFromBooking(updated, { operator });
+    if (!shipment.ok) console.error('shipment creation failed:', shipment.error);
+  }
+
   // Telling the customer must never undo the decision, so failures are reported
   // rather than thrown - the booking stays decided either way.
   const told = status === 'cancelled'
     ? { telegram: false, email: false, errors: ['cancelled bookings are not announced'] }
-    : await notifyBookingDecision(updated, status, note);
+    : await notifyBookingDecision(
+        updated,
+        status,
+        // The shipment reference is what they will track with, so it goes in
+        // the message that tells them the booking is confirmed.
+        shipment?.ok && shipment.shipment_id
+          ? `${note ? note + ' ' : ''}Track it with ${shipment.shipment_id} or your chassis number.`
+          : note,
+      );
 
   if (told.telegram || told.email) {
     await db().from('bookings').update({ customer_told_at: new Date().toISOString() }).eq('booking_ref', ref);
   }
 
-  res.status(200).json({ ok: true, booking_ref: ref, status, customer_told: told });
+  res.status(200).json({
+    ok: true,
+    booking_ref: ref,
+    status,
+    shipment: shipment?.ok ? { shipment_id: shipment.shipment_id, existed: shipment.existed } : shipment?.error ?? null,
+    customer_told: told,
+  });
 }

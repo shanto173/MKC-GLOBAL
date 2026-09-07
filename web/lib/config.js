@@ -12,6 +12,9 @@ export const config = {
   // Prefix on every booking and ticket reference, e.g. MKY-BKG-260904-AB12.
   refPrefix: (env.REFERENCE_PREFIX || 'MKY').toUpperCase(),
   companyPhone: env.COMPANY_PHONE || '+20 3 555 0143',
+  // The number the bot gives when a customer asks for a person. Roadmap steps
+  // 2 and 3 both end at "Operations: [PHONE NUMBER]".
+  operationsPhone: env.OPERATIONS_PHONE || env.COMPANY_PHONE || '+20 3 555 0143',
   adminSecret: env.ADMIN_SECRET || '',
   // Optional. Everything falls back to the incoming request host, so this only
   // matters for CLI scripts. Named APP_BASE_URL because hosts treat a PUBLIC_*
