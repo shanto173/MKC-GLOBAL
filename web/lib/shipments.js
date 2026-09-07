@@ -152,6 +152,13 @@ export async function updateShipmentStatus(shipmentId, changes, { operator = 'op
     return { ok: true, unchanged: true, shipment_id: shipmentId };
   }
 
+  // "Delivered" was only ever the milestone; delivery_status stayed "Not yet",
+  // so the Delivered tab missed it and the card pinned to the customer's chat
+  // went on following a shipment that had already arrived. One means the other.
+  if (patch.status === 'Delivered' && changes.delivery_status === undefined) {
+    if (current.delivery_status !== 'Complete') patch.delivery_status = 'Complete';
+  }
+
   patch.updated_at = new Date().toISOString();
   const { data: updated, error } = await db()
     .from('shipments')

@@ -46,9 +46,15 @@ const cases = [
     expect: (r) => (ARABIC.test(r) ? true : 'replied in Latin script instead of Arabic'),
   },
   {
-    name: 'English stays English',
+    // Both languages, whoever asked. These messages get forwarded to drivers,
+    // brokers and customs agents who read one language or the other.
+    name: 'English question still answered in both languages',
     ask: 'Where is shipment MKC-24005?',
-    expect: (r) => (ARABIC.test(r) ? 'replied in Arabic to an English question' : true),
+    expect: (r) => {
+      if (!ARABIC.test(r)) return 'no Arabic at all - the reply is half a reply';
+      if (!/MKC-24005/.test(r)) return 'lost the shipment reference';
+      return true;
+    },
   },
 ];
 
@@ -71,9 +77,12 @@ for (const c of cases) {
     // The two languages are separated by a divider line, not a bar. A reply
     // built around a structured card needs no divider at all: that card's
     // labels already carry both languages on every line.
-    const hasCard = /^\s*[\u{1F4E6}\u{1F4C4}\u{1F4CB}]/mu.test(reply);
     const dividers = (reply.match(/━+/g) || []).length;
-    if (!hasCard && dividers !== 1) {
+    // A card-only reply carries both languages in its own labels and needs no
+    // divider; anything with prose around it must have exactly one.
+    const cardOnly = reply.split(/━+/).length === 1
+      && /^\s*[\u{1F4E6}\u{1F4C4}\u{1F4CB}]/mu.test(reply);
+    if (!cardOnly && dividers !== 1) {
       problems.push(`expected one divider separating the languages, found ${dividers}`);
     }
     if (dividers > 1) problems.push(`${dividers} dividers - only one is allowed`);

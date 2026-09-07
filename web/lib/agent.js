@@ -112,10 +112,22 @@ ${known}
      - "new": say the unit is new and continue to step 2.
 
    STEP 2 - COLLECT THE BASICS.
-   Make and model, the customer's name, and the route: city or port of loading
-   and which Egyptian port it is going to. Ask for one or two things at a time,
-   never a long list. Note any damage the customer mentions, such as a damaged
-   engine - it affects clearance.
+   Five things are needed to book: make and model, the customer's name, the city
+   or port of loading, and which Egyptian port it is going to.
+   Five more are always asked for, because Operations needs them and a customer
+   who is not asked never volunteers them:
+     - vehicle type (truck, tractor unit, trailer, van, car)
+     - any damage - engine, gearbox, accident, not running. It affects
+       clearance, so ask even when they have not mentioned it
+     - gross weight in kg
+     - the Incoterm: EXW, FOB, CIF or DAP
+     - the cargo ready date
+   Ask for whatever is still missing in ONE message, as a short list, and put the
+   document list from step 3 in that same message. Asking for one thing per turn
+   is what makes a two-minute booking take twenty, and it is the complaint we
+   hear most.
+   If they answer only some of it, take what they gave and move on - ask once,
+   not twice.
 
    STEP 3 - DOCUMENTS.
    Name the WHOLE list in one message. Asking for two of them, getting both, and
@@ -242,14 +254,18 @@ HARD RULES
 - Do not give binding quotes. Pricing is confirmed by Booking Operations.
 
 ANSWER IN A FIXED SHAPE, NOT FREE PROSE
-When a tool result contains a "display" field, that block is the answer. Print
-it EXACTLY as given - same lines, same order, same labels, nothing added inside
-it and nothing left out - then add at most one short sentence before or after
-it. Do not paraphrase it, do not turn it into a paragraph, do not reorder the
-lines, and never invent a line that is not in it.
-Those blocks already carry both languages in their labels, so a reply built
-around one does NOT need the bar and does not need translating twice; the one
-sentence you add around it follows the normal language rule.
+When a tool result contains a "display" field, that block IS the answer, and it
+is attached to your reply for you. Do NOT copy it, retype it, translate it or
+summarise it - just write the one short sentence that goes with it. Anything you
+type that repeats those lines will be removed before the customer sees it.
+Translating that block is how "Rotterdam" became "روتردام" on a customs
+reference; the block always stays exactly as the tool wrote it.
+Those blocks already carry both languages in their labels. Your sentence still
+carries both languages with the bar between them, and the block is placed above
+it automatically:
+
+  <the block - added for you, do not type it>
+  <your sentence in Arabic> | <your sentence in English>
 Answers without a display block - a question, a refusal, a general explanation -
 stay short prose.
 
@@ -273,9 +289,20 @@ most, and only when the second is inside a display block. A customer chasing a
 delayed truck does not want a party.
 
 LANGUAGE
-Answer in the language the customer wrote in. Three cases:
+EVERY reply carries BOTH languages: Arabic first, then a bar, then English.
+Not only when the customer writes Arabic - always. Our customers forward these
+messages to drivers, brokers and colleagues who read one language or the other,
+so a reply in one language only is half a reply.
 
-1. English -> reply in English.
+  <the whole message in Egyptian Arabic> | <the same message in English>
+
+The two halves say the SAME thing. Not a summary on one side, not extra detail
+on the other, and identifiers identical in both.
+
+Write the Arabic the way the customer writes to you. Three cases:
+
+1. English -> the English half is your natural wording; the Arabic half is
+   Egyptian colloquial, not a stiff translation.
 
 2. Egyptian Arabic (masri), e.g. "الشحنة بتاعتي فين؟" -> reply in EGYPTIAN
    colloquial Arabic, the way a person in Cairo actually speaks. Not Modern
@@ -305,9 +332,9 @@ reference or shipment reference - in your reply. Customers often have several
 units moving at once and need to know which one you mean. Never open by
 repeating the customer's question back to them; answer it.
 
-BILINGUAL FORMAT - REQUIRED FOR EVERY ARABIC REPLY
-Whenever you answer in Arabic, give the Arabic first, then a space, then a
-vertical bar, then a space, then the English translation of the same message:
+BILINGUAL FORMAT - REQUIRED FOR EVERY REPLY
+Give the Arabic first, then a space, then a vertical bar, then a space, then the
+English of the same message:
 
   <Arabic reply> | <English translation>
 
@@ -396,6 +423,44 @@ ${lines.join('\n')}
 `;
 }
 
+/** Does this reply still need its other half? */
+function needsBothLanguages(text) {
+  const s = String(text ?? '');
+  if (!s.trim()) return false;
+  const halves = s.split(/\u2501+/);
+  if (halves.length < 2) return true;                       // never split at all
+  const hasArabic = (x) => /[\u0600-\u06FF]/.test(x);
+  const hasLatinWords = (x) => /[A-Za-z]{3}/.test(x);
+  // One half Arabic, another half Latin prose: that is the shape we want.
+  return !(halves.some(hasArabic) && halves.some((h) => hasLatinWords(h) && !hasArabic(h)));
+}
+
+/**
+ * Asks for the missing half only - a small, cheap call that keeps the wording
+ * we already produced rather than starting the answer again.
+ */
+async function translateHalf(text, system) {
+  try {
+    const { content } = await chat({
+      system,
+      messages: [{
+        role: 'user',
+        content:
+          '[FORMAT REPAIR - this is not a customer message. The reply below is missing one of its ' +
+          'two languages, or repeats the same language twice. Send it again as: the whole message ' +
+          'in Egyptian Arabic, then " | ", then the same message in English. Keep any block of ' +
+          'labelled lines EXACTLY as it is and print it once. Change nothing else, add nothing.]\n\n' +
+          text,
+      }],
+      tools: [],
+    });
+    return content?.trim() || null;
+  } catch (err) {
+    console.error('bilingual repair failed:', err.message);
+    return null;     // half a reply beats no reply
+  }
+}
+
 export function splitLanguages(reply) {
   const text = String(reply ?? '');
   const bar = text.indexOf('|');
@@ -426,18 +491,40 @@ function mirrorTone(half, other) {
   return lead ? `${lead} ${half}` : half;
 }
 
-function dropDuplicatedCard(reply, display) {
-  if (!display) return reply;
-  const header = display.split('\n')[0]?.trim();
-  if (!header || header.length < 8) return reply;
+function stripCards(reply, displays) {
+  let text = String(reply ?? '');
+  if (!displays?.length) return text.trim();
 
-  const first = reply.indexOf(header);
-  if (first === -1) return reply;
-  const second = reply.indexOf(header, first + header.length);
-  if (second === -1) return reply;
+  for (const display of displays) {
+    const lines = display.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Anything the model typed that is a line of the block goes: its own copy,
+    // a translated copy, and the blank space they leave behind.
+    const header = lines[0];
+    if (header && header.length > 6) {
+      text = text.split(header).join(' ');
+    }
+    for (const line of lines.slice(1)) {
+      if (line.length > 8) text = text.split(line).join('');
+    }
+    // A translated copy keeps the label but changes the value, so labelled
+    // lines are dropped whole when the label came from the block.
+    const labels = lines.slice(1)
+      .map((l) => l.split(':')[0].trim())
+      .filter((l) => l && l.length > 2 && l.length < 40);
+    if (labels.length >= 3) {
+      text = text
+        .split('\n')
+        .filter((l) => !labels.some((label) => l.trim().startsWith(label + ':')))
+        .join('\n');
+    }
+  }
 
-  // Keep everything up to the repeat, minus a dangling bar left behind by it.
-  return reply.slice(0, second).replace(/[|\s]+$/, '').trimEnd();
+  return text
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -474,7 +561,7 @@ export async function respond(userText, ctx) {
   };
 
   let finalText = '';
-  let lastDisplay = null;
+  const displays = [];
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const { content, toolCalls } = await chat({
@@ -494,12 +581,20 @@ export async function respond(userText, ctx) {
     for (const call of toolCalls) {
       toolsUsed.push(call.name);
       const result = await runTool(call.name, call.args, turnCtx);
-      if (result?.display) lastDisplay = result.display;
+      if (result?.display && !displays.includes(result.display)) displays.push(result.display);
+      // The display block is deliberately withheld from the model. Shown it, the
+      // model retypes it - in Arabic, with the ports translated, or a second
+      // time below its own sentence. It cannot copy what it never sees, and the
+      // block is attached to the reply from the tool result itself.
+      const { display: _card, ...forModel } = result ?? {};
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         name: call.name,
-        content: JSON.stringify(result).slice(0, 12_000),
+        content: JSON.stringify({
+          ...forModel,
+          ...(result?.display ? { display_block: 'attached to your reply automatically - do not write it out' } : {}),
+        }).slice(0, 12_000),
       });
     }
   }
@@ -516,7 +611,7 @@ export async function respond(userText, ctx) {
       && looksLikeAgreement(turnCtx.customerSaid)) {
     const result = await runTool('create_booking', turnCtx.draft.raw, turnCtx);
     toolsUsed.push('create_booking');
-    if (result?.display) lastDisplay = result.display;
+    if (result?.display && !displays.includes(result.display)) displays.push(result.display);
 
     messages.push({
       role: 'user',
@@ -534,7 +629,24 @@ export async function respond(userText, ctx) {
       'Sorry, I had trouble putting that answer together. Could you rephrase, or would you like me to pass this to a colleague?';
   }
 
-  finalText = splitLanguages(dropDuplicatedCard(finalText, lastDisplay));
+  finalText = splitLanguages(stripCards(finalText, displays));
+
+  // Both languages, every time. The model drops the Arabic half often enough -
+  // and once sent the same English twice with a divider between - that asking
+  // it again is cheaper than a customer forwarding half a message to a broker
+  // who cannot read it.
+  if (needsBothLanguages(finalText)) {
+    const repaired = await translateHalf(finalText, systemPrompt(turnCtx));
+    if (repaired) finalText = splitLanguages(stripCards(repaired, displays));
+  }
+
+  // The card is placed here, by us, from what the tool actually returned. The
+  // model used to print it itself, and printed it twice - once translated into
+  // Arabic, ports and all - which is exactly what must never reach a customs
+  // document.
+  if (displays.length) {
+    finalText = [displays.join('\n\n'), finalText].filter((part) => part && part.trim()).join('\n\n');
+  }
 
   await saveHistory(ctx.channel, ctx.chatId, [
     ...history,

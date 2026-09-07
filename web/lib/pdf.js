@@ -27,7 +27,7 @@ const LINE = '#d8e0e8';
 
 const LEFT = 50;
 const RIGHT = 545;
-const LABEL_W = 150;
+const LABEL_W = 212;   // wide enough for a label in two languages, which overlapped the value at 150
 const TOP = 60;          // where content starts on a continuation page
 const BOTTOM = 735;      // last y a line may start on, above the footer
 
@@ -39,16 +39,23 @@ const BOTTOM = 735;      // last y a line may start on, above the footer
 export function bookingConfirmationPdf(b, opts = {}) {
   const lang = opts.lang ?? bookingLanguage(b);
   const s = t(lang);
+  const other = t(lang === 'ar' ? 'en' : 'ar');
   const rtl = s.dir === 'rtl';
 
-  // Any Arabic anywhere means we cannot use Helvetica for that text.
-  const anyArabic =
-    rtl ||
-    hasArabic(
-      [b.customer_name, b.company, b.cargo_description, b.notes, b.origin_port, b.destination_port]
-        .filter(Boolean)
-        .join(' '),
-    );
+  // Labels carry both languages, like the cards in the chat do. This document
+  // gets forwarded to a broker, a driver and a customs agent, and whichever
+  // language it was written in is the wrong one for at least one of them.
+  // A slash between an Arabic word and a Latin one is a neutral character, and
+  // bidi puts it at the edge of the line rather than between them - "/ الاسم
+  // Name". Brackets are mirrored properly, so the Arabic-first pages use those.
+  const both = (key) => {
+    if (s[key] === other[key]) return s[key];
+    return rtl ? `${s[key]} (${other[key]})` : `${s[key]} / ${other[key]}`;
+  };
+
+  // Every label carries Arabic now, so the Arabic font is always needed - the
+  // built-in one would print blank boxes where the labels should be.
+  const anyArabic = true;
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50, autoFirstPage: true });
@@ -124,10 +131,12 @@ export function bookingConfirmationPdf(b, opts = {}) {
     let y = 118;
 
     // ---- status banner ---------------------------------------------------
-    doc.roundedRect(LEFT, y, RIGHT - LEFT, 32, 5).fill('#fff5e0');
-    line(s.statusBanner, LEFT + 14, y + 6, RIGHT - LEFT - 28, { size: 10, font: BOLD, color: '#8a5a00' });
-    line(s.statusNote, LEFT + 14, y + 19, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
-    y += 42;
+    doc.roundedRect(LEFT, y, RIGHT - LEFT, 46, 5).fill('#fff5e0');
+    line(`${s.statusBanner}  ·  ${other.statusBanner}`, LEFT + 14, y + 6, RIGHT - LEFT - 28,
+      { size: 9.5, font: BOLD, color: '#8a5a00' });
+    line(s.statusNote, LEFT + 14, y + 20, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
+    line(other.statusNote, LEFT + 14, y + 31, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
+    y += 56;
 
     // ---- section heading + label/value rows -------------------------------
     const heading = (text) => {
@@ -156,60 +165,81 @@ export function bookingConfirmationPdf(b, opts = {}) {
       y += 1;
     };
 
-    heading(s.customer);
-    row(s.name, b.customer_name);
-    row(s.company, b.company);
-    row(s.contact, b.customer_contact);
+    heading(both('customer'));
+    row(both('name'), b.customer_name);
+    row(both('company'), b.company);
+    row(both('contact'), b.customer_contact);
     y += 3;
 
-    heading(s.route);
-    row(s.originCountry, b.origin_country);
-    row(s.originPort, b.origin_port);
-    row(s.destinationPort, b.destination_port);
-    row(s.incoterm, b.incoterm);
+    heading(both('route'));
+    row(both('originCountry'), b.origin_country);
+    row(both('originPort'), b.origin_port);
+    row(both('destinationPort'), b.destination_port);
+    row(both('incoterm'), b.incoterm);
     y += 3;
 
-    heading(s.cargo);
+    heading(both('cargo'));
     // The chassis number identifies the unit on every other document in the
     // file - invoice, MRN, ACID, bill of lading - so it belongs at the top of
     // the cargo block, not only in the database.
     const vehicle = [b.make, b.model].filter(Boolean).join(' ');
-    row(s.chassis, b.vin);
-    row(s.vehicle, vehicle);
-    row(s.condition, b.engine_condition ?? b.raw?.engine_condition ?? null);
+    row(both('chassis'), b.vin);
+    row(both('vehicle'), vehicle);
+    row(both('condition'), b.engine_condition ?? b.raw?.engine_condition ?? null);
     // Skip a description that only repeats the vehicle line above it.
-    row(s.description, b.cargo_description === vehicle ? null : b.cargo_description);
-    row(s.grossWeight, b.gross_weight_kg ? `${fmt(b.gross_weight_kg)} ${s.kg}` : null);
-    row(s.volume, b.volume_cbm ? `${fmt(b.volume_cbm)} ${s.cbm}` : null);
-    row(s.readyDate, b.ready_date);
-    row(s.mrn, b.mrn_number);
-    row(s.acid, b.acid_number);
-    row(s.notes, b.notes);
+    row(both('description'), b.cargo_description === vehicle ? null : b.cargo_description);
+    row(both('grossWeight'), b.gross_weight_kg ? `${fmt(b.gross_weight_kg)} ${s.kg}` : null);
+    row(both('volume'), b.volume_cbm ? `${fmt(b.volume_cbm)} ${s.cbm}` : null);
+    row(both('readyDate'), b.ready_date);
+    row(both('mrn'), b.mrn_number);
+    row(both('acid'), b.acid_number);
+    row(both('notes'), b.notes);
     y += 3;
 
     // ---- document checklist ----------------------------------------------
-    heading(s.documents);
+    heading(both('documents'));
     // Two columns. Six documents down one side pushed an Arabic booking - whose
     // script sets taller than Latin - onto a second page for two lines of text.
     const HALF = (RIGHT - LEFT) / 2;
-    const perColumn = Math.ceil(s.docList.length / 2);
-    ensureSpace(perColumn * 13 + 6);
+    // One column per language, side by side, so the same list serves whoever is
+    // holding the page.
+    const rows = Math.max(s.docList.length, other.docList.length);
+    ensureSpace(rows * 13 + 6);
     const listTop = y;
-    s.docList.forEach((item, i) => {
-      const second = i >= perColumn;
-      // The first column is the right-hand one when the page reads right to left.
-      const colLeft = LEFT + (rtl === second ? 0 : HALF);
-      const rowY = listTop + (i % perColumn) * 13;
-      // The bullet is drawn as a shape rather than a character, so bidi cannot
-      // move it to the wrong side of the line.
-      doc.circle(rtl ? colLeft + HALF - 5 : colLeft + 3, rowY + 5, 1.6).fill(BRAND);
-      para(item, rtl ? colLeft : colLeft + 14, rowY, HALF - 14, { size: 9 });
-    });
-    y = listTop + perColumn * 13 + 6;
+    const column = (list, onLeft) => {
+      const colLeft = LEFT + (onLeft ? 0 : HALF);
+      list.forEach((item, i) => {
+        const rowY = listTop + i * 13;
+        // The bullet is a shape, not a character, so bidi cannot move it to the
+        // wrong side of the line.
+        const arabicItem = hasArabic(item);
+        doc.circle(arabicItem ? colLeft + HALF - 5 : colLeft + 3, rowY + 5, 1.6).fill(BRAND);
+        drawBidiParagraph(
+          doc.font(REG).fontSize(8.5).fillColor(INK),
+          item,
+          arabicItem ? colLeft : colLeft + 12,
+          rowY,
+          HALF - 14,
+          {
+            align: arabicItem ? 'right' : 'left',
+            baseDir: arabicItem ? 'rtl' : 'ltr',
+            lineGap: 2,
+            wordSpacing: arabicItem ? ARABIC_WORD_SPACING : 0,
+            maxY: BOTTOM,
+            onPageBreak: newPage,
+          },
+        );
+      });
+    };
+    column(s.docList, rtl ? false : true);
+    column(other.docList, rtl ? true : false);
+    y = listTop + rows * 13 + 6;
 
     // ---- next steps -------------------------------------------------------
-    heading(s.next);
-    y = para(s.nextBody, LEFT, y, RIGHT - LEFT, { size: 9, lineGap: 2 });
+    heading(both('next'));
+    y = para(s.nextBody, LEFT, y, RIGHT - LEFT, { size: 9, lineGap: 2 }) + 6;
+    doc.moveTo(LEFT, y - 3).lineTo(RIGHT, y - 3).strokeColor(LINE).stroke();
+    y = para(other.nextBody, LEFT, y + 2, RIGHT - LEFT, { size: 9, lineGap: 2 });
 
     // ---- footer -----------------------------------------------------------
     // Drawn on whatever page the content ended on, never on top of it.

@@ -510,7 +510,7 @@ const executors = {
     if (draft?.raw) {
       // challenged is bookkeeping, not a booking detail: dropping it here means
       // a genuinely revised proposal gets its own safety net again.
-      const { turn_id: _turn, challenged: _challenged, ...held } = draft.raw;
+      const { turn_id: _turn, challenged: _challenged, details_asked: _asked, ...held } = draft.raw;
       args = { ...held, ...provided };
     }
 
@@ -580,7 +580,7 @@ const executors = {
         make: canonicalMake(args.make),
         model: latinizeName(args.model) || null,
         status: 'draft',
-        raw: { ...args, turn_id: ctx.turnId },
+        raw: { ...args, turn_id: ctx.turnId, details_asked: true },
       }, { onConflict: 'booking_ref' });
       // One conversation, one proposal on the table. Correcting the chassis
       // used to leave the old draft behind, invisible but real.
@@ -611,15 +611,41 @@ const executors = {
       // for the invoice, which is how a two-minute booking becomes four rounds.
       const docs = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
 
+      // Only five fields are needed to book, so the moment they arrived the bot
+      // jumped to the summary and never asked about the weight, the Incoterm,
+      // the ready date or damage at all - roadmap step 2 skipped entirely. They
+      // are asked for once, alongside the summary rather than as another round
+      // of questions, and never again: a customer who does not have them yet
+      // should not be nagged.
+      const WORTH_ASKING = [
+        ['gross_weight_kg', 'the gross weight in kg'],
+        ['incoterm', 'the Incoterm (EXW, FOB, CIF or DAP)'],
+        ['ready_date', 'the cargo ready date'],
+        ['engine_condition', 'any damage to the vehicle - engine, gearbox, accident'],
+      ];
+      const alreadyAsked = Boolean(draft?.raw?.details_asked);
+      const alsoAsk = alreadyAsked
+        ? []
+        : WORTH_ASKING.filter(([k]) => String(args[k] ?? '').trim() === '').map(([, label]) => label);
+
       return {
         ok: false,
         needs_confirmation: true,
         documents_outstanding: docs?.missing_labels ?? undefined,
+        also_ask: alsoAsk.length ? alsoAsk : undefined,
         // Shown from the canonical values, so what the customer approves is
         // exactly what the operations desk will read back out of the database.
         display: bookingCard(canonical(args), lang),
         unclear_fields: unclear.length ? unclear : undefined,
         message:
+          (alsoAsk.length
+            ? `In the SAME message as the summary, ask them for: ${alsoAsk.join('; ')}. ` +
+              (docs?.missing_labels?.length
+                ? `And ask them to send: ${docs.missing_labels.join(', ')}. `
+                : '') +
+              'One message, all of it, then the summary - do not ask these one at a time and do ' +
+              'not ask again later if they do not answer. '
+            : '') +
           (unclear.length
             ? `The ${unclear.join(' and ')} you sent was a list of choices, not a choice, so it was left ` +
               'blank. Ask the customer which one applies, along with the confirmation. '

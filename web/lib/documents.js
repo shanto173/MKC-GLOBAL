@@ -66,7 +66,21 @@ export async function ingestDocument({ buffer, fileName, mimeType, chatId, chann
     return { ok: false, error: error.message, extracted };
   }
 
-  return { ok: true, document: data, extracted, readVia: read.source, storageError: stored.error };
+  // Papers that arrive AFTER the booking was made were left unattached, so the
+  // operations desk opened the booking and saw no documents against it even
+  // though the customer had sent them. Anything already booked in this chat
+  // claims them - by chassis where the document names one.
+  let attachedTo = bookingRef ?? null;
+  if (!attachedTo) attachedTo = await attachToOpenBooking(data, chatId);
+
+  return {
+    ok: true,
+    document: data,
+    extracted,
+    readVia: read.source,
+    bookingRef: attachedTo,
+    storageError: stored.error,
+  };
 }
 
 /**
@@ -112,6 +126,36 @@ export async function documentStatus({ chatId, vin = null }) {
 }
 
 /** Links loose documents to a booking once its reference exists. */
+/**
+ * Links a document to the booking it belongs to, when one already exists in
+ * this conversation. Matches on the chassis number if the document carries one,
+ * otherwise the newest open booking in the chat.
+ */
+async function attachToOpenBooking(document, chatId) {
+  const { data: open } = await db()
+    .from('bookings')
+    .select('booking_ref, vin, vin_norm, status, created_at')
+    .eq('chat_id', String(chatId))
+    .in('status', ['pending_review', 'confirmed'])
+    .order('created_at', { ascending: false })
+    .limit(5);
+  if (!open?.length) return null;
+
+  const docVin = document.vin ? normalizeVin(document.vin) : null;
+  const match = (docVin && open.find((b) => normalizeVin(b.vin ?? '') === docVin)) || open[0];
+  if (!match) return null;
+
+  const { error } = await db()
+    .from('booking_documents')
+    .update({ booking_ref: match.booking_ref, vin: document.vin ?? match.vin ?? null })
+    .eq('id', document.id);
+  if (error) {
+    console.error('attaching a late document failed:', error.message);
+    return null;
+  }
+  return match.booking_ref;
+}
+
 export async function attachDocumentsToBooking({ chatId, bookingRef, vin }) {
   const { error } = await db()
     .from('booking_documents')

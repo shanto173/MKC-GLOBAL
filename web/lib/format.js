@@ -42,7 +42,14 @@ const L = {
   lastUpdate:  ['آخر تحديث', 'Last update'],
 };
 
-const label = (key, lang) => (lang === 'ar' ? `${L[key][0]} / ${L[key][1]}` : L[key][1]);
+/**
+ * Labels always carry both languages, whichever language the customer wrote in.
+ * These cards get forwarded to drivers, brokers and customs agents who read one
+ * or the other, and a card that arrives in the wrong one is useless to them.
+ * The `lang` argument is kept because callers pass it; it no longer changes the
+ * label, only which side reads first to the person holding the phone.
+ */
+const label = (key) => `${L[key][0]} / ${L[key][1]}`;
 
 /** One "field: value" line, dropped entirely when there is no value. */
 function line(key, value, lang) {

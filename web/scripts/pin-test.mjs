@@ -112,7 +112,9 @@ check('with the vessel and the ETA', /MSC Aurora/.test(moving.text ?? '') && /20
 
 // --- delivered --------------------------------------------------------------
 console.log('\nit is delivered');
-await updateShipmentStatus(opened.shipment_id, { status: 'Delivered', delivery_status: 'Complete' }, { operator: 'pin test' });
+// Only the milestone is moved here, deliberately: that is what an operator
+// does in the console, and it used to leave the card pinned forever.
+await updateShipmentStatus(opened.shipment_id, { status: 'Delivered' }, { operator: 'pin test' });
 const gone = await refreshPin(chatId);
 check('the card takes itself away', gone.action === 'cleared', JSON.stringify(gone));
 const afterDelivery = await pinnedNow();

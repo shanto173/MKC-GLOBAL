@@ -43,7 +43,11 @@ export async function activeItems(chatId) {
     .order('updated_at', { ascending: false })
     .limit(30);
 
-  const shipments = (allShipments ?? []).filter((s) => s.delivery_status !== 'Complete');
+  // Either field can carry the news: an operator moving the milestone to
+  // Delivered is saying the same thing as delivery_status Complete, and a card
+  // that keeps following a delivered truck is worse than no card.
+  const done = (s) => s.delivery_status === 'Complete' || s.status === 'Delivered';
+  const shipments = (allShipments ?? []).filter((s) => !done(s));
 
   const { data: bookings } = await db()
     .from('bookings')
