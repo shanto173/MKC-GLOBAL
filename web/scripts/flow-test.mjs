@@ -106,7 +106,7 @@ const scenarios = [
         user,
         onTurn: () => { state.turn = n; },
         results: {
-          lookup_vehicle: { verdict: 'new', known: false, next_step: 'New unit. Ask for make and model, customer name, and route.' },
+          lookup_vehicle: { verdict: 'new', known: false, next_step: 'Everything a booking needs is in what the customer wrote. Call create_booking NOW with those values - do not ask for anything first. Any optional detail is asked for alongside the summary.' },
           create_booking: booking,
         },
       });
@@ -161,9 +161,14 @@ const scenarios = [
       // Asking can be a question or a polite imperative - "Please provide the
       // model" is a request, and insisting on a question mark failed the test
       // over punctuation while the reply was doing exactly the right thing.
+      // A list of what is needed is also an ask - "I need from you: vehicle
+      // type, weight, Incoterm..." - so naming two or more details counts.
+      const detailWords = ['type', 'weight', 'incoterm', 'damage', 'ready', 'نوع', 'الوزن', 'تلف', 'عطل'];
+      const named = detailWords.filter((w) => reply.toLowerCase().includes(w)).length;
       const asks = /[?؟]/.test(reply)
-        || /(please (provide|send|share|confirm)|could you|can you|let me know|kindly)/i.test(reply)
-        || /(ممكن|ابعت|ابعتلي|من فضلك|لو سمحت)/.test(reply);
+        || /(please (provide|send|share|confirm)|could you|can you|let me know|kindly|i need|we need|عايز أعرف|محتاج)/i.test(reply)
+        || /(ممكن|ابعت|ابعتلي|من فضلك|لو سمحت)/.test(reply)
+        || named >= 2;
       if (!asks) return 'did not ask the customer anything: ' + reply.slice(0, 120);
       return true;
     },
@@ -199,7 +204,7 @@ const scenarios = [
         user,
         onTurn: () => { state.turn = n; },
         results: {
-          lookup_vehicle: { verdict: 'new', known: false, next_step: 'New unit. Ask for make and model, customer name, and route.' },
+          lookup_vehicle: { verdict: 'new', known: false, next_step: 'Everything a booking needs is in what the customer wrote. Call create_booking NOW with those values - do not ask for anything first. Any optional detail is asked for alongside the summary.' },
           create_booking: booking,
           update_booking: {
             ok: false,
