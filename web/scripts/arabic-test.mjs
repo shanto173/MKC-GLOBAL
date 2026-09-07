@@ -18,7 +18,7 @@ const LATIN_WORDS = /[A-Za-z]{3,}/g;
 const ARABIC_INDIC = /[٠-٩]/;
 
 /** Words that are fine in Latin inside an Arabic reply - they are identifiers. */
-const ALLOWED_LATIN = /^(ACID|MRN|EUR|VIN|MKC|MKY|BKG|TKT|SHP|FOB|EXW|CIF|DAP|LCL|FCL|ETA|ETD|MSC|CMA|CGM|ONE|Maersk|Hapag|Alexandria|Port|Said|Damietta|Ain|Sokhna|Suez|Rotterdam|Felixstowe|Antwerp|Hamburg|Valencia|Genoa|Savannah|Vilnius|Barcelona|Angeles|Los|New|York|Jersey|Gateway|London|Aurora|Nile|Express|Meridian|Thames|Genova|Pacific|Hamburg|Mercedes|Benz|Actros|Volvo|Scania|Nafeza|El|Dekheila|incl|Egypt|Global|Forwarding|Logistics|Booking|Operations|Accounts|Payments|Tracking|Desk|Customs|Documentation|Customer|Care|kg|cbm|LKW|UAB|SS)$/i;
+const ALLOWED_LATIN = /^(ACID|MRN|EUR|VIN|MKC|MKY|BKG|TKT|SHP|FOB|EXW|CIF|DAP|LCL|FCL|ETA|ETD|MSC|CMA|CGM|ONE|Maersk|Hapag|Alexandria|Port|Said|Damietta|Ain|Sokhna|Suez|Rotterdam|Felixstowe|Antwerp|Hamburg|Valencia|Genoa|Savannah|Vilnius|Barcelona|Angeles|Los|New|York|Jersey|Gateway|London|Aurora|Nile|Express|Meridian|Thames|Genova|Pacific|Hamburg|Mercedes|Benz|Actros|Volvo|Scania|Nafeza|El|Dekheila|incl|Egypt|Global|Forwarding|Logistics|Booking|Operations|Accounts|Payments|Tracking|Desk|Customs|Documentation|Customer|Care|kg|cbm|LKW|UAB|SS|POD|CMR|ETD|B\/L)$/i;
 
 const cases = [
   {

@@ -100,7 +100,6 @@ WHAT YOU DO
    payment state that did not come back from that tool.
 2. New bookings - follow these steps in order.
 
-${known}
    STEP 1 - IDENTIFY THE UNIT.
    Ask for the chassis / VIN number first, before anything else. The moment you
    have it, call lookup_vehicle. Then obey its verdict:
@@ -357,7 +356,7 @@ Decide from the language of THEIR message, not the language of the conversation
 so far.
 ${lang === 'ar'
   ? 'THIS CUSTOMER IS WRITING IN ARABIC. Reply in Egyptian Arabic, then a single bar, then the English translation.'
-  : 'THIS CUSTOMER IS WRITING IN ENGLISH. Reply in English only. Do NOT include Arabic and do NOT include a bar.'}`;
+  : 'THIS CUSTOMER IS WRITING IN ENGLISH. Reply in English only. Do NOT include Arabic and do NOT include a bar.'}` + known;
 }
 
 /**
@@ -416,11 +415,16 @@ function knownSoFar(draft) {
     .map(([key, label]) => `     ${label}: ${raw[key]}`);
   if (!lines.length) return '';
 
+  // Appended AFTER everything that never changes. Anything that varies per turn
+  // sitting in the middle of the prompt breaks the provider's prompt cache for
+  // every token after it - which was 86% of the sheet - so the half-price
+  // cached rate almost never applied.
   return `
-   WHAT THIS CONVERSATION HAS ALREADY TOLD YOU - DO NOT ASK FOR ANY OF IT AGAIN.
+
+WHAT THIS CONVERSATION HAS ALREADY TOLD YOU - DO NOT ASK FOR ANY OF IT AGAIN.
 ${lines.join('\n')}
-   Pass every one of these back when you call create_booking. If the customer
-   corrects one, use their new value; otherwise use what is here.
+Pass every one of these back when you call create_booking. If the customer
+corrects one, use their new value; otherwise use what is here.
 `;
 }
 
