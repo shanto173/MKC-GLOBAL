@@ -9,6 +9,7 @@ import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
+import { shipmentCard, bookingCard, documentsCard } from './format.js';
 
 export const toolDefinitions = [
   {
@@ -187,7 +188,7 @@ export const toolDefinitions = [
 // ---------------------------------------------------------------------------
 
 const executors = {
-  async track_shipment({ query }) {
+  async track_shipment({ query }, ctx) {
     const q = String(query || '').trim();
     if (!q) return { error: 'No search term supplied.' };
 
@@ -210,7 +211,15 @@ const executors = {
         .limit(5);
       shipments.push({ ...s, recent_events: events ?? [] });
     }
-    return { found: true, count: shipments.length, shipments };
+    const lang = ctx?.customerLanguage ?? 'en';
+    return {
+      found: true,
+      count: shipments.length,
+      shipments,
+      // Reproduced verbatim by the model, so every tracking answer has the same
+      // shape and the same fields in the same order.
+      display: shipments.map((s) => shipmentCard(s, lang)).join('\n\n'),
+    };
   },
 
   async search_knowledge({ question }) {
@@ -410,17 +419,18 @@ const executors = {
         };
       }
 
+      const lang = args.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en';
       return {
         ok: false,
         needs_confirmation: true,
+        display: bookingCard(
+          { ...args, booking_ref: '', vin: String(args.vin).toUpperCase(), destination_port: port, status: null },
+          lang,
+        ),
         message:
-          'NOT booked yet. Read this summary back to the customer and ask them to confirm: ' +
-          `Chassis ${String(args.vin).toUpperCase()}; ` +
-          `vehicle ${[args.make, args.model].filter(Boolean).join(' ') || 'not stated'}; ` +
-          `route ${args.origin_port} to ${port}; ` +
-          `customer ${args.customer_name}. ` +
-          'When they reply agreeing, call create_booking again with the same details. ' +
-          'Do not tell the customer a booking exists until then.',
+          'NOT booked yet. Show the customer the display block above EXACTLY as written and ask ' +
+          'them to confirm it. When they reply agreeing, call create_booking again with the same ' +
+          'details. Do not tell the customer a booking exists until then.',
       };
     }
 
@@ -491,6 +501,7 @@ const executors = {
       ok: true,
       booking_ref: data.booking_ref,
       status: data.status,
+      display: bookingCard(data, data.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en'),
       confirmation_emailed: notified.customer_email === true,
       next_step:
         'Tell the customer the booking reference, that a confirmation PDF has been emailed to them, '
@@ -592,6 +603,7 @@ const executors = {
 
     return {
       ...status,
+      display: documentsCard(status, ctx?.customerLanguage ?? 'en'),
       next_step: status.problems?.length
         ? 'Tell the customer about the problem below before anything else - a chassis mismatch ' +
           'gets the customs declaration rejected.'

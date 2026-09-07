@@ -85,7 +85,15 @@ for (const c of cases) {
     if (msa.length) problems.push(`formal MSA wording: ${msa.join(', ')}`);
 
     // Stray English is only a fault on the ARABIC side of the bar.
-    const stray = [...(arabicHalf.match(LATIN_WORDS) || [])].filter((w) => !ALLOWED_LATIN.test(w));
+    // A structured card is meant to carry English: its labels are deliberately
+    // bilingual ("الحالة / Status") and its values come straight from the
+    // database. Only the prose around the card is judged for stray English.
+    const withoutCard = (s) => s
+      .split('\n')
+      .filter((l) => !/^\s*[\u{1F4E6}\u{1F4C4}\u{1F4CB}]/u.test(l) && !/^[^:]{1,44}:\s/.test(l))
+      .join('\n');
+
+    const stray = [...(withoutCard(arabicHalf).match(LATIN_WORDS) || [])].filter((w) => !ALLOWED_LATIN.test(w));
     if (stray.length) problems.push(`untranslated English in the Arabic half: ${[...new Set(stray)].slice(0, 5).join(', ')}`);
 
     if (ARABIC_INDIC.test(arabicHalf)) problems.push('used Arabic-Indic digits');
