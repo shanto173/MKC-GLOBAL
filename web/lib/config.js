@@ -44,7 +44,13 @@ export const config = {
   llm: {
     provider: (env.LLM_PROVIDER || 'openai').toLowerCase(),
     openaiKey: env.OPENAI_API_KEY || '',
-    openaiModel: env.OPENAI_MODEL || 'gpt-4o-mini',
+    // The conversation model. It decides what a customer meant, which tool to
+    // call and what to say, so this is where intelligence is worth paying for.
+    openaiModel: env.OPENAI_MODEL || 'gpt-4.1',
+    // Transcribing a scan and pulling numbers out of text is bulk work on a
+    // fixed shape - a cheaper model does it just as well, and there is a lot
+    // of it per booking.
+    openaiFastModel: env.OPENAI_MODEL_FAST || 'gpt-4.1-mini',
     anthropicKey: env.ANTHROPIC_API_KEY || '',
     anthropicModel: env.ANTHROPIC_MODEL || 'claude-sonnet-5',
     embeddingModel: env.EMBEDDING_MODEL || 'text-embedding-3-small',

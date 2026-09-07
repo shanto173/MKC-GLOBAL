@@ -8,11 +8,11 @@
 
 import { config } from '../lib/config.js';
 import { respond, splitLanguages } from '../lib/agent.js';
-import { forgetConversation, loadHistory } from '../lib/session.js';
+import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
-import { documentReadCard, departmentsCard, DEPARTMENT_MENU } from '../lib/format.js';
+import { documentReadCard } from '../lib/format.js';
 import { refreshPinSafely } from '../lib/pinned.js';
 
 export default async function handler(req, res) {
@@ -50,16 +50,8 @@ export default async function handler(req, res) {
     const canned = await handleCommand(text, ctx);
     if (canned) return res.status(200).json({ ok: true });
 
-    // What the customer last saw decides what a bare number means. After the
-    // department list, "3" is the Tracking Desk; after the main menu it is
-    // "contact our team". Without that, a customer who picked 3 and then typed
-    // "shipment" was answered as though they wanted to track one.
-    const history = await loadHistory(ctx.channel, chatId);
-    const lastFromUs = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
-    const afterDepartmentMenu = lastFromUs.includes('Contact our team');
-
     await sendTyping(chatId);
-    const { reply } = await respond(rewriteCommand(text, { afterDepartmentMenu }), ctx);
+    const { reply } = await respond(rewriteCommand(text), ctx);
     await sendMessage(chatId, reply, { keyboard: MAIN_KEYBOARD });
 
     return res.status(200).json({ ok: true });
@@ -92,14 +84,6 @@ async function handleCommand(text, ctx) {
   // Arabic themselves - the model never sees them.
   if (cmd === '/start') {
     await sendMessage(ctx.chatId, welcome(ctx.userName), { keyboard: MAIN_KEYBOARD });
-    return true;
-  }
-
-  // "3", the Contact button, or /help: the desks themselves, numbered, rather
-  // than "tell me what kind of help you need" - which asks the customer to
-  // guess what our departments are called.
-  if (cmd === '/help' || /contact our team|\u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0641\u0631\u064a\u0642\u0646\u0627/i.test(text)) {
-    await sendMessage(ctx.chatId, departmentsCard(), { keyboard: MAIN_KEYBOARD });
     return true;
   }
 
@@ -242,31 +226,11 @@ const COMMAND_TEXT = {
   '/help': 'I would like to speak to a human at the company.',
 };
 
-/**
- * A reply is read in the light of what we last sent.
- *
- * Straight after the department list, a number is a department and a word like
- * "shipment" means the shipment desk - not a request to track something, which
- * is how a customer asking for a person ended up being asked for a chassis
- * number instead.
- */
-function rewriteCommand(text, { afterDepartmentMenu = false } = {}) {
+function rewriteCommand(text) {
   const cmd = text.toLowerCase().split(/[\s@]/)[0];
-  if (COMMAND_TEXT[cmd]) return COMMAND_TEXT[cmd];
-
-  if (afterDepartmentMenu) {
-    const names = DEPARTMENT_MENU.map(([, en]) => en);
-    const picked = text.trim().match(/^[1-5]$/) ? names[Number(text.trim()) - 1] : null;
-    return `[The customer is choosing which department to be put through to. The list they were ` +
-      `just shown is: ${names.map((n, i) => `${i + 1} ${n}`).join(', ')}. They answered: "${text}". ` +
-      `${picked ? `That is ${picked}. ` : 'Work out which one they mean from that answer. '}` +
-      'Call create_support_ticket for that department with what you know of their situation, then ' +
-      'give them the ticket reference and say when the desk will reply. Do NOT treat this as a ' +
-      'request to track a shipment.]';
-  }
-
-  return text;
+  return COMMAND_TEXT[cmd] ?? text;
 }
+
 
 /** Telegram retries on any hiccup; this stops one message being answered twice. */
 async function alreadyProcessed(updateId) {

@@ -229,6 +229,8 @@ export async function extractDocument(text, meta = {}) {
         },
       ],
       tools: [],
+      // Pulling fixed-shape numbers out of text: bulk work, cheaper tier.
+      fast: true,
     });
     model = parseJson(content);
   } catch (err) {

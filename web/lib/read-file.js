@@ -155,6 +155,8 @@ async function describeImages(images, mimeType, visionPrompt) {
         'including handwriting and stamps. Never invent a value you cannot read; write [unclear] instead.',
       messages: [imageMessage(instruction, img, mimeType)],
       tools: [],
+      // Transcribing what is on a page, not deciding anything.
+      fast: true,
     });
     parts.push(images.length > 1 ? `--- page ${i + 1} ---\n${content}` : content);
   }

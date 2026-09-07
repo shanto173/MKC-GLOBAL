@@ -7,6 +7,7 @@ import { chat } from './llm.js';
 import { toolDefinitions, runTool, looksLikeAgreement } from './tools.js';
 import { loadHistory, saveHistory } from './session.js';
 import { db } from './supabase.js';
+import { departmentsCard, DEPARTMENT_MENU } from './format.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
 
 const MAX_STEPS = 5;
@@ -532,16 +533,71 @@ function stripCards(reply, displays) {
  * @param {{channel: string, chatId: string|number, userName?: string}} ctx
  * @returns {Promise<{reply: string, toolsUsed: string[]}>}
  */
+/**
+ * Reading a message about reaching a person, in the light of what we last sent.
+ *
+ * Two failures came out of not doing this. A customer who picked "contact our
+ * team" was asked to describe the kind of help they needed - which means
+ * guessing what our desks are called. And a customer who then typed "shipment"
+ * was asked for a chassis number, because the word was read as a request to
+ * track something rather than as the answer to the question we had just asked.
+ *
+ * @returns {'list'|'answer'|null}
+ */
+export function contactIntent(text, lastFromUs = '') {
+  const s = String(text ?? '').trim();
+  if (!s) return null;
+
+  // Straight after the department list, anything short is an answer to it.
+  if (String(lastFromUs).includes('Contact our team') && s.length < 60) return 'answer';
+
+  const named = DEPARTMENT_MENU.some(([ar, en]) =>
+    s.toLowerCase().includes(en.toLowerCase()) || s.includes(ar));
+  if (named) return 'answer';
+
+  if (/^[3\u0663]$/.test(s)) return 'list';
+  if (/contact (our )?team|speak to (a |an )?(human|person|someone|agent)|talk to (a |an )?(human|person|someone)|customer (service|support)|complain/i.test(s)) return 'list';
+  if (/\u062a\u0648\u0627\u0635\u0644 \u0645\u0639|\u0639\u0627\u064a\u0632 \u0623\u0643\u0644\u0645|\u0639\u0627\u064a\u0632 \u0627\u0643\u0644\u0645|\u0645\u0648\u0638\u0641|\u0634\u0643\u0648\u0649|\u062e\u062f\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621/.test(s)) return 'list';
+  return null;
+}
+
+/** Turns the customer's answer to the department list into an instruction. */
+export function departmentAnswer(text) {
+  const names = DEPARTMENT_MENU.map(([, en]) => en);
+  const picked = String(text).trim().match(/^[1-5]$/) ? names[Number(String(text).trim()) - 1] : null;
+  return `[The customer is choosing which department to be put through to. The list is: ` +
+    `${names.map((n, i) => `${i + 1} ${n}`).join(', ')}. They answered: "${text}". ` +
+    `${picked ? `That is ${picked}. ` : 'Work out which one they mean from that answer. '}` +
+    'Call create_support_ticket for that department with what you know of their situation, then ' +
+    'give them the ticket reference and say when the desk will reply. Do NOT treat this as a ' +
+    'request to track a shipment or to make a booking.]';
+}
+
 export async function respond(userText, ctx) {
   const history = await loadHistory(ctx.channel, ctx.chatId);
-  const messages = [...history, { role: 'user', content: userText }];
+  const lastFromUs = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+
+  // Reaching a person is handled here rather than by the model, and in both
+  // channels, because the model answered "who do you want to speak to?" with a
+  // question of its own.
+  const contact = contactIntent(userText, lastFromUs);
+  if (contact === 'list') {
+    const card = departmentsCard();
+    await saveHistory(ctx.channel, ctx.chatId, [
+      ...history,
+      { role: 'user', content: userText },
+      { role: 'assistant', content: card },
+    ]);
+    return { reply: card, toolsUsed: [] };
+  }
+
+  const spokenText = contact === 'answer' ? departmentAnswer(userText) : userText;
+  const messages = [...history, { role: 'user', content: spokenText }];
 
   // A message we composed ourselves - the note that a document arrived - is
   // always English, so the customer's own last message decides the language.
-  const synthetic = String(userText).trimStart().startsWith('[');
-  const spoken = synthetic
-    ? [...history].reverse().find((m) => m.role === 'user')?.content ?? userText
-    : userText;
+  const synthetic = String(spokenText).trimStart().startsWith('[');
+  const spoken = synthetic ? userText : spokenText;
   const customerLanguage = detectLanguage(spoken);
   const toolsUsed = [];
 
@@ -556,7 +612,7 @@ export async function respond(userText, ctx) {
     // What the customer actually typed, so a tool can tell "yes, book it" from
     // "no, change the Incoterm" instead of trusting the arguments the model
     // chose to send. Our own synthetic notes are not the customer speaking.
-    customerSaid: synthetic ? '' : String(userText ?? ''),
+    customerSaid: String(userText ?? '').trimStart().startsWith('[') ? '' : String(userText ?? ''),
     turnId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   };
 

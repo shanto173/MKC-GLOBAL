@@ -15,7 +15,27 @@ import { config } from './config.js';
 
 const TIMEOUT_MS = 45_000;
 
-async function postJson(url, headers, body) {
+/**
+ * How long to wait before trying again after a rate limit.
+ *
+ * A stronger model comes with a smaller allowance per minute, and two customers
+ * writing at once is enough to reach it. The provider says how long to wait -
+ * in a header, or in the message itself - and waiting is the whole fix: the
+ * alternative is telling a customer something went wrong when nothing has.
+ */
+function retryAfterMs(res, text, attempt) {
+  const header = Number(res.headers.get('retry-after'));
+  if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, 20_000);
+
+  const stated = String(text).match(/try again in ([\d.]+)\s*(ms|s)\b/i);
+  if (stated) {
+    const value = Number(stated[1]) * (stated[2].toLowerCase() === 'ms' ? 1 : 1000);
+    return Math.min(Math.ceil(value) + 250, 20_000);
+  }
+  return Math.min(1200 * 2 ** attempt, 20_000);
+}
+
+async function postJson(url, headers, body, attempt = 0) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -26,6 +46,18 @@ async function postJson(url, headers, body) {
       signal: controller.signal,
     });
     const text = await res.text();
+
+    // 429 is "wait, then ask again", not a failure. 500 and 503 are the
+    // provider having a moment; both are worth one more try before the
+    // customer is told anything.
+    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+      const wait = retryAfterMs(res, text, attempt);
+      console.warn(`llm ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1})`);
+      clearTimeout(timer);
+      await new Promise((r) => setTimeout(r, wait));
+      return postJson(url, headers, body, attempt + 1);
+    }
+
     if (!res.ok) {
       throw new Error(`${url} -> ${res.status}: ${text.slice(0, 500)}`);
     }
@@ -65,9 +97,9 @@ function toOpenAiMessages(system, messages) {
   return out;
 }
 
-async function openaiChat({ system, messages, tools }) {
+async function openaiChat({ system, messages, tools, fast = false }) {
   const body = {
-    model: config.llm.openaiModel,
+    model: fast ? config.llm.openaiFastModel : config.llm.openaiModel,
     messages: toOpenAiMessages(system, messages),
     temperature: 0.2,
   };
@@ -173,10 +205,10 @@ async function anthropicChat({ system, messages, tools }) {
 // ---------------------------------------------------------------------------
 
 /** One turn of chat completion, possibly returning tool calls to execute. */
-export async function chat({ system, messages, tools }) {
+export async function chat({ system, messages, tools, fast = false }) {
   return config.llm.provider === 'anthropic'
     ? anthropicChat({ system, messages, tools })
-    : openaiChat({ system, messages, tools });
+    : openaiChat({ system, messages, tools, fast });
 }
 
 /**
