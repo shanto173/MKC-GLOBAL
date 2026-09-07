@@ -77,6 +77,32 @@ export async function downloadFile(fileId) {
   };
 }
 
+/**
+ * Wipes the visible chat, not just our memory of it.
+ *
+ * Telegram lets a bot delete its own messages and, in a private chat, the
+ * customer's messages too - but only for 48 hours, and there is no way to ask
+ * for a chat's history. So we walk back from the message being handled: ids in
+ * a private chat run in sequence, and deleteMessages skips anything that is not
+ * there or is too old rather than failing the whole batch.
+ *
+ * @returns {Promise<{attempted: number, batches: number, failed: number}>}
+ */
+export async function sweepChat(chatId, fromMessageId, howMany = 400) {
+  const first = Math.max(1, Number(fromMessageId) - howMany + 1);
+  const ids = [];
+  for (let id = first; id <= Number(fromMessageId); id++) ids.push(id);
+
+  let failed = 0;
+  let batches = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const res = await call('deleteMessages', { chat_id: chatId, message_ids: ids.slice(i, i + 100) });
+    batches++;
+    if (!res.ok) failed++;
+  }
+  return { attempted: ids.length, batches, failed };
+}
+
 export async function setWebhook(url, secret) {
   return call('setWebhook', {
     url,

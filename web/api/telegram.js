@@ -10,7 +10,7 @@ import { config } from '../lib/config.js';
 import { respond, splitLanguages } from '../lib/agent.js';
 import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
-import { sendMessage, sendTyping, downloadFile, MAIN_KEYBOARD } from '../lib/telegram.js';
+import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
 
 export default async function handler(req, res) {
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     }
 
     const userName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ');
-    const ctx = { channel: 'telegram', chatId, userName };
+    const ctx = { channel: 'telegram', chatId, userName, messageId: message.message_id };
 
     if (attachment) {
       await handleAttachment(attachment, text, ctx);
@@ -81,49 +81,61 @@ async function handleCommand(text, ctx) {
   // These replies are written here rather than generated, so they must carry the
   // Arabic themselves - the model never sees them.
   if (cmd === '/start') {
-    const name = ctx.userName ? ' ' + ctx.userName : '';
-    // The roadmap's panel 0 is a numbered menu the client answers with a digit,
-    // not a prose list. Kept in that shape deliberately: a customer on a phone
-    // replying "1" is faster than typing a sentence, and the numbering is what
-    // the operations team trained people to expect.
-    await sendMessage(
-      ctx.chatId,
-      splitLanguages(`👋 أهلاً${name}، مرحباً بك في ${config.companyName}!\n` +
-        'نقدر نساعدك في إيه النهاردة؟ 😊\n\n' +
-        '1️⃣ 📦 احجز شحنة\n' +
-        '2️⃣ 🚚 تتبع شحنتي\n' +
-        '3️⃣ 💬 تواصل مع فريقنا\n\n' +
-        'ابعت رقم 1 أو 2 أو 3.\n' +
-        '|\n' +
-        `👋 Welcome${name} to ${config.companyName}!\n` +
-        'How can we help you today? 😊\n\n' +
-        '1️⃣ 📦 Book my shipment\n' +
-        '2️⃣ 🚚 Track my shipment\n' +
-        '3️⃣ 💬 Contact our team\n\n' +
-        'Reply with 1, 2 or 3.'),
-      { keyboard: MAIN_KEYBOARD },
-    );
+    await sendMessage(ctx.chatId, welcome(ctx.userName), { keyboard: MAIN_KEYBOARD });
     return true;
   }
 
   // /reset, and the "Start fresh" button that does the same thing in one tap.
   if (cmd === '/reset' || /start fresh|ابدأ من جديد/i.test(text)) {
     const { drafts } = await forgetConversation(ctx.channel, ctx.chatId);
+
+    // Forgetting our side left the customer staring at the whole old
+    // conversation, which is not what "start fresh" looks like to them. So the
+    // visible messages go too - as many as Telegram lets a bot remove.
+    await sweepChat(ctx.chatId, ctx.messageId, 400);
+
     const alsoAr = drafts ? ` وشلت ${drafts === 1 ? 'حجز' : drafts + ' حجوزات'} لسه ما اتأكدش.` : '';
     const alsoEn = drafts ? ` I also dropped ${drafts} unconfirmed booking${drafts === 1 ? '' : 's'}.` : '';
     await sendMessage(
       ctx.chatId,
       splitLanguages(
-        `تمام، مسحت المحادثة السابقة وبدأنا من جديد.${alsoAr} حجوزاتك المؤكدة وشحناتك زي ما هي. |` +
-        `Done - cleared our conversation and started fresh.${alsoEn} Your confirmed bookings and ` +
-        'shipments are untouched.',
+        `تمام، مسحت المحادثة ورسايلها.${alsoAr} حجوزاتك المؤكدة وشحناتك زي ما هي. ` +
+        'الرسايل الأقدم من يومين بتفضل ظاهرة - تليجرام مبيسمحش للبوت يمسحها؛ ' +
+        'لو عايز تشيلها كلها اضغط مطولاً على المحادثة في تليجرام واختر Delete chat. |' +
+        `Done - cleared our conversation and the messages above.${alsoEn} Your confirmed bookings ` +
+        'and shipments are untouched. Anything older than two days stays visible - Telegram does ' +
+        'not let a bot delete it. To clear those, hold this chat in your Telegram list and choose ' +
+        'Delete chat.',
       ),
-      { keyboard: MAIN_KEYBOARD },
     );
+    await sendMessage(ctx.chatId, welcome(ctx.userName), { keyboard: MAIN_KEYBOARD });
     return true;
   }
 
   return false;
+}
+
+/**
+ * The roadmap's panel 0: a numbered menu the client answers with a digit rather
+ * than a prose list. A customer on a phone replying "1" is faster than typing a
+ * sentence, and the numbering is what the operations team trained people to
+ * expect. Written here rather than generated, so it carries its own Arabic.
+ */
+function welcome(userName) {
+  const name = userName ? ' ' + userName : '';
+  return splitLanguages(`👋 أهلاً${name}، مرحباً بك في ${config.companyName}!\n` +
+    'نقدر نساعدك في إيه النهاردة؟ 😊\n\n' +
+    '1️⃣ 📦 احجز شحنة\n' +
+    '2️⃣ 🚚 تتبع شحنتي\n' +
+    '3️⃣ 💬 تواصل مع فريقنا\n\n' +
+    'ابعت رقم 1 أو 2 أو 3.\n' +
+    '|\n' +
+    `👋 Welcome${name} to ${config.companyName}!\n` +
+    'How can we help you today? 😊\n\n' +
+    '1️⃣ 📦 Book my shipment\n' +
+    '2️⃣ 🚚 Track my shipment\n' +
+    '3️⃣ 💬 Contact our team\n\n' +
+    'Reply with 1, 2 or 3.');
 }
 
 /**

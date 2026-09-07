@@ -168,9 +168,12 @@ booking that was never confirmed. It does **not** touch a booking that was
 actually made, or any shipment - those belong to the customer and the desk, not
 to the chat window.
 
-One thing it cannot do: the messages already on your phone are Telegram's copy,
-not ours. To clear those, hold the chat in your Telegram list and delete it -
-the bot will greet you from scratch next time you write.
+It also clears the messages themselves, so the chat window looks new rather
+than just behaving that way, and then shows the menu again.
+
+One limit, and it is Telegram's rather than ours: a bot may only delete messages
+from the last **48 hours**. Anything older stays on screen. To remove those,
+hold the chat in your Telegram list and choose Delete chat.
 
 **Important safety design:** the booking is saved to the database *first*, and
 only then do the emails go out. If the email service is down, the booking is
