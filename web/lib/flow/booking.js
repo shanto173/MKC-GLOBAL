@@ -26,6 +26,7 @@ import { parsePastedFields, looksLikePaste, splitMakeModel, valueFor } from './p
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
+import { notifyBooking } from '../notify.js';
 import { settings } from '../settings.js';
 import { DESTINATION_PORTS } from '../config.js';
 import { audit, logEvent } from '../audit.js';
@@ -744,6 +745,31 @@ export async function handleConfirm(session, ctx) {
     idempotencyKey: `booking_request_submitted:${ref}`,
     payload: { booking_ref: ref },
   });
+
+  // And their copy of the paperwork. A separate row with its own key: the
+  // client should get the PDF even if the text failed, and vice versa.
+  await enqueue({
+    chatId: ctx.chatId,
+    clientId: ctx.clientId ?? null,
+    eventType: 'booking_request_pdf',
+    entityType: 'booking',
+    entityId: ref,
+    idempotencyKey: `booking_request_pdf:${ref}`,
+    payload: { booking_ref: ref },
+  });
+
+  // The emails - to the client where we have an address, and to the operations
+  // inbox with the PDF attached. Telegram is skipped here because the outbox
+  // above owns that; sending from both would deliver the PDF twice.
+  //
+  // This was lost when the state machine replaced the model's booking tool:
+  // create_booking used to call notifyBooking and nothing else did, so for a
+  // while a client got a confirmation message and no document at all.
+  if (submitted) {
+    notifyBooking(submitted, { skipCustomerTelegram: true }).catch((err) => {
+      console.error('booking notification failed:', err?.message);
+    });
+  }
 
   // The desk hears about it. Never allowed to affect whether the booking stuck.
   operationsNotifier()

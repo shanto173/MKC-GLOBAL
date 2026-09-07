@@ -40,6 +40,15 @@ export function bookingConfirmationPdf(b, opts = {}) {
   const lang = opts.lang ?? bookingLanguage(b);
   const s = t(lang);
   const other = t(lang === 'ar' ? 'en' : 'ar');
+
+  // The same sheet is issued twice - when the request is taken, and again once
+  // Operations has confirmed it. Which one this is decides the heading, the
+  // banner and the colour, so the copy a client keeps as proof does not say
+  // "awaiting confirmation" underneath a confirmation message.
+  const confirmed = b?.status === 'confirmed';
+  const title = (x) => (confirmed && x.docTitleConfirmed) || x.docTitle;
+  const banner = (x) => (confirmed && x.statusBannerConfirmed) || x.statusBanner;
+  const note = (x) => (confirmed && x.statusNoteConfirmed) || x.statusNote;
   const rtl = s.dir === 'rtl';
 
   // Labels carry both languages, like the cards in the chat do. This document
@@ -120,7 +129,7 @@ export function bookingConfirmationPdf(b, opts = {}) {
     line(s.tagline, LEFT, 56, RIGHT - LEFT, {
       align: rtl ? 'right' : 'left', size: 9.5, color: '#cfe2ee',
     });
-    line(s.docTitle, LEFT, 28, RIGHT - LEFT, {
+    line(title(s), LEFT, 28, RIGHT - LEFT, {
       align: rtl ? 'left' : 'right', size: 15, font: BOLD, color: '#ffffff',
     });
     // The reference is a Latin identifier on the bill of lading - never translated.
@@ -132,10 +141,10 @@ export function bookingConfirmationPdf(b, opts = {}) {
 
     // ---- status banner ---------------------------------------------------
     doc.roundedRect(LEFT, y, RIGHT - LEFT, 46, 5).fill('#fff5e0');
-    line(`${s.statusBanner}  ·  ${other.statusBanner}`, LEFT + 14, y + 6, RIGHT - LEFT - 28,
+    line(`${banner(s)}  ·  ${banner(other)}`, LEFT + 14, y + 6, RIGHT - LEFT - 28,
       { size: 9.5, font: BOLD, color: '#8a5a00' });
-    line(s.statusNote, LEFT + 14, y + 20, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
-    line(other.statusNote, LEFT + 14, y + 31, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
+    line(note(s), LEFT + 14, y + 20, RIGHT - LEFT - 28, { size: 8.5, color: confirmed ? '#17794a' : '#8a5a00' });
+    line(note(other), LEFT + 14, y + 31, RIGHT - LEFT - 28, { size: 8.5, color: confirmed ? '#17794a' : '#8a5a00' });
     y += 56;
 
     // ---- section heading + label/value rows -------------------------------

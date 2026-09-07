@@ -17,7 +17,7 @@ import { enqueue } from './outbox.js';
  * @param {object} booking row from the bookings table
  * @returns {Promise<{pdf: boolean, customer_email: boolean, ops_email: boolean, staff_telegram: boolean, errors: string[]}>}
  */
-export async function notifyBooking(booking) {
+export async function notifyBooking(booking, { skipCustomerTelegram = false } = {}) {
   const result = {
     pdf: false, customer_email: false, customer_telegram: false,
     ops_email: false, staff_telegram: false, errors: [],
@@ -69,7 +69,9 @@ export async function notifyBooking(booking) {
   // Until a sending domain is verified, Resend will only deliver to the account
   // owner, so a customer's email silently goes nowhere. The chat they are
   // already in always works, and the PDF is the thing they need.
-  if (booking.channel === 'telegram' && booking.chat_id && pdf && config.telegram.token) {
+  // Skipped when the outbox owns the chat delivery: sending from both puts
+  // the same PDF in the client's chat twice, once with no retry behind it.
+  if (!skipCustomerTelegram && booking.channel === 'telegram' && booking.chat_id && pdf && config.telegram.token) {
     try {
       await sendDocument(
         booking.chat_id,
@@ -199,6 +201,31 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
     result.telegram = queued.ok;
     result.queued = queued.queued;
     if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
+
+    // Their copy of the confirmed paperwork, as its own row. A rejection gets
+    // no document: there is nothing to keep, and a sheet headed "booking
+    // confirmation" arriving with a refusal would be worse than none.
+    if (confirmed) {
+      const doc = await enqueue({
+        chatId: booking.chat_id,
+        clientId: booking.client_id ?? null,
+        eventType: 'booking_confirmed_pdf',
+        entityType: 'booking',
+        entityId: booking.booking_ref,
+        idempotencyKey: `booking_confirmed_pdf:${booking.booking_ref}`,
+        payload: { booking_ref: booking.booking_ref },
+      });
+      result.pdf_queued = doc.ok;
+      if (!doc.ok) result.errors.push(`pdf outbox: ${doc.error}`);
+    }
+  }
+
+  // Built once, from the row as it stands now - so a confirmation carries the
+  // confirmed sheet rather than the request that preceded it.
+  let decisionPdf = null;
+  if (confirmed) {
+    try { decisionPdf = await bookingConfirmationPdf(booking); }
+    catch (err) { console.error('decision pdf failed:', err.message); }
   }
 
   const email = extractEmail(booking.customer_contact);
@@ -209,6 +236,11 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
         subject: confirmed
           ? `Booking confirmed - ${booking.booking_ref}`
           : `Booking ${booking.booking_ref} - action needed`,
+        // The PDF goes with the confirmation email too. It was text-only, so a
+        // client who kept the email had no document to show anybody.
+        attachments: decisionPdf
+          ? [{ filename: `${booking.booking_ref}.pdf`, content: decisionPdf.toString('base64') }]
+          : [],
         html: wrap(`
           <div style="font-size:16px;font-weight:700;margin-bottom:4px">
             ${confirmed ? 'Your booking is confirmed' : 'We could not confirm this booking yet'}

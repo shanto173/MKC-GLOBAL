@@ -16,7 +16,7 @@
  */
 
 import { db } from './supabase.js';
-import { sendMessage } from './telegram.js';
+import { sendMessage, sendDocument } from './telegram.js';
 import { audit, logEvent } from './audit.js';
 import { M } from './flow/messages.js';
 import * as kb from './flow/keyboards.js';
@@ -75,7 +75,7 @@ export async function enqueue(event) {
  *   fails on demand. Delivery guarantees that have never been seen to fail are
  *   not guarantees.
  */
-export async function drain({ limit = 20, send = sendMessage } = {}) {
+export async function drain({ limit = 20, send = sendMessage, sendFile = sendDocument } = {}) {
   const now = new Date().toISOString();
   const { data: due, error } = await db()
     .from('notification_outbox')
@@ -118,16 +118,25 @@ export async function drain({ limit = 20, send = sendMessage } = {}) {
     }
 
     try {
-      // returnMessage, because sendMessage LOGS a Telegram-level failure and
-      // resolves anyway. Without reading ok back, every undelivered message
-      // would be marked sent and the retry would never happen - which is the
-      // exact failure this table exists to prevent.
-      const sent = await send(row.chat_id, message.text, {
-        inline: message.inline,
-        returnMessage: true,
-      });
-      if (!sent?.ok) {
-        throw new Error(sent?.description || `Telegram refused the message (${sent?.error_code ?? 'no response'})`);
+      if (message.document) {
+        // A PDF is its own outbox row with its own key, never a second send
+        // bolted onto a text row: that way each is delivered exactly once and
+        // a failure retries only the half that failed.
+        const file = await buildDocument(message.document);
+        if (!file) throw new Error(`could not build ${message.document.kind}`);
+        await sendFile(row.chat_id, file.buffer, file.filename, file.caption);
+      } else {
+        // returnMessage, because sendMessage LOGS a Telegram-level failure and
+        // resolves anyway. Without reading ok back, every undelivered message
+        // would be marked sent and the retry would never happen - which is the
+        // exact failure this table exists to prevent.
+        const sent = await send(row.chat_id, message.text, {
+          inline: message.inline,
+          returnMessage: true,
+        });
+        if (!sent?.ok) {
+          throw new Error(sent?.description || `Telegram refused the message (${sent?.error_code ?? 'no response'})`);
+        }
       }
       await finish(row, 'sent');
       result.sent++;
@@ -233,9 +242,45 @@ export function render(row) {
       if (!p.text) return null;
       return { text: String(p.text), inline: kb.homeOnly() };
 
+    // The client's own copy of the paperwork, in the chat they booked from.
+    // Delivered as its own row so the retry that matters - "did they actually
+    // receive the PDF" - is answered separately from "did they get the text".
+    case 'booking_request_pdf':
+    case 'booking_confirmed_pdf':
+      if (!p.booking_ref) return null;
+      return {
+        text: '',
+        document: {
+          kind: 'booking_pdf',
+          booking_ref: p.booking_ref,
+          caption: row.event_type === 'booking_confirmed_pdf'
+            ? `تأكيد الحجز ${p.booking_ref} - نسختك بصيغة PDF\nBooking confirmation ${p.booking_ref} - your PDF copy`
+            : `طلب حجز ${p.booking_ref} - نسختك بصيغة PDF\nBooking request ${p.booking_ref} - your PDF copy`,
+        },
+      };
+
     default:
       return null;
   }
+}
+
+/**
+ * Builds the file a queued document row asks for.
+ *
+ * The booking is read fresh at delivery time on purpose: a row queued while a
+ * request was pending and retried after Operations confirmed it should carry
+ * the confirmation, not a stale "awaiting confirmation" sheet.
+ */
+async function buildDocument(spec) {
+  if (spec.kind !== 'booking_pdf') return null;
+
+  const { data: booking } = await db()
+    .from('bookings').select('*').eq('booking_ref', spec.booking_ref).maybeSingle();
+  if (!booking) return null;
+
+  const { bookingConfirmationPdf } = await import('./pdf.js');
+  const buffer = await bookingConfirmationPdf(booking);
+  return { buffer, filename: `${booking.booking_ref}.pdf`, caption: spec.caption };
 }
 
 function numeric(value) {

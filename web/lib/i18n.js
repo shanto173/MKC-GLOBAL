@@ -23,6 +23,20 @@ const STRINGS = {
     statusNote:
       'This is a request, not a confirmed booking. Space and pricing are confirmed by Booking Operations.',
 
+    // The same document is issued twice: once when the request is taken, and
+    // again when Operations confirms it. It said "awaiting confirmation" both
+    // times, so the copy a client kept as proof of their booking contradicted
+    // the message that came with it.
+    docTitleConfirmed: 'BOOKING CONFIRMATION',
+    statusBannerConfirmed: 'STATUS: CONFIRMED',
+    statusNoteConfirmed:
+      'This booking is confirmed by MKY Operations. Keep this document; quote the reference in any correspondence.',
+    nextConfirmed: 'WHAT HAPPENS NEXT',
+    nextBodyConfirmed:
+      'Your booking is confirmed and a shipment has been opened against it. Track it at any time by sending '
+      + 'the chassis number or the reference above to our assistant. The ACID number must be issued before the '
+      + 'goods are shipped; cargo arriving without a valid ACID cannot be cleared.',
+
     customer: 'CUSTOMER',
     name: 'Name',
     company: 'Company',
@@ -89,6 +103,15 @@ const STRINGS = {
     statusBanner: 'الحالة: في انتظار التأكيد',
     statusNote:
       'هذا طلب وليس حجزاً مؤكداً. يتم تأكيد المساحة والسعر من قسم عمليات الحجز.',
+
+    docTitleConfirmed: 'تأكيد الحجز',
+    statusBannerConfirmed: 'الحالة: مؤكد',
+    statusNoteConfirmed:
+      'تم تأكيد هذا الحجز من قسم العمليات بشركة MKY. برجاء الاحتفاظ بهذا المستند وذكر رقم الحجز في أي مراسلات.',
+    nextConfirmed: 'الخطوات التالية',
+    nextBodyConfirmed:
+      'تم تأكيد حجزك وفتح شحنة عليه. تقدر تتابعها في أي وقت بإرسال رقم الشاسيه أو رقم الحجز للمساعد. '
+      + 'يجب إصدار رقم ACID قبل شحن البضاعة، حيث لا يمكن تخليص البضائع التي تصل بدون رقم ACID صالح.',
 
     customer: 'بيانات العميل',
     name: 'الاسم',

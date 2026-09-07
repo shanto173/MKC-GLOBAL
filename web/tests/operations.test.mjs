@@ -286,3 +286,82 @@ test('a request for more information repeats what the operator actually asked fo
   assert.match(message.text, /REF-15/);
   assert.match(message.text, /clearer photo of page 2/);
 });
+
+// ---------------------------------------------------------------------------
+// The client's copy of the paperwork
+// ---------------------------------------------------------------------------
+
+test('a queued PDF renders as a document, not as a message', async () => {
+  const request = render({ event_type: 'booking_request_pdf', payload: { booking_ref: 'MKY-BKG-1' } });
+  assert.ok(request.document, 'it is a document row');
+  assert.equal(request.document.kind, 'booking_pdf');
+  assert.match(request.document.caption, /Booking request MKY-BKG-1/);
+
+  const confirmed = render({ event_type: 'booking_confirmed_pdf', payload: { booking_ref: 'MKY-BKG-1' } });
+  assert.match(confirmed.document.caption, /Booking confirmation MKY-BKG-1/);
+
+  // Without a reference there is nothing truthful to send.
+  assert.equal(render({ event_type: 'booking_confirmed_pdf', payload: {} }), null);
+});
+
+test('the PDF is delivered as a file, and retried on its own if it fails', async () => {
+  const db = setup({
+    bookings: [{ ...BOOKING, status: 'confirmed' }],
+  });
+
+  await enqueue({
+    chatId: CHAT, eventType: 'booking_confirmed_pdf', entityType: 'booking',
+    entityId: BOOKING.booking_ref,
+    idempotencyKey: `booking_confirmed_pdf:${BOOKING.booking_ref}`,
+    payload: { booking_ref: BOOKING.booking_ref },
+  });
+
+  const files = [];
+  let failures = 1;
+  const sendFile = async (chatId, buffer, filename, caption) => {
+    if (failures-- > 0) throw new Error('Bad Gateway');
+    files.push({ chatId, bytes: buffer.length, filename, caption });
+    return { ok: true };
+  };
+  const send = async () => ({ ok: true });
+
+  const first = await drain({ send, sendFile });
+  assert.equal(first.sent, 0, 'a failed upload is not marked sent');
+  assert.equal(first.retried, 1);
+  assert.equal(files.length, 0);
+
+  const row = db._tables.notification_outbox[0];
+  row.available_at = new Date(Date.now() - 1000).toISOString();
+
+  const second = await drain({ send, sendFile });
+  assert.equal(second.sent, 1);
+  assert.equal(files.length, 1);
+  assert.match(files[0].filename, /\.pdf$/);
+  assert.ok(files[0].bytes > 5000, 'a real PDF, not an empty buffer');
+  assert.match(files[0].caption, /Booking confirmation/);
+});
+
+test('the PDF is built from the booking as it stands when it is sent', async () => {
+  // Queued while pending, delivered after confirmation: the sheet must say
+  // confirmed, not carry the stale wording from when it was queued.
+  const db = setup({ bookings: [{ ...BOOKING, status: 'pending_review' }] });
+
+  await enqueue({
+    chatId: CHAT, eventType: 'booking_confirmed_pdf', entityId: BOOKING.booking_ref,
+    idempotencyKey: 'pdf:late', payload: { booking_ref: BOOKING.booking_ref },
+  });
+
+  db._tables.bookings[0].status = 'confirmed';
+
+  let captured = null;
+  await drain({
+    send: async () => ({ ok: true }),
+    sendFile: async (_chat, buffer) => { captured = buffer; return { ok: true }; },
+  });
+
+  assert.ok(captured, 'the document was built and sent');
+  const { readDocument } = await import('../lib/read-file.js');
+  const read = await readDocument({ buffer: captured, mimeType: 'application/pdf', fileName: 'x.pdf' });
+  assert.match(read.text, /BOOKING CONFIRMATION/);
+  assert.doesNotMatch(read.text, /AWAITING CONFIRMATION/);
+});
