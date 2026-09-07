@@ -14,10 +14,10 @@
  * or not any notification reached anybody.
  */
 
-import { config } from '../../lib/config.js';
-import { db } from '../../lib/supabase.js';
-import { knownOperator } from './users.js';
-import { audit } from '../../lib/audit.js';
+import { config } from '../config.js';
+import { db } from '../supabase.js';
+import { knownOperator } from '../../api/admin/users.js';
+import { audit } from '../audit.js';
 
 const ACTIONS = new Set(['claim', 'release', 'complete', 'cancel']);
 

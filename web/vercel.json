@@ -11,6 +11,22 @@
     {
       "source": "/",
       "destination": "/index.html"
+    },
+    {
+      "source": "/api/admin/tasks",
+      "destination": "/api/admin/ops?resource=tasks"
+    },
+    {
+      "source": "/api/admin/mrn",
+      "destination": "/api/admin/ops?resource=mrn"
+    },
+    {
+      "source": "/api/admin/read-test",
+      "destination": "/api/admin/ops?resource=read-test"
+    },
+    {
+      "source": "/api/cron/outbox",
+      "destination": "/api/admin/ops?resource=outbox"
     }
   ]
 }

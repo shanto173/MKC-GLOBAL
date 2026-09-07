@@ -12,10 +12,10 @@
  * nothing in the reply said which step had failed or why.
  */
 
-import { config } from '../../lib/config.js';
-import { db } from '../../lib/supabase.js';
-import { downloadDocument } from '../../lib/storage.js';
-import { pdfText, pdfToImages } from '../../lib/read-file.js';
+import { config } from '../config.js';
+import { db } from '../supabase.js';
+import { downloadDocument } from '../storage.js';
+import { pdfText, pdfToImages } from '../read-file.js';
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];

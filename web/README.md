@@ -71,11 +71,14 @@ api/
   telegram.js        Telegram webhook (secret-token verified, de-duplicated)
   chat.js            JSON endpoint for the website widget
   health.js          config + database self-check
-  cron/outbox.js     drains queued notifications, every 5 minutes
   admin/bookings.js  the Operations queue: review, confirm, reject, ask
-  admin/tasks.js     the internal work queue
-  admin/mrn.js       MRN applications
+  admin/ops.js       one route for tasks, MRN, the outbox drain and read-test.
+                     Four handlers, one Serverless Function: Vercel's Hobby
+                     plan allows twelve per deployment and this project is at
+                     exactly twelve. vercel.json rewrites keep the old URLs.
   admin/setup.js     one-click webhook registration
+lib/admin/           those four handlers, one per file, outside api/ so they
+                     do not each become a function
 lib/
   flow/              THE STATE MACHINE - where booking is actually decided
     machine.js         one place where every transition is chosen

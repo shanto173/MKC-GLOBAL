@@ -16,12 +16,12 @@
  * customs identifier and a wrong one gets a declaration rejected.
  */
 
-import { config } from '../../lib/config.js';
-import { db } from '../../lib/supabase.js';
-import { knownOperator } from './users.js';
-import { enqueue, drain } from '../../lib/outbox.js';
-import { completeTask } from '../../lib/operations.js';
-import { audit } from '../../lib/audit.js';
+import { config } from '../config.js';
+import { db } from '../supabase.js';
+import { knownOperator } from '../../api/admin/users.js';
+import { enqueue, drain } from '../outbox.js';
+import { completeTask } from '../operations.js';
+import { audit } from '../audit.js';
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];

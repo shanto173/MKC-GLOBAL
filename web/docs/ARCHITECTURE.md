@@ -168,7 +168,7 @@ because a mismatch is what gets a customs declaration rejected.
    something happens  ──►  notification_outbox row  ──►  drain  ──►  Telegram
    (one transaction)       (idempotency_key)              │
                                                           ├─ inline, right after the trigger
-                                                          └─ /api/cron/outbox every 5 minutes
+                                                          └─ /api/cron/outbox, by hand or by cron
 ```
 
 Two failures this replaces, both seen in the field:
@@ -185,7 +185,16 @@ Failures retry on a backoff of 1, 5, 15, 60, 240 and 720 minutes and then go to
 `dead`. A client who has blocked the bot is marked `dead` immediately — retrying
 that forever is how an outbox becomes permanent background load.
 
-`npm run outbox -- --list` shows the queue.
+`npm run outbox -- --list` shows the queue, `npm run outbox` sends it.
+
+There is no cron entry in `vercel.json` at present. Hobby refuses a schedule
+more frequent than daily, and a daily retry earns little when every inline
+drain already sends everything that is due - so a queued message goes out on
+the next customer message or Operations decision. On a paid plan, add:
+
+```json
+"crons": [{ "path": "/api/cron/outbox", "schedule": "*/5 * * * *" }]
+```
 
 ---
 
