@@ -4,7 +4,7 @@
  */
 
 import { chat } from './llm.js';
-import { toolDefinitions, runTool } from './tools.js';
+import { toolDefinitions, runTool, looksLikeAgreement } from './tools.js';
 import { loadHistory, saveHistory } from './session.js';
 import { db } from './supabase.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
@@ -502,6 +502,31 @@ export async function respond(userText, ctx) {
         content: JSON.stringify(result).slice(0, 12_000),
       });
     }
+  }
+
+  // The customer looked at the summary and said yes - and sometimes the model
+  // answers by showing them the very same card again instead of booking it.
+  // Agreement is not something we can afford to lose: if the last thing we sent
+  // was a summary card, they agreed to it, and nothing was booked this turn,
+  // the booking is completed here and the model is asked only to say so.
+  const showedCard = /\u{1F4CB}/u.test([...history].reverse().find((m) => m.role === 'assistant')?.content ?? '');
+  const proposedEarlier = turnCtx.draft?.raw?.turn_id && turnCtx.draft.raw.turn_id !== turnCtx.turnId;
+
+  if (showedCard && proposedEarlier && !toolsUsed.includes('create_booking')
+      && looksLikeAgreement(turnCtx.customerSaid)) {
+    const result = await runTool('create_booking', turnCtx.draft.raw, turnCtx);
+    toolsUsed.push('create_booking');
+    if (result?.display) lastDisplay = result.display;
+
+    messages.push({
+      role: 'user',
+      content:
+        `[The customer agreed to the summary, so create_booking was called for you. Its result: ` +
+        `${JSON.stringify(result).slice(0, 4000)}. Tell them the outcome now, following next_step. ` +
+        'Do not ask them to confirm anything again.]',
+    });
+    const { content } = await chat({ system: systemPrompt(turnCtx), messages, tools: [] });
+    if (content?.trim()) finalText = content.trim();
   }
 
   if (!finalText) {

@@ -495,11 +495,7 @@ const executors = {
     // note between turns, and re-asking because a sentence was rephrased is
     // noise. Everything a customer would notice on the card is compared.
     const cardOf = (a) => bookingCard(
-      {
-        ...canonical(a),
-        engine_condition: String(a.engine_condition ?? '').trim() ? 'reported damage' : null,
-        notes: null,
-      },
+      { ...canonical(a), engine_condition: damageReported(a), notes: null },
       'en',
     );
 
@@ -1057,6 +1053,39 @@ function requestedIncoterm(text, current) {
   // "change EXW to FOB" names the old one first and the wanted one last.
   const wanted = found[found.length - 1];
   return wanted === String(current ?? '').trim().toUpperCase() ? null : wanted;
+}
+
+/**
+ * A plain "yes" to the summary - not a sentence that also asks for a change.
+ * Short on purpose: "yes, but make it FOB" is a correction, not agreement.
+ */
+export function looksLikeAgreement(text) {
+  const s = String(text ?? '').trim();
+  if (!s || s.length > 80) return false;
+  if (asksForChange(s)) return false;
+  return /^(y|yes|yes\.|yeah|yep|ok|okay|sure|correct|confirm(ed)?|go ahead|book it|please book|that( ?i?s|'s)? ?(right|correct|all correct)|all (good|correct)|perfect|fine)\b/i.test(s)
+    || /(نعم|ايوه|أيوه|تمام|ماشي|موافق|أكد|اكد|احجز|اححز|زبط|مظبوط)/.test(s)
+    || /^(aiwa|aywa|tamam|mashi|ok+|tmam|zabt)\b/i.test(s);
+}
+
+export { asksForChange };
+
+/**
+ * Is damage reported anywhere, whatever field it landed in?
+ *
+ * The model moves the same sentence between notes and engine_condition from one
+ * turn to the next. Compared field by field that looks like the customer
+ * changing something, so a customer who said "yes, book it" was shown the same
+ * card again and asked to confirm a second time. What they approved is that the
+ * vehicle IS damaged, not which box we filed it in.
+ */
+function damageReported(a) {
+  const text = `${a.engine_condition ?? ''} ${a.notes ?? ''}`.toLowerCase().trim();
+  if (!text) return null;
+  if (/\bno (damage|defect)|undamaged|not damaged|سليمة/.test(text)) return null;
+  return /damag|broken|accident|not running|does not run|faulty|defect|تالف|حادث|معطل|مش بتمشي/.test(text)
+    ? 'reported damage'
+    : String(a.engine_condition ?? '').trim() ? 'condition noted' : null;
 }
 
 function asksForChange(text) {

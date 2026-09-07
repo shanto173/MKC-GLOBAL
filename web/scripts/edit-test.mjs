@@ -172,9 +172,9 @@ const corrected = await respond('i want to change incotermn EXW to FOB', live);
 check(
   'never asks for a booking reference that does not exist',
   !/(booking reference|رقم الحجز)/i.test(corrected.reply),
-  corrected.reply.replace(/\ns+/g, ' ').slice(0, 200),
+  corrected.reply.replace(/\s+/g, ' ').slice(0, 200),
 );
-check('shows the corrected Incoterm back', /FOB/.test(corrected.reply), corrected.reply.replace(/\ns+/g, ' ').slice(0, 200));
+check('shows the corrected Incoterm back', /FOB/.test(corrected.reply), corrected.reply.replace(/\s+/g, ' ').slice(0, 200));
 check('does not claim it is booked', !/\b(is booked|has been booked|booking (is )?(created|confirmed))\b/i.test(corrected.reply), corrected.reply.slice(0, 200));
 
 const liveDraft = (await db().from('bookings').select('status, raw').eq('chat_id', liveChat).maybeSingle()).data;
@@ -218,6 +218,31 @@ check('and it says what it dropped', typeof drafts === 'number', JSON.stringify(
 
 await db().from('bookings').delete().eq('chat_id', chat7);
 await db().from('shipments').delete().in('vin', [VIN + 'G', VIN + 'H']);
+
+// 8 - the customer agrees, so it gets booked. Whether the model calls the tool
+// or forgets to and the agent completes it, the outcome must be the same: a
+// customer who said yes to a summary does not have to say it twice.
+console.log('\nagreement always books, even if the model does not act on it');
+const { saveHistory: saveH } = await import('../lib/session.js');
+const chat8 = `agree-${Math.random().toString(36).slice(2, 8)}`;
+const vin8 = VIN + 'J';
+const ctx8 = { channel: 'web', chatId: chat8, turnId: 'a1', customerLanguage: 'en' };
+const proposal = await runTool('create_booking', { ...DETAILS, vin: vin8 }, ctx8);
+
+// The card was shown to them, in an earlier turn, exactly as the bot would.
+await saveH('web', chat8, [
+  { role: 'user', content: `book chassis ${vin8}` },
+  { role: 'assistant', content: `${proposal.display}\n\nPlease confirm these details.` },
+]);
+
+const agreedReply = await respond('yes that is correct, please book it', { channel: 'web', chatId: chat8 });
+const booked8 = (await db().from('bookings').select('booking_ref, status').eq('chat_id', chat8).maybeSingle()).data;
+check('saying yes to the summary books it', booked8?.status === 'pending_review', JSON.stringify(booked8));
+check('and the customer is told the reference', Boolean(booked8?.booking_ref) && agreedReply.reply.includes(booked8.booking_ref), agreedReply.reply.replace(/\s+/g, ' ').slice(0, 200));
+
+await clearHistory('web', chat8);
+await db().from('bookings').delete().eq('chat_id', chat8);
+await db().from('shipments').delete().eq('vin', vin8);
 
 // cleanup
 for (const id of [chatId, chat2, chat3, chat4, chat5, chat6]) await db().from('bookings').delete().eq('chat_id', id);
