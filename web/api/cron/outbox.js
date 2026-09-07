@@ -12,10 +12,10 @@
  * This cron is the backstop for a bot nobody has messaged since the failure.
  *
  * SCHEDULE: daily, because Vercel's Hobby plan refuses any cron more frequent
- * than once a day - and refuses it at BUILD time, so a `*/5 * * * *` here does
- * not degrade the deployment, it fails it outright and leaves the previous
- * version serving. On Pro, change this to `*/5 * * * *`; nothing else needs to
- * change.
+ * than once a day - and refuses it at BUILD time, so a five-minute schedule
+ * here does not degrade the deployment, it fails it outright and leaves the
+ * previous version serving. On Pro, set the schedule in vercel.json to every
+ * five minutes; nothing else needs to change.
  *
  * Authorisation: Vercel Cron signs its calls with CRON_SECRET in an
  * Authorization header. A manual run uses ADMIN_SECRET. Neither is optional -
