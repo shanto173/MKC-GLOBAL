@@ -208,10 +208,18 @@
 
   // ---------- bookings ----------
   function bookingCard(b) {
+    // A paper whose own chassis number is not this booking's is the thing that
+    // gets a customs entry rejected, so it is marked rather than sitting in the
+    // row looking like every other document.
     const docs = b.documents?.length
-      ? b.documents.map((d) => d.url
-          ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.type)} · ${esc(d.file)}</a>`
-          : `<span class="none">${esc(d.type)} (no file)</span>`).join('')
+      ? b.documents.map((d) => {
+          const label = esc(d.type) + ' · ' + esc(d.file) + (d.wrong_vehicle ? ' ⚠' : '');
+          const title = d.wrong_vehicle ? ` title="This document is for chassis ${esc(d.vin)}"` : '';
+          const style = d.wrong_vehicle ? ' style="border-color:var(--warn);color:var(--warn)"' : '';
+          return d.url
+            ? `<a href="${esc(d.url)}" target="_blank" rel="noopener"${title}${style}>${label}</a>`
+            : `<span class="none"${title}>${label} (no file)</span>`;
+        }).join('')
       : '<span class="none">No documents sent</span>';
     const decided = ['confirmed','rejected','cancelled'].includes(b.status);
     const cls = b.status === 'confirmed' ? 'confirmed' : b.status === 'pending_review' ? 'pending' : 'rejected';

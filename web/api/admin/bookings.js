@@ -20,6 +20,8 @@ import { refreshPinSafely } from '../../lib/pinned.js';
 
 const ACTIONS = { confirm: 'confirmed', reject: 'rejected', cancel: 'cancelled' };
 
+const normalise = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
   if (!config.adminSecret || secret !== config.adminSecret) {
@@ -78,6 +80,10 @@ async function list(req, res) {
           type: d.doc_type,
           file: d.file_name,
           readable: d.extraction_ok,
+          vin: d.vin,
+          // A paper whose own chassis number differs from the booking is the
+          // thing that gets a customs entry rejected, so the desk sees it here.
+          wrong_vehicle: Boolean(d.vin && b.vin && normalise(d.vin) !== normalise(b.vin)),
           url: d.storage_path ? await signedUrl(d.storage_path, 60 * 60 * 24) : null,
         })),
       ),

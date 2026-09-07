@@ -60,7 +60,22 @@ export async function ingestDocument({ buffer, fileName, mimeType, chatId, chann
     needs_ocr: read.source === 'none',
   };
 
-  const { data, error } = await db().from('booking_documents').insert(row).select().single();
+  // The same file sent again is the same document. Customers resend after a
+  // warning, and the operations desk was reading nine chips for three papers.
+  const { data: already } = await db()
+    .from('booking_documents')
+    .select('id')
+    .eq('chat_id', String(chatId))
+    .eq('file_name', fileName)
+    .eq('size_bytes', buffer.length)
+    .limit(1)
+    .maybeSingle();
+
+  const write = already
+    ? db().from('booking_documents').update(row).eq('id', already.id)
+    : db().from('booking_documents').insert(row);
+
+  const { data, error } = await write.select().single();
   if (error) {
     console.error('booking_documents insert failed:', error.message);
     return { ok: false, error: error.message, extracted };
@@ -186,10 +201,28 @@ async function attachToOpenBooking(document, chatId) {
 }
 
 export async function attachDocumentsToBooking({ chatId, bookingRef, vin }) {
-  const { error } = await db()
+  const { data: loose, error: readErr } = await db()
     .from('booking_documents')
-    .update({ booking_ref: bookingRef, vin })
+    .select('id, vin')
     .eq('chat_id', String(chatId))
     .is('booking_ref', null);
-  if (error) console.error('attaching documents to booking failed:', error.message);
+  if (readErr) {
+    console.error('attaching documents to booking failed:', readErr.message);
+    return;
+  }
+
+  const norm = normalizeVin(vin);
+  for (const doc of loose ?? []) {
+    // A document's own chassis number is evidence. Stamping the booking's
+    // number over it - which is what a blanket update did - erased the very
+    // mismatch we exist to catch: an invoice for another vehicle quietly became
+    // an invoice for this one.
+    if (doc.vin && normalizeVin(doc.vin) !== norm) continue;
+
+    const { error } = await db()
+      .from('booking_documents')
+      .update({ booking_ref: bookingRef, ...(doc.vin ? {} : { vin }) })
+      .eq('id', doc.id);
+    if (error) console.error('attaching a document failed:', error.message);
+  }
 }
