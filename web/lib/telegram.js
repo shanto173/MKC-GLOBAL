@@ -109,6 +109,7 @@ export async function setCommands() {
  * which language the next message will arrive in.
  */
 export const MAIN_KEYBOARD = [
-  [{ text: 'Track a shipment / تتبع شحنة' }, { text: 'New booking / حجز جديد' }],
-  [{ text: 'Documents needed / المستندات' }, { text: 'Talk to a human / تحدث مع موظف' }],
+  [{ text: '1 · Book my shipment / احجز شحنة' }],
+  [{ text: '2 · Track my shipment / تتبع شحنتي' }],
+  [{ text: '3 · Contact our team / تواصل مع فريقنا' }],
 ];

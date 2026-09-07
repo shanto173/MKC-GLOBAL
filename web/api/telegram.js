@@ -7,7 +7,7 @@
  */
 
 import { config } from '../lib/config.js';
-import { respond } from '../lib/agent.js';
+import { respond, splitLanguages } from '../lib/agent.js';
 import { clearHistory } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import { sendMessage, sendTyping, downloadFile, MAIN_KEYBOARD } from '../lib/telegram.js';
@@ -61,9 +61,11 @@ export default async function handler(req, res) {
       console.error(`error ref ${ref}:`, err?.message);
       await sendMessage(
         chatId,
-        `عذراً، حصل خطأ عندنا. جرب تاني بعد شوية، أو اكتب /help عشان توصل لموظف. (${ref}) ` +
-          `| Sorry - something went wrong on our side. Please try again shortly, or type /help ` +
-          `to reach a colleague. (${ref})`,
+        splitLanguages(
+          `عذراً، حصل خطأ عندنا. جرب تاني بعد شوية، أو اكتب /help عشان توصل لموظف. (${ref}) ` +
+            `| Sorry - something went wrong on our side. Please try again shortly, or type /help ` +
+            `to reach a colleague. (${ref})`,
+        ),
       );
     } catch {
       /* best effort */
@@ -80,23 +82,25 @@ async function handleCommand(text, ctx) {
   // Arabic themselves - the model never sees them.
   if (cmd === '/start') {
     const name = ctx.userName ? ' ' + ctx.userName : '';
+    // The roadmap's panel 0 is a numbered menu the client answers with a digit,
+    // not a prose list. Kept in that shape deliberately: a customer on a phone
+    // replying "1" is faster than typing a sentence, and the numbering is what
+    // the operations team trained people to expect.
     await sendMessage(
       ctx.chatId,
-      `أهلاً${name}، مرحباً بك في ${config.companyName}.\n\n` +
-        'أقدر أساعدك في:\n' +
-        '- تتبع شحنة (ابعت رقم الشاسيه أو رقم الحجز أو ACID أو بوليصة الشحن)\n' +
-        '- طلب حجز جديد\n' +
-        '- الرد على أسئلة المستندات والموانئ والجمارك\n' +
-        '- توصيلك بالقسم المختص\n\n' +
-        'تحب أساعدك في إيه؟\n' +
+      splitLanguages(`👋 أهلاً${name}، مرحباً بك في ${config.companyName}!\n` +
+        'نقدر نساعدك في إيه النهاردة؟ 😊\n\n' +
+        '1️⃣ 📦 احجز شحنة\n' +
+        '2️⃣ 🚚 تتبع شحنتي\n' +
+        '3️⃣ 💬 تواصل مع فريقنا\n\n' +
+        'ابعت رقم 1 أو 2 أو 3.\n' +
         '|\n' +
-        `Hello${name}, welcome to ${config.companyName}.\n\n` +
-        'I can:\n' +
-        '- track a shipment (send the chassis number, booking reference, ACID or B/L)\n' +
-        '- take a new booking request\n' +
-        '- answer questions about documents, ports and customs\n' +
-        '- put you through to the right department\n\n' +
-        'What would you like to do?',
+        `👋 Welcome${name} to ${config.companyName}!\n` +
+        'How can we help you today? 😊\n\n' +
+        '1️⃣ 📦 Book my shipment\n' +
+        '2️⃣ 🚚 Track my shipment\n' +
+        '3️⃣ 💬 Contact our team\n\n' +
+        'Reply with 1, 2 or 3.'),
       { keyboard: MAIN_KEYBOARD },
     );
     return true;
@@ -106,7 +110,7 @@ async function handleCommand(text, ctx) {
     await clearHistory(ctx.channel, ctx.chatId);
     await sendMessage(
       ctx.chatId,
-      'تمام، مسحت المحادثة السابقة. | Done - I have cleared our conversation history.',
+      splitLanguages('تمام، مسحت المحادثة السابقة. | Done - I have cleared our conversation history.'),
       { keyboard: MAIN_KEYBOARD },
     );
     return true;
@@ -147,7 +151,7 @@ function fileFrom(message) {
 async function handleAttachment(attachment, caption, ctx) {
   await sendMessage(
     ctx.chatId,
-    `استلمت ${attachment.fileName}، بقرأه دلوقتي... | Got ${attachment.fileName}, reading it now...`,
+    splitLanguages(`استلمت ${attachment.fileName}، بقرأه دلوقتي... | Got ${attachment.fileName}, reading it now...`),
   );
   await sendTyping(ctx.chatId);
 
@@ -163,7 +167,7 @@ async function handleAttachment(attachment, caption, ctx) {
   if (!result.ok) {
     await sendMessage(
       ctx.chatId,
-      'معلش، مقدرتش أحفظ المستند. ممكن تبعته تاني؟ | Sorry, I could not save that document. Could you send it again?',
+      splitLanguages('معلش، مقدرتش أحفظ المستند. ممكن تبعته تاني؟ | Sorry, I could not save that document. Could you send it again?'),
       { keyboard: MAIN_KEYBOARD },
     );
     return;

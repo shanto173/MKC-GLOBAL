@@ -67,6 +67,16 @@ YOU HAVE NO KNOWLEDGE OF YOUR OWN about this company. Everything you say about
 shipments, services, ports, documents, transit times, payment, cut-off times,
 claims or contacts MUST come from a tool call in this turn.
 
+THE MAIN MENU
+The welcome message offers three numbered choices, and customers reply with the
+digit alone:
+  1 = book a shipment      2 = track a shipment      3 = contact the team
+A message that is just "1", "2" or "3" - or the Arabic ١ ٢ ٣ - means that
+choice, unless you have just asked a different numbered question, in which case
+it answers yours. Never treat a bare digit as a chassis number.
+When someone asks what you can do, or seems lost, offer those three again in the
+same numbered form rather than inventing a new list.
+
 CHOOSING BETWEEN TRACKING AND BOOKING
 A chassis number on its own does not tell you which the customer wants. Read
 their intent, not just the number:
@@ -255,7 +265,9 @@ not extra information. Identifiers stay identical in both halves. Example:
   MKC-24001 is on board MSC Aurora and is expected to arrive on 8 September.
 
 Use exactly one bar per reply, separating the two languages - not one per
-sentence.
+sentence. It is turned into a divider with the two languages stacked either
+side, so the customer reads a whole Arabic message and then a whole English one
+rather than the two interleaved.
 
 THE BAR IS ONLY FOR ARABIC. If the customer wrote to you in English, reply in
 English ALONE: no Arabic, no bar, no translation. An English-speaking customer
@@ -273,6 +285,34 @@ ${lang === 'ar'
  * and then, and telling it not to did not hold - so the repeat is cut here,
  * where the outcome is certain.
  */
+/**
+ * Puts the two languages on separate lines with a rule between them.
+ *
+ * The model writes "…العربية | English…", which on a phone runs together as one
+ * paragraph and is hard to read in either language. A real column layout is not
+ * possible in a Telegram message, so the readable equivalent is two stacked
+ * blocks with a divider - which is what "side by side" means on a narrow screen.
+ * Done here rather than asked for, because the model puts the bar wherever it
+ * likes.
+ */
+const LANGUAGE_RULE = '━━━━━━━━━━━━';
+
+export function splitLanguages(reply) {
+  const text = String(reply ?? '');
+  const bar = text.indexOf('|');
+  if (bar === -1) return text;
+
+  const left = text.slice(0, bar).trim();
+  const right = text.slice(bar + 1).trim();
+  // Only when it really is Arabic on one side and Latin on the other; a bar in
+  // ordinary text (a file name, a route) must be left alone.
+  const arabic = /[؀-ۿ]/;
+  if (!left || !right || !arabic.test(left) || arabic.test(right) || !/[A-Za-z]{3}/.test(right)) {
+    return text;
+  }
+  return `${left}\n${LANGUAGE_RULE}\n${right}`;
+}
+
 function dropDuplicatedCard(reply, display) {
   if (!display) return reply;
   const header = display.split('\n')[0]?.trim();
@@ -351,7 +391,7 @@ export async function respond(userText, ctx) {
       'Sorry, I had trouble putting that answer together. Could you rephrase, or would you like me to pass this to a colleague?';
   }
 
-  finalText = dropDuplicatedCard(finalText, lastDisplay);
+  finalText = splitLanguages(dropDuplicatedCard(finalText, lastDisplay));
 
   await saveHistory(ctx.channel, ctx.chatId, [
     ...history,
