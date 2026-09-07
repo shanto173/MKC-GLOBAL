@@ -19,7 +19,7 @@
 import { db } from './supabase.js';
 import { pinnedCard } from './format.js';
 import {
-  sendMessage, editMessage, pinMessage, unpinMessage, pinnedMessage, deleteMessageQuietly,
+  sendMessage, editMessage, pinMessage, unpinMessage, unpinAll, pinnedMessage, deleteMessageQuietly,
 } from './telegram.js';
 import { config } from './config.js';
 
@@ -102,6 +102,9 @@ export async function refreshPin(chatId, { channel = 'telegram' } = {}) {
     if (current?.mine && isOurCard(current.text)) {
       await unpinMessage(chatId, current.messageId);
       await deleteMessageQuietly(chatId, current.messageId);
+      // Belt and braces: the targeted unpin has left a stale bar on the
+      // customer's screen before, with Telegram reporting nothing pinned.
+      await unpinAll(chatId);
       return { action: 'cleared' };
     }
     return { action: 'none' };

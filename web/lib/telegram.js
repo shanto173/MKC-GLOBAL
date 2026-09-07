@@ -179,6 +179,17 @@ export async function unpinMessage(chatId, messageId) {
   return tryCall('unpinChatMessage', { chat_id: chatId, message_id: messageId });
 }
 
+/**
+ * Every pin in the chat, gone. Unpinning one message by id left a customer's
+ * client showing the "Pinned message" bar for a card that no longer existed -
+ * Telegram itself reported nothing pinned - and only this cleared it. In a
+ * private chat with the bot the only pins are ours, so nothing else is lost.
+ * Telegram rate-limits this call hard; tryCall waits out the 429 it sends.
+ */
+export async function unpinAll(chatId) {
+  return tryCall('unpinAllChatMessages', { chat_id: chatId });
+}
+
 /** What is pinned in this chat right now, if anything, and whether it is ours. */
 export async function pinnedMessage(chatId) {
   const res = await tryCall('getChat', { chat_id: chatId });
