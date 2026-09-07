@@ -77,30 +77,70 @@ export async function downloadFile(fileId) {
   };
 }
 
+/** Like call(), but silent: a sweep expects failures and would flood the log. */
+async function tryCall(method, payload) {
+  try {
+    const res = await fetch(API(method), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await res.json().catch(() => ({ ok: false }));
+  } catch {
+    return { ok: false };
+  }
+}
+
 /**
  * Wipes the visible chat, not just our memory of it.
  *
  * Telegram lets a bot delete its own messages and, in a private chat, the
- * customer's messages too - but only for 48 hours, and there is no way to ask
- * for a chat's history. So we walk back from the message being handled: ids in
- * a private chat run in sequence, and deleteMessages skips anything that is not
- * there or is too old rather than failing the whole batch.
+ * customer's too - but only for 48 hours, and there is no way to ask for a
+ * chat's history. So we walk back from the message being handled: ids in a
+ * private chat run in sequence.
  *
- * @returns {Promise<{attempted: number, batches: number, failed: number}>}
+ * deleteMessages looked like the fast way to do that, and it is - right up to
+ * the first message older than two days, at which point it refuses the entire
+ * batch of a hundred rather than skipping that one. So a failed batch is
+ * retried one message at a time, and once forty in a row have been refused we
+ * have reached the 48-hour wall and stop: everything older will refuse too.
+ *
+ * @returns {Promise<{deleted: number, refused: number, reachedLimit: boolean}>}
  */
-export async function sweepChat(chatId, fromMessageId, howMany = 400) {
-  const first = Math.max(1, Number(fromMessageId) - howMany + 1);
-  const ids = [];
-  for (let id = first; id <= Number(fromMessageId); id++) ids.push(id);
+export async function sweepChat(chatId, fromMessageId, howMany = 300) {
+  const newest = Number(fromMessageId);
+  if (!Number.isFinite(newest)) return { deleted: 0, refused: 0, reachedLimit: false };
 
-  let failed = 0;
-  let batches = 0;
-  for (let i = 0; i < ids.length; i += 100) {
-    const res = await call('deleteMessages', { chat_id: chatId, message_ids: ids.slice(i, i + 100) });
-    batches++;
-    if (!res.ok) failed++;
+  const oldest = Math.max(1, newest - howMany + 1);
+  let deleted = 0;
+  let refused = 0;
+  let refusedInARow = 0;
+
+  for (let top = newest; top >= oldest; top -= 100) {
+    const batch = [];
+    for (let id = top; id > Math.max(oldest - 1, top - 100); id--) batch.push(id);
+
+    const quick = await tryCall('deleteMessages', { chat_id: chatId, message_ids: batch });
+    if (quick.ok) {
+      deleted += batch.length;
+      refusedInARow = 0;
+      continue;
+    }
+
+    // Newest first, so the run of refusals we count is the old end of the chat.
+    for (let i = 0; i < batch.length; i += 8) {
+      const group = batch.slice(i, i + 8);
+      const results = await Promise.all(
+        group.map((id) => tryCall('deleteMessage', { chat_id: chatId, message_id: id })),
+      );
+      for (const r of results) {
+        if (r.ok) { deleted++; refusedInARow = 0; } else { refused++; refusedInARow++; }
+      }
+      if (refusedInARow >= 40) return { deleted, refused, reachedLimit: true };
+    }
   }
-  return { attempted: ids.length, batches, failed };
+
+  return { deleted, refused, reachedLimit: false };
 }
 
 export async function setWebhook(url, secret) {
