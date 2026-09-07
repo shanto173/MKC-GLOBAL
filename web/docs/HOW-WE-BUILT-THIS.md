@@ -160,6 +160,27 @@ And if the customer clearly asked for a change but the bot sends the old values
 anyway, the booking is held back once and the bot is told to read the message
 again. Better one extra question than the wrong Incoterm on a customs entry.
 
+### The status card at the top of the chat
+
+Customers were asking "where is it?" every day or two. Telegram will not let a
+bot change the chat header — that belongs to Telegram — but it does let a bot
+**pin one message** and edit that same message later, which sits in the same
+place and reads the same way.
+
+So each customer has one pinned card:
+
+- it appears when they book
+- it is **edited in place** as the shipment moves, so nothing new arrives in the
+  chat each time Operations updates a status
+- it **disappears when the shipment is delivered**
+- the next booking brings it back
+
+The card is not stored anywhere on our side. Telegram already knows what is
+pinned in a chat, so we ask it — a second copy in our database would only be one
+more thing to fall out of step.
+
+The website has the same thing as a strip under the header.
+
 ### The emoji it uses
 
 A small fixed set, so every customer gets the same feeling from the bot rather

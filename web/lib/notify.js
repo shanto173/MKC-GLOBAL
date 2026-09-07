@@ -9,6 +9,7 @@
 import { config } from './config.js';
 import { bookingConfirmationPdf } from './pdf.js';
 import { sendDocument, sendMessage } from './telegram.js';
+import { refreshPinSafely } from './pinned.js';
 
 /**
  * @param {object} booking row from the bookings table
@@ -126,6 +127,11 @@ export async function notifyBooking(booking) {
     }
   }
 
+  // The card at the top of their chat now has something to show.
+  if (booking.channel === 'telegram' && booking.chat_id) {
+    result.pinned = (await refreshPinSafely(booking.chat_id)).action;
+  }
+
   return result;
 }
 
@@ -196,6 +202,12 @@ export async function notifyBookingDecision(booking, decision, note = '') {
       result.errors.push(`email: ${err.message}`);
       console.error('decision email failed:', err.message);
     }
+  }
+
+  // Confirmed opens a shipment to follow; rejected leaves nothing to follow, and
+  // the card takes itself away.
+  if (booking.chat_id && booking.channel === 'telegram') {
+    result.pinned = (await refreshPinSafely(booking.chat_id)).action;
   }
 
   return result;

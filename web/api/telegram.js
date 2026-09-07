@@ -12,6 +12,7 @@ import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
+import { refreshPinSafely } from '../lib/pinned.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -109,6 +110,11 @@ async function handleCommand(text, ctx) {
       ),
     );
     await sendMessage(ctx.chatId, welcome(ctx.userName), { keyboard: MAIN_KEYBOARD });
+
+    // The sweep took the pinned status card with everything else. Anything the
+    // customer still has in flight goes straight back to the top of the chat -
+    // starting fresh is about the conversation, not about losing track of a truck.
+    await refreshPinSafely(ctx.chatId);
     return true;
   }
 

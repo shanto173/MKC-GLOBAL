@@ -14,6 +14,7 @@ import { db } from '../../lib/supabase.js';
 import { updateShipmentStatus, addEvent, SHIPMENT_STATUSES } from '../../lib/shipments.js';
 import { sendMessage } from '../../lib/telegram.js';
 import { knownOperator } from './users.js';
+import { refreshPinSafely } from '../../lib/pinned.js';
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -130,5 +131,13 @@ async function update(req, res) {
     }
   }
 
-  res.status(200).json({ ok: true, shipment_id: id, ...result, customer_told: told });
+  // The card pinned at the top of the customer's chat carries this status, so it
+  // moves with the shipment - including disappearing once it is delivered.
+  let pinned = null;
+  if (!result.unchanged) {
+    const { data: s } = await db().from('shipments').select('chat_id, channel').eq('shipment_id', id).maybeSingle();
+    if (s?.chat_id && s.channel === 'telegram') pinned = (await refreshPinSafely(s.chat_id)).action;
+  }
+
+  res.status(200).json({ ok: true, shipment_id: id, ...result, customer_told: told, pinned });
 }

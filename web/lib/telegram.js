@@ -29,15 +29,18 @@ function chunk(text) {
   return parts;
 }
 
-export async function sendMessage(chatId, text, { keyboard } = {}) {
+export async function sendMessage(chatId, text, { keyboard, returnMessage = false } = {}) {
   const parts = chunk(text);
+  let last;
   for (let i = 0; i < parts.length; i++) {
     const payload = { chat_id: chatId, text: parts[i], disable_web_page_preview: true };
     if (keyboard && i === parts.length - 1) {
       payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: false };
     }
-    await call('sendMessage', payload);
+    last = await call('sendMessage', payload);
   }
+  // The caller sometimes needs the message back - to pin it, for instance.
+  return returnMessage ? last : undefined;
 }
 
 export async function sendTyping(chatId) {
@@ -152,6 +155,40 @@ export async function sweepChat(chatId, fromMessageId, howMany = 300) {
   }
 
   return { deleted, refused, reachedLimit: false };
+}
+
+/** Edits a message the bot already sent, in place. */
+export async function editMessage(chatId, messageId, text) {
+  const res = await tryCall('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    disable_web_page_preview: true,
+  });
+  // Re-sending identical text is not a failure - there was simply nothing new.
+  if (!res.ok && /message is not modified/i.test(res.description ?? '')) return { ok: true, unchanged: true };
+  return res;
+}
+
+/** Pins a message to the top of the chat. Silent: no notification for it. */
+export async function pinMessage(chatId, messageId) {
+  return tryCall('pinChatMessage', { chat_id: chatId, message_id: messageId, disable_notification: true });
+}
+
+export async function unpinMessage(chatId, messageId) {
+  return tryCall('unpinChatMessage', { chat_id: chatId, message_id: messageId });
+}
+
+/** What is pinned in this chat right now, if anything, and whether it is ours. */
+export async function pinnedMessage(chatId) {
+  const res = await tryCall('getChat', { chat_id: chatId });
+  const pinned = res?.result?.pinned_message;
+  if (!pinned) return null;
+  return { messageId: pinned.message_id, mine: pinned.from?.is_bot === true, text: pinned.text ?? '' };
+}
+
+export async function deleteMessageQuietly(chatId, messageId) {
+  return tryCall('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
 
 export async function setWebhook(url, secret) {

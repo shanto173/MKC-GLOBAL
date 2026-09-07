@@ -94,6 +94,21 @@
 
   footer { color: var(--muted); font-size: 12.5px; text-align: center; padding: 16px 20px 40px; }
   footer a { color: var(--brand); }
+
+  /* The strip under the header: what this visitor has in flight, so they do not
+     have to ask the bot the same question every morning. */
+  .status { background: #eef5fb; border-bottom: 1px solid #d6e4f0; }
+  .status .wrap { max-width: 780px; margin: 0 auto; padding: 10px 18px; display: flex;
+    flex-wrap: wrap; gap: 6px 18px; align-items: baseline; font-size: 14px; }
+  .status .ref { font-weight: 700; color: var(--brand); font-family: ui-monospace, Consolas, monospace; }
+  .status .veh { color: #33475b; }
+  .status .st { color: #12202e; font-weight: 600; }
+  .status .meta { color: #64748b; font-size: 13px; }
+  @media (prefers-color-scheme: dark) {
+    .status { background: #16283a; border-bottom-color: #24405c; }
+    .status .veh { color: #b6c7d8; }
+    .status .st { color: #e8f0f8; }
+  }
 </style>
 </head>
 <body>
@@ -107,6 +122,8 @@
     </div>
   </div>
 </header>
+
+<div id="status" class="status" hidden></div>
 
 <main>
   <div class="chat">
@@ -141,6 +158,37 @@
     localStorage.setItem(KEY, sessionId);
   }
 
+  /**
+   * The status strip. Read on load and after every reply, because a booking
+   * made in this conversation should appear at the top of it immediately.
+   */
+  async function refreshStatus() {
+    const strip = document.getElementById('status');
+    try {
+      const res = await fetch('/api/status?sessionId=' + encodeURIComponent(sessionId));
+      const data = await res.json();
+      if (data.company) {
+        document.querySelector('header h1').textContent = data.company;
+        document.querySelector('header .logo').textContent = data.company.split(' ')[0];
+      }
+      if (!data.items?.length) { strip.hidden = true; strip.innerHTML = ''; return; }
+
+      strip.innerHTML = '<div class="wrap">' + data.items.slice(0, 3).map((i) => {
+        const meta = [i.route, i.vessel, i.eta ? 'ETA ' + i.eta : ''].filter(Boolean).join(' · ');
+        return '<span><span class="ref">' + esc(i.ref) + '</span> '
+          + '<span class="veh">' + esc(i.vehicle || '') + '</span> — '
+          + '<span class="st">' + esc(i.status) + '</span> '
+          + '<span class="meta">' + esc(meta) + '</span></span>';
+      }).join('') + '</div>';
+      strip.hidden = false;
+    } catch {
+      strip.hidden = true;   // never let a status strip break the chat
+    }
+  }
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function add(text, cls) {
     const el = document.createElement('div');
     el.className = 'msg ' + cls;
@@ -173,7 +221,7 @@
       const data = await res.json();
       dots.remove();
       if (!res.ok) add(data.error || 'Something went wrong.', 'err');
-      else add(data.reply, 'bot');
+      else { add(data.reply, 'bot'); refreshStatus(); }
     } catch (err) {
       dots.remove();
       add('Network error — is the server running?', 'err');
@@ -203,6 +251,7 @@
     });
     log.innerHTML = '';
     greet();
+    refreshStatus();
   });
 
   function greet() {
@@ -213,6 +262,7 @@
   }
 
   greet();
+  refreshStatus();
   input.focus();
 </script>
 </body>

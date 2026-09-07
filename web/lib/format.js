@@ -112,6 +112,32 @@ export function bookingCard(b, lang = 'en', { documents = null } = {}) {
   ]);
 }
 
+/**
+ * The card pinned at the top of a chat. Deliberately terse: it is read at a
+ * glance, over and over, by somebody who does not want to open anything.
+ * Bilingual labels, because the pin is read by whoever opens the chat.
+ */
+export function pinnedCard(rows, extra = 0) {
+  const blocks = rows.map((r) => {
+    const head = [r.ref, r.vehicle].filter(Boolean).join(' · ');
+    return [
+      head,
+      line('status', r.status, 'ar'),
+      line('route', r.route, 'ar'),
+      r.vessel ? line('vessel', r.vessel, 'ar') : null,
+      r.eta ? line('eta', r.eta, 'ar') : null,
+    ].filter(Boolean).join('\n');
+  });
+
+  const more = extra > 0 ? [`+${extra} أخرى / more`] : [];
+  return [
+    '📌 شحنتك / Your shipment',
+    ...blocks,
+    ...more,
+    'اكتب 2 للتفاصيل / Send 2 for details',
+  ].join('\n\n');
+}
+
 /** The document checklist: what arrived, what is still needed. */
 export function documentsCard(status, lang = 'en') {
   const received = (status.received ?? []).map((d) => d.label).join(', ');
