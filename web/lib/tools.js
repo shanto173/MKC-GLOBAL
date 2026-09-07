@@ -461,7 +461,9 @@ const executors = {
       if (v !== null && v !== undefined && String(v).trim() !== '') provided[k] = v;
     }
     if (draft?.raw) {
-      const { turn_id: _turn, ...held } = draft.raw;
+      // challenged is bookkeeping, not a booking detail: dropping it here means
+      // a genuinely revised proposal gets its own safety net again.
+      const { turn_id: _turn, challenged: _challenged, ...held } = draft.raw;
       args = { ...held, ...provided };
     }
 
