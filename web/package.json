@@ -24,7 +24,8 @@
     "opstest": "node scripts/ops-test.mjs",
     "rotate": "node scripts/rotate-secrets.mjs",
     "pintest": "node scripts/pin-test.mjs",
-    "guide": "node scripts/make-guide.mjs"
+    "guide": "node scripts/make-guide.mjs",
+    "reread": "node scripts/reread-documents.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

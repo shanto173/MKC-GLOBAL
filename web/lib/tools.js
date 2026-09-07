@@ -608,9 +608,17 @@ const executors = {
       }
 
       const lang = args.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en';
+
+      // What paperwork is still outstanding comes from the documents actually
+      // received, so the customer is told the whole list at once. Asked for the
+      // ACID and the MRN and nothing else, they sent both - and were then asked
+      // for the invoice, which is how a two-minute booking becomes four rounds.
+      const docs = await documentStatus({ chatId: ctx.chatId, vin: args.vin }).catch(() => null);
+
       return {
         ok: false,
         needs_confirmation: true,
+        documents_outstanding: docs?.missing_labels ?? undefined,
         // Shown from the canonical values, so what the customer approves is
         // exactly what the operations desk will read back out of the database.
         display: bookingCard(canonical(args), lang),

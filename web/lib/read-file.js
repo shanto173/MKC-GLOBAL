@@ -25,9 +25,35 @@ export function isPdf(mimeType, fileName = '') {
   return /pdf/i.test(mimeType ?? '') || /\.pdf$/i.test(fileName);
 }
 
+/**
+ * pdf.js, with its worker already in hand.
+ *
+ * pdf.js works out the path to its own worker at runtime, so a deployment that
+ * bundles only the files it can see never shipped pdf.worker.mjs - and every
+ * PDF failed in production with "Setting up fake worker failed", while every
+ * PDF read perfectly on a laptop where the file simply sits on disk. Customers
+ * were being asked to photograph documents that were already readable.
+ *
+ * Importing the worker here does two things: the bundler can see this
+ * specifier, so the file ships; and pdf.js finds the handler on globalThis and
+ * never goes looking for a file at all.
+ */
+let pdfjsReady = null;
+
+export function loadPdfjs() {
+  pdfjsReady ??= (async () => {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    if (!globalThis.pdfjsWorker) {
+      globalThis.pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    }
+    return pdfjs;
+  })();
+  return pdfjsReady;
+}
+
 /** Plain text out of a PDF's text layer. Empty string when it is a scan. */
 export async function pdfText(buffer) {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
 
   let out = '';
@@ -49,7 +75,7 @@ export async function pdfText(buffer) {
 export async function pdfToImages(buffer, maxPages = MAX_VISION_PAGES) {
   const [{ createCanvas }, pdfjs] = await Promise.all([
     import('@napi-rs/canvas'),
-    import('pdfjs-dist/legacy/build/pdf.mjs'),
+    loadPdfjs(),
   ]);
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
 
@@ -100,9 +126,12 @@ export async function readDocument({ buffer, mimeType, fileName = '', visionProm
       return {
         text,
         source: 'none',
+        detail: err.message,
         error:
-          'This PDF is a scan and could not be read automatically. Ask the customer to send a ' +
-          'photograph of the document instead, which can be read directly.',
+          'This PDF could not be read automatically - the fault may be ours, not the file. Tell ' +
+          'the customer it has been saved and that our team will read it, and do NOT ask them to ' +
+          'send it again in another format unless they offer. If they have the numbers to hand ' +
+          '(chassis, MRN, ACID), they can type them instead.',
       };
     }
   }
