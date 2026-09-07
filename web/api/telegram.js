@@ -10,7 +10,7 @@ import { config } from '../lib/config.js';
 import { respond, splitLanguages } from '../lib/agent.js';
 import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
-import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD } from '../lib/telegram.js';
+import { sendMessage, sendTyping, downloadFile, sweepChat, MAIN_KEYBOARD, CONTACT_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
 import { documentReadCard } from '../lib/format.js';
 import { refreshPinSafely } from '../lib/pinned.js';
@@ -28,8 +28,15 @@ export default async function handler(req, res) {
   const update = req.body ?? {};
   const message = update.message;
   const chatId = message?.chat?.id;
-  const text = (message?.text ?? message?.caption ?? '').trim();
   const attachment = fileFrom(message);
+
+  // A tapped "Share my number" arrives as a contact, not text. It becomes a
+  // message the model can act on, with the number Telegram vouches for.
+  const shared = message?.contact?.phone_number
+    ? `[The customer shared their phone number through Telegram: ${message.contact.phone_number}. ` +
+      'Use it as their contact and call create_support_ticket now with the problem they described.]'
+    : '';
+  const text = shared || (message?.text ?? message?.caption ?? '').trim();
 
   // Always 200 to Telegram: a non-200 makes it retry the same update forever.
   if (!chatId || (!text && !attachment)) return res.status(200).json({ ok: true, skipped: true });
@@ -51,8 +58,11 @@ export default async function handler(req, res) {
     if (canned) return res.status(200).json({ ok: true });
 
     await sendTyping(chatId);
-    const { reply } = await respond(rewriteCommand(text), ctx);
-    await sendMessage(chatId, reply, { keyboard: MAIN_KEYBOARD });
+    const { reply, askContact } = await respond(rewriteCommand(text), ctx);
+    // When a phone number is what we need, the keyboard offers it in one tap.
+    await sendMessage(chatId, reply, askContact
+      ? { keyboard: CONTACT_KEYBOARD, oneTime: true }
+      : { keyboard: MAIN_KEYBOARD });
 
     return res.status(200).json({ ok: true });
   } catch (err) {

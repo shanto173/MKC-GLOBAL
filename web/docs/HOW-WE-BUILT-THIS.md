@@ -185,8 +185,13 @@ The website has the same thing as a strip under the header.
 
 Reply **3** (or say you want to speak to someone) and the bot lists the five
 desks, numbered. Pick one, and it asks for two things in one message: what the
-problem is, and a phone number to call you on. Nothing is raised until it has
-both — a ticket with no problem and no number is a note to nobody.
+problem is, and a phone number to call you on. On Telegram the number is one
+tap — a **📱 Share my number** button appears, and what comes back is the
+number Telegram holds for that account, verified rather than typed. (Telegram
+never gives a bot a number without that tap; there is no way to fetch it.)
+Nothing is raised until it has both — a ticket with no problem and no number is
+a note to nobody. A customer who would rather not share a number can say so;
+the ticket is raised against the chat instead.
 
 The ticket then goes out as a card with its reference, and lands in the
 **Tickets** tab of the ops console with the customer's name, the desk, the

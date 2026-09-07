@@ -1032,10 +1032,15 @@ const executors = {
     const looksLikeEmail = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(contact);
     const needProblem = summary.length < 8 || /^(no summary|none|-|contact|help)/i.test(summary);
     const needContact = !(looksLikePhone || looksLikeEmail);
-    if (needProblem || needContact) {
+    // "I will type it" and "not now" are answers too: raise it with the chat as
+    // the contact rather than asking a fourth time.
+    const declined = /\b(not now|no number|type it|later)\b|\u0645\u0634 \u062f\u0644\u0648\u0642\u062a\u064a|\u0647\u0643\u062a\u0628\u0647/i.test(String(ctx?.customerSaid ?? ''));
+    const contactOrChat = needContact && declined ? `${ctx.channel}:${ctx.chatId}` : contact;
+    if (needProblem || (needContact && !declined)) {
       return {
         ok: false,
         needs_details: true,
+        needs_contact: needContact,
         display: ticketAskCard(department, { needProblem, needContact }),
         verbatim: true,
         message: 'Not raised yet: the customer has been asked for the problem and a phone number.',
@@ -1048,7 +1053,7 @@ const executors = {
       chat_id: String(ctx.chatId),
       department,
       customer: args.customer?.trim() || ctx.userName || null,
-      contact: args.contact?.trim() || null,
+      contact: contactOrChat || null,
       summary: String(args.summary || '').trim() || 'No summary supplied.',
     };
     const { data, error } = await db().from('support_tickets').insert(row).select().single();

@@ -319,12 +319,20 @@ export function splitLanguages(reply) {
   const bar = text.indexOf('|');
   if (bar === -1) return text;
 
-  const left = text.slice(0, bar).trim();
-  const right = text.slice(bar + 1).trim();
+  let left = text.slice(0, bar).trim();
+  let right = text.slice(bar + 1).trim();
   // Only when it really is Arabic on one side and Latin on the other; a bar in
   // ordinary text (a file name, a route) must be left alone.
   const arabic = /[؀-ۿ]/;
-  if (!left || !right || !arabic.test(left) || arabic.test(right) || !/[A-Za-z]{3}/.test(right)) {
+  const latin = /[A-Za-z]{3}/;
+  // The model sometimes writes the English first. Same two halves, wrong way
+  // round - so they are swapped rather than left as a raw bar in the reply.
+  // Decided by where the Arabic letters are, nothing else: an Arabic half
+  // carries Latin all the time - MSC Aurora, FOB, a chassis number.
+  if (left && right && !arabic.test(left) && arabic.test(right)) {
+    [left, right] = [right, left];
+  }
+  if (!left || !right || !arabic.test(left) || arabic.test(right) || !latin.test(right)) {
     return text;
   }
   return `${mirrorTone(left, right)}\n${LANGUAGE_RULE}\n${mirrorTone(right, left)}`;
@@ -485,6 +493,7 @@ export async function respond(userText, ctx) {
 
   let finalText = '';
   let verbatimOnly = false;
+  let askContact = false;      // a tool asked the customer for a phone number
   const displays = [];
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -511,6 +520,7 @@ export async function respond(userText, ctx) {
       // says it in both languages, one line per item. Anything the model adds
       // to that is the same list again as a paragraph.
       if (result?.verbatim) verbatimOnly = true;
+      if (result?.needs_details && result?.needs_contact) askContact = true;
       // The display block is deliberately withheld from the model. Shown it, the
       // model retypes it - in Arabic, with the ports translated, or a second
       // time below its own sentence. It cannot copy what it never sees, and the
@@ -596,5 +606,5 @@ export async function respond(userText, ctx) {
     { role: 'assistant', content: finalText },
   ]);
 
-  return { reply: finalText, toolsUsed };
+  return { reply: finalText, toolsUsed, askContact };
 }

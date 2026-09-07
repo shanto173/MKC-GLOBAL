@@ -29,13 +29,13 @@ function chunk(text) {
   return parts;
 }
 
-export async function sendMessage(chatId, text, { keyboard, returnMessage = false } = {}) {
+export async function sendMessage(chatId, text, { keyboard, oneTime = false, returnMessage = false } = {}) {
   const parts = chunk(text);
   let last;
   for (let i = 0; i < parts.length; i++) {
     const payload = { chat_id: chatId, text: parts[i], disable_web_page_preview: true };
     if (keyboard && i === parts.length - 1) {
-      payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: false };
+      payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: oneTime };
     }
     last = await call('sendMessage', payload);
   }
@@ -233,6 +233,16 @@ export async function setCommands() {
  * because a Telegram keyboard is shared by the whole chat and we do not know
  * which language the next message will arrive in.
  */
+/**
+ * One tap to hand us a phone number. Telegram never tells a bot a user's number
+ * on its own; this button asks, and what comes back is the number Telegram
+ * holds for that account - verified, not typed with a digit missing.
+ */
+export const CONTACT_KEYBOARD = [
+  [{ text: '\u{1F4F1} \u0634\u0627\u0631\u0643 \u0631\u0642\u0645\u064a / Share my number', request_contact: true }],
+  [{ text: '\u270f\ufe0f \u0647\u0643\u062a\u0628\u0647 \u0628\u0646\u0641\u0633\u064a / I will type it' }],
+];
+
 export const MAIN_KEYBOARD = [
   [{ text: '1 · Book my shipment / احجز شحنة' }],
   [{ text: '2 · Track my shipment / تتبع شحنتي' }],
