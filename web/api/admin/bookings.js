@@ -25,7 +25,13 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') return list(req, res);
-  if (req.method === 'POST') return decide(req, res);
+  if (req.method === 'POST') {
+    // Retrying a shipment that failed to open is not a decision - the booking
+    // is already confirmed - so it has its own path rather than a second
+    // decision that the conflict guard would rightly refuse.
+    if (req.body?.action === 'open_shipment') return openShipment(req, res);
+    return decide(req, res);
+  }
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
@@ -75,6 +81,22 @@ async function list(req, res) {
   res.status(200).json({ status, count: bookings.length, bookings });
 }
 
+async function openShipment(req, res) {
+  const { booking_ref: ref, operator = 'operations' } = req.body ?? {};
+  if (!ref) return res.status(400).json({ error: 'booking_ref is required' });
+
+  const { data: booking, error } = await db().from('bookings').select('*').eq('booking_ref', ref).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!booking) return res.status(404).json({ error: `No booking ${ref}` });
+  if (booking.status !== 'confirmed') {
+    return res.status(409).json({ error: `${ref} is ${booking.status}; only a confirmed booking has a shipment` });
+  }
+
+  const shipment = await createShipmentFromBooking(booking, { operator });
+  if (!shipment.ok) return res.status(500).json({ error: shipment.error });
+  res.status(200).json({ ok: true, booking_ref: ref, shipment });
+}
+
 async function decide(req, res) {
   const { booking_ref: ref, action, note = '', operator = 'operations' } = req.body ?? {};
   const status = ACTIONS[action];
@@ -87,35 +109,64 @@ async function decide(req, res) {
   if (error) return res.status(500).json({ error: error.message });
   if (!booking) return res.status(404).json({ error: `No booking ${ref}` });
 
-  // Deciding twice would message the customer twice for one decision.
-  if (['confirmed', 'rejected', 'cancelled'].includes(booking.status)) {
+  // A positive guard, not a negative one: only a request actually awaiting
+  // review may be decided. Listing the finished states missed `draft`, which
+  // let an unsubmitted half-filled proposal be confirmed through the API.
+  if (booking.status !== 'pending_review') {
     return res.status(409).json({
-      error: `${ref} is already ${booking.status}`,
+      error: `${ref} is ${booking.status}, not awaiting review`,
       decided_at: booking.confirmed_at,
       decided_by: booking.confirmed_by,
     });
   }
 
-  const { data: updated, error: updErr } = await db()
+  // The status is repeated in the WHERE clause so the database, not the earlier
+  // read, decides who wins. Two operators clicking Confirm together both passed
+  // the check above and both updates succeeded, producing two shipments and two
+  // contradictory messages to the customer. Now the second update matches no
+  // row and is reported as the conflict it is.
+  const { data: updatedRows, error: updErr } = await db()
     .from('bookings')
     .update({
       status,
-      ops_notes: note || null,
+      // Only overwrite the ops note when one was actually given, or a decision
+      // made without a note erases what a colleague wrote earlier.
+      ...(note ? { ops_notes: note } : {}),
       confirmed_at: new Date().toISOString(),
       confirmed_by: String(operator).slice(0, 80),
     })
     .eq('booking_ref', ref)
-    .select()
-    .single();
+    .eq('status', 'pending_review')
+    .select();
   if (updErr) return res.status(500).json({ error: updErr.message });
+
+  if (!updatedRows?.length) {
+    const { data: now } = await db().from('bookings').select('status, confirmed_by').eq('booking_ref', ref).maybeSingle();
+    return res.status(409).json({
+      error: `${ref} was decided by someone else a moment ago (now ${now?.status ?? 'unknown'})`,
+      decided_by: now?.confirmed_by ?? null,
+    });
+  }
+  const updated = updatedRows[0];
 
   // Roadmap step 4: confirming opens the shipment, so the customer can track
   // what they booked. Until this existed, a confirmed booking was invisible to
   // tracking by either its reference or its chassis number.
   let shipment = null;
+  const warnings = [];
   if (status === 'confirmed') {
     shipment = await createShipmentFromBooking(updated, { operator });
-    if (!shipment.ok) console.error('shipment creation failed:', shipment.error);
+    if (!shipment.ok) {
+      // This used to be logged and nothing else: the operator saw a green
+      // "confirmed, customer told" while the customer had a confirmed booking
+      // they could not track, and the 409 guard blocked every retry. It is now
+      // reported, and /api/admin/bookings?action=open_shipment can retry it.
+      console.error('shipment creation failed:', shipment.error);
+      warnings.push(
+        `The booking is confirmed but the shipment could NOT be opened (${shipment.error}). ` +
+        'The customer cannot track it yet. Use "Open shipment" to retry.',
+      );
+    }
   }
 
   // Telling the customer must never undo the decision, so failures are reported
@@ -136,11 +187,17 @@ async function decide(req, res) {
     await db().from('bookings').update({ customer_told_at: new Date().toISOString() }).eq('booking_ref', ref);
   }
 
+  if (!told.telegram && !told.email && status !== 'cancelled') {
+    warnings.push('The customer could NOT be told - contact them directly.');
+  }
+
   res.status(200).json({
     ok: true,
     booking_ref: ref,
     status,
-    shipment: shipment?.ok ? { shipment_id: shipment.shipment_id, existed: shipment.existed } : shipment?.error ?? null,
+    shipment: shipment?.ok ? { shipment_id: shipment.shipment_id, existed: shipment.existed } : null,
+    shipment_error: shipment && !shipment.ok ? shipment.error : null,
+    warnings,
     customer_told: told,
   });
 }

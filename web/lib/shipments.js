@@ -8,6 +8,7 @@
  */
 
 import { db } from './supabase.js';
+import { config } from './config.js';
 
 /** Milestones a shipment moves through, in order. */
 export const SHIPMENT_STATUSES = [
@@ -31,14 +32,16 @@ export const SHIPMENT_STATUSES = [
  * second shipment for the same vehicle.
  */
 export async function createShipmentFromBooking(booking, { operator = 'operations' } = {}) {
+  // Deliberately not maybeSingle(): it returns null when more than one row
+  // matches, which is exactly the situation this guard exists to catch.
   const { data: existing } = await db()
     .from('shipments')
-    .select('shipment_id, status')
+    .select('shipment_id')
     .eq('booking_ref', booking.booking_ref)
-    .maybeSingle();
-  if (existing) return { ok: true, existed: true, shipment_id: existing.shipment_id };
+    .limit(1);
+  if (existing?.length) return { ok: true, existed: true, shipment_id: existing[0].shipment_id };
 
-  const { data: idRow, error: idErr } = await db().rpc('next_shipment_id', { prefix: 'MKY' });
+  const { data: idRow, error: idErr } = await db().rpc('next_shipment_id', { prefix: config.refPrefix });
   if (idErr) return { ok: false, error: `could not allocate a shipment id: ${idErr.message}` };
   const shipmentId = idRow;
 
@@ -70,7 +73,16 @@ export async function createShipmentFromBooking(booking, { operator = 'operation
   };
 
   const { error } = await db().from('shipments').insert(row);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // 23505 = the unique index on booking_ref. Another operator confirmed the
+    // same booking a moment ago; theirs is the shipment, not a second one.
+    if (error.code === '23505') {
+      const { data: winner } = await db()
+        .from('shipments').select('shipment_id').eq('booking_ref', booking.booking_ref).limit(1);
+      if (winner?.length) return { ok: true, existed: true, shipment_id: winner[0].shipment_id };
+    }
+    return { ok: false, error: error.message };
+  }
 
   await addEvent(shipmentId, {
     description: `Booking ${booking.booking_ref} confirmed by ${operator}. Shipment opened.`,
@@ -149,8 +161,12 @@ function extractEmail(contact) {
 }
 
 function extractPhone(contact) {
-  const s = String(contact ?? '');
-  if (/@/.test(s)) return null;
-  const m = s.match(/\+?[\d\s().-]{7,}/);
+  const s = String(contact ?? '').trim();
+  // "telegram:8123456789" is our own fallback contact, not a number anyone can
+  // ring. It was being stored as customer_phone and shown to operators, who
+  // would then dial a Telegram user id.
+  if (/^(telegram|whatsapp|web|sms):/i.test(s)) return null;
+  const withoutEmail = s.replace(/[^\s<>@]+@[^\s<>@]+\.[a-z]{2,}/gi, ' ');
+  const m = withoutEmail.match(/\+?\d[\d\s().-]{6,}\d/);
   return m ? m[0].trim() : null;
 }

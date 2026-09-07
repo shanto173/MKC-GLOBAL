@@ -8,8 +8,11 @@
  * and which documents are still outstanding.
  */
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from '../../lib/config.js';
+import { hasArabic, drawBidiLine, ARABIC_WORD_SPACING } from '../../lib/rtl.js';
 import { db } from '../../lib/supabase.js';
 
 export default async function handler(req, res) {
@@ -50,24 +53,46 @@ function buildLabel(b, { required, have, shipment }) {
     doc.on('end', () => resolve(Buffer.concat(parts)));
     doc.on('error', reject);
 
+    // Helvetica has no Arabic glyphs, so an Arabic customer name printed as
+    // nothing at all - silently, with no error. Amiri is registered whenever
+    // Arabic appears anywhere on the label.
+    const FONT_DIR = fileURLToPath(new URL('../../assets/fonts/', import.meta.url));
+    const arabicSomewhere = hasArabic([b.customer_name, b.company, b.origin_port, b.destination_port, b.notes].filter(Boolean).join(' '));
+    if (arabicSomewhere) {
+      doc.registerFont('ar', path.join(FONT_DIR, 'Amiri-Regular.ttf'));
+      doc.registerFont('arBold', path.join(FONT_DIR, 'Amiri-Bold.ttf'));
+    }
+    const face = (bold) => (arabicSomewhere ? (bold ? 'arBold' : 'ar') : (bold ? 'Helvetica-Bold' : 'Helvetica'));
+
     const L = 28, R = 567;
 
+    /** Writes a value that may be Arabic, right-to-left, without a wrapper. */
+    const value = (text, x, y, size, bold = true, width = 250) => {
+      doc.font(face(bold)).fontSize(size).fillColor('#12202e');
+      if (hasArabic(text)) {
+        drawBidiLine(doc, String(text), x, y, width, { align: 'left', baseDir: 'rtl', wordSpacing: ARABIC_WORD_SPACING });
+      } else {
+        doc.text(String(text), x, y, { lineBreak: false });
+      }
+    };
+
     doc.rect(0, 0, 595, 62).fill('#0b4a6f');
-    doc.fillColor('#fff').font('Helvetica-Bold').fontSize(15).text(config.companyName, L, 18);
-    doc.font('Helvetica').fontSize(9).fillColor('#cfe2ee').text('Booking label', L, 38);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#fff')
-      .text(new Date().toISOString().slice(0, 10), L, 22, { width: R - L, align: 'right' });
+    doc.fillColor('#fff').font('Helvetica-Bold').fontSize(15).text(config.companyName, L, 18, { lineBreak: false });
+    doc.font('Helvetica').fontSize(9).fillColor('#cfe2ee').text('Booking label', L, 38, { lineBreak: false });
+    const stamp = new Date().toISOString().slice(0, 10);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#fff');
+    doc.text(stamp, R - doc.widthOfString(stamp), 22, { lineBreak: false });
 
     // The two things anyone reads from a distance.
-    doc.fillColor('#12202e').font('Helvetica').fontSize(8).text('BOOKING REFERENCE', L, 78);
-    doc.font('Helvetica-Bold').fontSize(21).text(b.booking_ref, L, 90);
+    doc.fillColor('#12202e').font('Helvetica').fontSize(8).text('BOOKING REFERENCE', L, 78, { lineBreak: false });
+    doc.font(face(true)).fontSize(21).text(b.booking_ref, L, 90, { lineBreak: false });
 
-    doc.font('Helvetica').fontSize(8).fillColor('#12202e').text('CHASSIS / VIN', L, 124);
-    doc.font('Helvetica-Bold').fontSize(19).text(b.vin || '—', L, 136);
+    doc.font('Helvetica').fontSize(8).fillColor('#12202e').text('CHASSIS / VIN', L, 124, { lineBreak: false });
+    doc.font(face(true)).fontSize(19).text(b.vin || '—', L, 136, { lineBreak: false });
 
-    const row = (label, value, x, y, w = 250) => {
-      doc.font('Helvetica').fontSize(7.5).fillColor('#5b6b7c').text(label, x, y, { width: w });
-      doc.font('Helvetica-Bold').fontSize(10).fillColor('#12202e').text(value || '—', x, y + 10, { width: w });
+    const row = (label, text, x, y, w = 250) => {
+      doc.font('Helvetica').fontSize(7.5).fillColor('#5b6b7c').text(label, x, y, { lineBreak: false });
+      value(text || '—', x, y + 10, 10, true, w);
     };
 
     let y = 176;

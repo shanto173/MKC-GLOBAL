@@ -158,11 +158,27 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-  async function api(path, options) {
-    const sep = path.includes('?') ? '&' : '?';
-    const res = await fetch(path + sep + 'secret=' + encodeURIComponent(secret), options);
+  // The secret travels in a header, never the query string. As a query
+  // parameter it was written into Vercel's request logs on every call, and the
+  // label link put it in the address bar, browser history and any bookmark.
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      ...options,
+      headers: { ...(options.headers || {}), 'x-admin-secret': secret },
+    });
     if (res.status === 401) throw new Error('unauthorised');
     return res.json();
+  }
+
+  /** Opens the label without ever putting the secret in a URL. */
+  async function openLabel(ref) {
+    const res = await fetch('/api/admin/label?ref=' + encodeURIComponent(ref), {
+      headers: { 'x-admin-secret': secret },
+    });
+    if (!res.ok) return alert('Could not build the label.');
+    const url = URL.createObjectURL(await res.blob());
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
   const f = (label, value) => (value === null || value === undefined || value === '')
@@ -172,7 +188,7 @@
   function bookingCard(b) {
     const docs = b.documents?.length
       ? b.documents.map((d) => d.url
-          ? `<a href="${d.url}" target="_blank" rel="noopener">${esc(d.type)} · ${esc(d.file)}</a>`
+          ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.type)} · ${esc(d.file)}</a>`
           : `<span class="none">${esc(d.type)} (no file)</span>`).join('')
       : '<span class="none">No documents sent</span>';
     const decided = ['confirmed','rejected','cancelled'].includes(b.status);
@@ -196,8 +212,7 @@
         ${f('Decided by', b.confirmed_by)}${f('Ops notes', b.ops_notes)}
       </dl>
       <div class="docs"><strong style="font-weight:600">Documents:</strong> ${docs}
-        <a href="/api/admin/label?ref=${encodeURIComponent(b.booking_ref)}&secret=${encodeURIComponent(secret)}"
-           target="_blank" rel="noopener">Booking label (PDF)</a></div>
+        <button class="btn ghost" data-action="label" style="padding:3px 10px">Booking label (PDF)</button></div>
       ${decided
         ? `<div class="note-line">Decided ${b.confirmed_at ? new Date(b.confirmed_at).toLocaleString() : ''}${b.customer_told_at ? ' · customer notified' : ' · customer NOT notified'}</div>`
         : `<div class="act">
@@ -212,8 +227,13 @@
   function shipmentCard(s) {
     const events = (s.events||[]).map((e) =>
       `<li><time>${new Date(e.event_time).toLocaleDateString()}</time> ${esc(e.description)}${e.location ? ' — ' + esc(e.location) : ''}</li>`).join('');
-    const options = SHIPMENT_STATUSES.map((st) =>
-      `<option${st === s.status ? ' selected' : ''}>${esc(st)}</option>`).join('');
+    // Seeded and historic rows hold statuses that are not in our twelve, e.g.
+    // "Vessel departed Rotterdam". Without its own option the browser selects
+    // the FIRST one, so an operator saving a note would silently rewind a truck
+    // in customs back to "awaiting cargo" - and message the customer about it.
+    const known = SHIPMENT_STATUSES.includes(s.status);
+    const options = (known ? SHIPMENT_STATUSES : [s.status, ...SHIPMENT_STATUSES])
+      .map((st) => `<option${st === s.status ? ' selected' : ''}>${esc(st)}</option>`).join('');
 
     return `<div class="card" data-id="${esc(s.shipment_id)}" data-kind="shipment">
       <div class="top">
@@ -314,6 +334,7 @@
     if (!button) return;
     const card = button.closest('.card');
     const action = button.dataset.action;
+    if (action === 'label') return openLabel(card.dataset.ref);
     const note = card.querySelector('.note')?.value.trim() ?? '';
     const buttons = [...card.querySelectorAll('button')];
 
@@ -332,8 +353,11 @@
         message = r.ok
           ? `${card.dataset.ref} ${r.status}.` +
             (r.shipment?.shipment_id ? ` Shipment ${r.shipment.shipment_id} opened.` : '') +
-            (how ? ` Customer told by ${how}.` : ' Customer could NOT be told — contact them directly.')
+            (how ? ` Customer told by ${how}.` : '') +
+            (r.warnings?.length ? ' ⚠ ' + r.warnings.join(' ') : '')
           : (r.error || 'Failed');
+        // A warning is not a success, whatever the HTTP status said.
+        if (r.warnings?.length) r = { ...r, ok: false };
       } else {
         r = await api('/api/admin/shipments', {
           method: 'POST', headers: { 'content-type': 'application/json' },

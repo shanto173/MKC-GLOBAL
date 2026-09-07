@@ -192,9 +192,40 @@ const executors = {
     const q = String(query || '').trim();
     if (!q) return { error: 'No search term supplied.' };
 
-    const { data, error } = await db().rpc('find_shipments', { q, match_count: 5 });
+    // include_names stays false: this is the customer-facing path, and matching
+    // on customer_name returned other customers' rows for a query as short as
+    // a single letter.
+    const { data, error } = await db().rpc('find_shipments', { q, match_count: 5, include_names: false });
     if (error) return { error: error.message };
+
     if (!data?.length) {
+      // A booking that Operations has not confirmed yet has no shipment row, so
+      // the customer who booked ten minutes ago - quoting the reference we gave
+      // them - was being told we had never heard of it.
+      const norm = normalizeVin(q);
+      const { data: booked } = await db()
+        .from('bookings')
+        .select('booking_ref, status, vin, make, model, origin_port, destination_port, created_at, ops_notes')
+        .neq('status', 'draft')
+        .or(`booking_ref.eq.${String(q).trim().toUpperCase()}${norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (booked) {
+        return {
+          found: false,
+          booking_found: true,
+          booking: booked,
+          message:
+            `There is no shipment yet for ${booked.booking_ref}: the booking is ${booked.status.replace(/_/g, ' ')}. ` +
+            (booked.status === 'pending_review'
+              ? 'Tell the customer Operations is reviewing it and that tracking begins once it is confirmed.'
+              : `Tell the customer its state is ${booked.status.replace(/_/g, ' ')}.` +
+                (booked.ops_notes ? ` Operations noted: ${booked.ops_notes}` : '')),
+        };
+      }
+
       return {
         found: false,
         message: `No shipment matches "${q}". Ask the customer to double-check the reference, or offer to raise a ticket with the Tracking Desk.`,

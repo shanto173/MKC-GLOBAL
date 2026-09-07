@@ -30,7 +30,9 @@ async function list(req, res) {
 
   let rows;
   if (q) {
-    const { data, error } = await db().rpc('find_shipments', { q, match_count: limit });
+    // Only the admin console may search by customer name; the customer-facing
+    // tool must not, or one customer's search returns another's row.
+    const { data, error } = await db().rpc('find_shipments', { q, match_count: limit, include_names: true });
     if (error) return res.status(500).json({ error: error.message });
     rows = data ?? [];
   } else {
@@ -82,7 +84,9 @@ async function update(req, res) {
   if (!result.ok) return res.status(400).json({ error: result.error ?? 'update failed' });
 
   let told = null;
-  if (tellCustomer) {
+  // A no-op save used to send a full "Update on your shipment" message with no
+  // update in it, and the checkbox is ticked by default.
+  if (tellCustomer && !result.unchanged) {
     const { data: s } = await db().from('shipments').select('*').eq('shipment_id', id).maybeSingle();
     if (s?.chat_id && s.channel === 'telegram' && config.telegram.token) {
       const arabic =
