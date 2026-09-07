@@ -20,7 +20,9 @@
     "artest": "node scripts/arabic-test.mjs",
     "db:push": "supabase db push",
     "db:link": "supabase link --project-ref kverwgcnvnferjewvvyr",
-    "edittest": "node scripts/edit-test.mjs"
+    "edittest": "node scripts/edit-test.mjs",
+    "opstest": "node scripts/ops-test.mjs",
+    "rotate": "node scripts/rotate-secrets.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

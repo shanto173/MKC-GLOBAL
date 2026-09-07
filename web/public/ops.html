@@ -110,7 +110,10 @@
   <h2>MKY Operations</h2>
   <p>Sign in to work the booking queue. Both values stay in this browser.</p>
   <label for="who">Your name</label>
-  <input id="who" placeholder="e.g. Ariful" autocomplete="off" />
+  <input id="who" placeholder="e.g. Ariful" autocomplete="off" list="opsnames" />
+  <datalist id="opsnames"></datalist>
+  <p class="dim" id="whoHint" style="font-size:12.5px;color:#6b7785;margin:4px 0 0">
+    Decisions are recorded against this name.</p>
   <label for="secret">Admin secret</label>
   <input id="secret" type="password" placeholder="ADMIN_SECRET" autocomplete="off" />
   <button id="enter">Open</button>
@@ -140,6 +143,9 @@
   </div>
 
   <main id="list"></main>
+  <div style="padding:0 16px 26px;text-align:center">
+    <button class="btn ghost" id="more" hidden>Load more</button>
+  </div>
 </div>
 
 <script>
@@ -183,6 +189,22 @@
 
   const f = (label, value) => (value === null || value === undefined || value === '')
     ? '' : `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>`;
+
+  /**
+   * '' when the field was empty and stays empty (leave it alone), null when the
+   * operator emptied a field that had something in it (remove it), otherwise
+   * the new value.
+   */
+  function cleared(card, selector) {
+    const el = card.querySelector(selector);
+    const now = el.value.trim();
+    const was = (el.dataset.was || '').trim();
+    if (now) return now;
+    return was ? null : '';
+  }
+
+  // How far into the list we are. Reset whenever the query changes.
+  let offset = 0, loaded = [];
 
   // ---------- bookings ----------
   function bookingCard(b) {
@@ -254,8 +276,10 @@
       <div class="act">
         <select class="st">${options}</select>
         <input class="loc" placeholder="Location" style="max-width:150px" />
-        <input class="vessel" placeholder="Vessel" style="max-width:160px" value="${esc(s.vessel||'')}" />
-        <input class="eta" type="date" value="${esc(s.eta||'')}" title="ETA" />
+        <input class="vessel" placeholder="Vessel" style="max-width:160px"
+               value="${esc(s.vessel||'')}" data-was="${esc(s.vessel||'')}" />
+        <input class="etd" type="date" value="${esc(s.etd||'')}" data-was="${esc(s.etd||'')}" title="ETD - when the vessel sails" />
+        <input class="eta" type="date" value="${esc(s.eta||'')}" data-was="${esc(s.eta||'')}" title="ETA" />
       </div>
       <div class="act" style="padding-top:0">
         <input class="note" placeholder="What happened — sent to the customer if you tick below" />
@@ -299,25 +323,40 @@
     $('filter').hidden = FILTERS[tab].length < 2;
   }
 
-  async function load() {
-    $('list').innerHTML = '<div class="empty">Loading…</div>';
+  async function load(append = false) {
+    if (!append) { offset = 0; loaded = []; $('list').innerHTML = '<div class="empty">Loading…</div>'; }
+    $('more').hidden = true;
     const q = $('search').value.trim();
     const status = $('filter').value;
+    const page = '&offset=' + offset;
     try {
       if (tab === 'bookings') {
-        const d = await api('/api/admin/bookings?status=' + encodeURIComponent(status || 'pending_review'));
+        const d = await api('/api/admin/bookings?status=' + encodeURIComponent(status || 'pending_review') + page);
+        // Filtering happens here, so it only ever searches what is on screen.
+        // The count line says so rather than pretending it searched everything.
         let rows = d.bookings || [];
+        loaded = append ? loaded.concat(rows) : rows;
+        let shown = loaded;
         if (q) {
           const needle = q.toLowerCase();
-          rows = rows.filter((b) => JSON.stringify(b).toLowerCase().includes(needle));
+          shown = loaded.filter((b) => JSON.stringify(b).toLowerCase().includes(needle));
         }
-        $('count').textContent = rows.length + ' booking' + (rows.length === 1 ? '' : 's');
-        $('list').innerHTML = rows.length ? rows.map(bookingCard).join('') : '<div class="empty">Nothing here.</div>';
+        $('count').textContent = q
+          ? shown.length + ' of ' + loaded.length + ' loaded match “' + q + '” (' + d.total + ' in total)'
+          : loaded.length + ' of ' + d.total + ' booking' + (d.total === 1 ? '' : 's');
+        $('list').innerHTML = shown.length ? shown.map(bookingCard).join('') : '<div class="empty">Nothing here.</div>';
+        offset = loaded.length;
+        $('more').hidden = !d.has_more;
       } else if (tab === 'shipments') {
-        const d = await api('/api/admin/shipments?status=' + encodeURIComponent(status) + (q ? '&q=' + encodeURIComponent(q) : ''));
+        const d = await api('/api/admin/shipments?status=' + encodeURIComponent(status) + (q ? '&q=' + encodeURIComponent(q) : '') + page);
         SHIPMENT_STATUSES = d.statuses || SHIPMENT_STATUSES;
-        $('count').textContent = d.count + ' shipment' + (d.count === 1 ? '' : 's');
-        $('list').innerHTML = d.shipments.length ? d.shipments.map(shipmentCard).join('') : '<div class="empty">Nothing here.</div>';
+        loaded = append ? loaded.concat(d.shipments) : d.shipments;
+        $('count').textContent = q
+          ? loaded.length + ' matching shipment' + (loaded.length === 1 ? '' : 's')
+          : loaded.length + ' of ' + d.total + ' shipment' + (d.total === 1 ? '' : 's');
+        $('list').innerHTML = loaded.length ? loaded.map(shipmentCard).join('') : '<div class="empty">Nothing here.</div>';
+        offset = loaded.length;
+        $('more').hidden = !d.has_more;
       } else {
         const d = await api('/api/admin/customers' + (q ? '?q=' + encodeURIComponent(q) : ''));
         $('count').textContent = d.count + ' customer' + (d.count === 1 ? '' : 's');
@@ -366,8 +405,11 @@
             shipment_id: card.dataset.id,
             status: card.querySelector('.st').value,
             location: card.querySelector('.loc').value.trim(),
-            vessel: card.querySelector('.vessel').value.trim(),
-            eta: card.querySelector('.eta').value,
+            // Emptying a box that HAD a value means "remove it"; a box that was
+            // already empty is simply not being touched.
+            vessel: cleared(card, '.vessel'),
+            etd: cleared(card, '.etd'),
+            eta: cleared(card, '.eta'),
             note, operator,
             tell_customer: card.querySelector('.tell').checked,
           }),
@@ -395,9 +437,10 @@
   });
 
   let timer;
-  $('search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 350); });
-  $('filter').addEventListener('change', load);
-  $('refresh').addEventListener('click', load);
+  $('search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => load(), 350); });
+  $('filter').addEventListener('change', () => load());
+  $('refresh').addEventListener('click', () => load());
+  $('more').addEventListener('click', () => load(true));
   $('signout').addEventListener('click', () => { localStorage.removeItem(SKEY); location.reload(); });
 
   function gate(message) {
@@ -407,20 +450,54 @@
     (operator ? $('secret') : $('who')).focus();
   }
 
-  $('enter').addEventListener('click', () => {
-    operator = $('who').value.trim() || 'operations';
+  // Signing in checks the name against the operations desk. Anyone here already
+  // holds the admin secret, so this is not a login - it is what makes
+  // "confirmed by" mean a particular person rather than whatever was typed.
+  $('enter').addEventListener('click', async () => {
+    const name = $('who').value.trim();
     secret = $('secret').value.trim();
     if (!secret) return;
-    localStorage.setItem(SKEY, secret); localStorage.setItem(NKEY, operator);
-    start();
+    if (name.length < 2) return gate('Please give the name decisions should be recorded against.');
+
+    $('enter').disabled = true;
+    try {
+      const desk = await api('/api/admin/users');
+      const known = (desk.users || []).find((u) => u.active && u.name.toLowerCase() === name.toLowerCase());
+      if (known) {
+        operator = known.name;
+      } else {
+        const first = desk.bootstrap ? '' : '\n\nOn the desk already: ' + (desk.users || []).map((u) => u.name).join(', ');
+        if (!confirm('"' + name + '" is not on the operations desk yet. Add them?' + first)) {
+          $('enter').disabled = false;
+          return;
+        }
+        const added = await api('/api/admin/users', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!added.ok) { $('enter').disabled = false; return gate(added.error || 'Could not add that name.'); }
+        operator = added.user.name;
+      }
+      localStorage.setItem(SKEY, secret); localStorage.setItem(NKEY, operator);
+      start();
+    } catch (err) {
+      gate(err.message === 'unauthorised' ? 'That secret was not accepted.' : err.message);
+    } finally {
+      $('enter').disabled = false;
+    }
   });
   $('secret').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('enter').click(); });
 
-  function start() {
+  async function start() {
     $('gate').hidden = true; $('app').hidden = false;
     $('whoLabel').textContent = 'signed in as ' + operator;
     fillFilter();
     load();
+    try {
+      const desk = await api('/api/admin/users');
+      $('opsnames').innerHTML = (desk.users || []).filter((u) => u.active)
+        .map((u) => `<option value="${esc(u.name)}"></option>`).join('');
+    } catch { /* the list is a convenience, not a requirement */ }
   }
 
   if (secret) start(); else gate();

@@ -116,7 +116,9 @@ export const toolDefinitions = [
     description:
       'Change a detail on a booking the customer has already made, while it is still awaiting ' +
       'review. Use when they say something was wrong - the chassis, the make, their name, the ' +
-      'route, the ready date. Pass only the fields that change.',
+      'route, the ready date. Pass only the fields that change. To REMOVE a value the customer ' +
+      'no longer wants recorded (a company, a note, a weight), pass "-" for that field. Only use ' +
+      'this when the booking already has a reference; before that, call create_booking again.',
     parameters: {
       type: 'object',
       properties: {
@@ -405,12 +407,18 @@ const executors = {
     // answered. So confirmation is structural: the first call only saves a
     // draft, and only a LATER customer message can promote it. ctx.turnId
     // changes with every incoming message and the model cannot forge it.
+    // Only a draft from the conversation still happening counts. An abandoned
+    // one from last week would otherwise be promoted the moment a customer
+    // re-entered the same details - booked on the first call, unconfirmed.
+    const DRAFT_LIFE_HOURS = 24;
+    const freshSince = new Date(Date.now() - DRAFT_LIFE_HOURS * 3600_000).toISOString();
     const { data: draft } = await db()
       .from('bookings')
       .select('booking_ref, raw, created_at')
       .eq('chat_id', String(ctx.chatId))
       .eq('vin_norm', vinNorm)
       .eq('status', 'draft')
+      .gt('created_at', freshSince)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -447,8 +455,15 @@ const executors = {
     // Wording of the damage note drifts the same way, so for comparison only it
     // is reduced to a flag: what the customer approved is that there IS damage,
     // not the sentence describing it.
+    // Free text is left out of the comparison entirely: the model rewords a
+    // note between turns, and re-asking because a sentence was rephrased is
+    // noise. Everything a customer would notice on the card is compared.
     const cardOf = (a) => bookingCard(
-      { ...canonical(a), engine_condition: String(a.engine_condition ?? '').trim() ? 'reported damage' : null },
+      {
+        ...canonical(a),
+        engine_condition: String(a.engine_condition ?? '').trim() ? 'reported damage' : null,
+        notes: null,
+      },
       'en',
     );
 
@@ -465,6 +480,15 @@ const executors = {
       // a genuinely revised proposal gets its own safety net again.
       const { turn_id: _turn, challenged: _challenged, ...held } = draft.raw;
       args = { ...held, ...provided };
+    }
+
+    // Asked to change EXW to FOB, the model has re-sent EXW. An Incoterm is a
+    // closed list, so the customer's own words settle it rather than the
+    // arguments the model chose - and the corrected card still goes back for
+    // confirmation, so a misread costs a question, never a wrong booking.
+    if (draft && asksForChange(ctx?.customerSaid)) {
+      const wanted = requestedIncoterm(ctx.customerSaid, draft.raw?.incoterm);
+      if (wanted && wanted !== String(args.incoterm ?? '').trim().toUpperCase()) args.incoterm = wanted;
     }
 
     const beforeCard = draft?.raw ? cardOf(draft.raw) : null;
@@ -526,6 +550,15 @@ const executors = {
         status: 'draft',
         raw: { ...args, turn_id: ctx.turnId },
       }, { onConflict: 'booking_ref' });
+      // One conversation, one proposal on the table. Correcting the chassis
+      // used to leave the old draft behind, invisible but real.
+      await db()
+        .from('bookings')
+        .delete()
+        .eq('chat_id', String(ctx.chatId))
+        .eq('status', 'draft')
+        .neq('booking_ref', draftRef);
+
       if (draftErr) {
         console.error('booking draft insert failed:', draftErr.message);
         return {
@@ -625,10 +658,19 @@ const executors = {
       status: data.status,
       display: bookingCard(data, data.language === 'ar' ? 'ar' : ctx?.customerLanguage ?? 'en'),
       confirmation_emailed: notified.customer_email === true,
+      confirmation_sent_in_chat: notified.customer_telegram === true,
       next_step:
-        'Tell the customer the booking reference, that a confirmation PDF has been emailed to them, '
-        + 'that Booking Operations will confirm by email ' +
-        'within one business day, and which documents to prepare (MRN, ACID, commercial invoice, packing list).',
+        'Tell the customer the booking reference. ' +
+        // Only say the copy was delivered where it actually was. Claiming an
+        // email that never left is how a customer waits for a PDF that will
+        // never arrive.
+        (notified.customer_email
+          ? 'Say the confirmation PDF has been emailed to them. '
+          : notified.customer_telegram
+            ? 'Say their PDF copy has just been sent here in this chat. '
+            : 'Do NOT say anything was emailed or sent. ') +
+        'Say Booking Operations will confirm within one business day, and list which documents to ' +
+        'prepare (MRN, ACID, commercial invoice, packing list).',
       booking_form_url: config.bookingFormUrl || undefined,
     };
   },
@@ -728,12 +770,30 @@ const executors = {
       notes: (v) => String(v).trim(),
     };
 
+    // A booking could be corrected but never un-filled: a company name typed by
+    // mistake, a weight the customer no longer stands behind, a note that is no
+    // longer true. "-" from the model means the customer wants it gone.
+    const CLEAR_WORDS = new Set(['-', 'none', 'null', 'clear', 'remove', 'delete',
+      'لا يوجد', 'مفيش', 'احذف', 'الغي']);
+    const KEEP = new Set(['vin', 'make', 'customer_name', 'customer_contact', 'origin_port', 'destination_port']);
+
     const changes = {};
     const history = [];
     for (const [field, clean] of Object.entries(editable)) {
-      if (args[field] === undefined || args[field] === null || args[field] === '') continue;
-      const value = clean(args[field]);
-      if (value === null || value === undefined || value === booking[field]) continue;
+      const given = args[field];
+      if (given === undefined || given === null || String(given).trim() === '') continue;
+
+      const clearing = CLEAR_WORDS.has(String(given).trim().toLowerCase());
+      if (clearing && KEEP.has(field)) {
+        return {
+          ok: false,
+          message: `A booking cannot exist without ${field.replace(/_/g, ' ')}. Ask the customer for the correct value instead of removing it.`,
+        };
+      }
+
+      const value = clearing ? null : clean(given);
+      if (!clearing && (value === null || value === undefined)) continue;
+      if (value === booking[field]) continue;
       changes[field] = value;
       history.push({ field, from: booking[field] ?? null, to: value, at: new Date().toISOString() });
     }
@@ -936,6 +996,17 @@ const MAKES = new Map(Object.entries({
  * Does the customer's message ask for something to be different? Deliberately
  * narrow: "correct" is not here, because "yes that is correct" is agreement.
  */
+/** The eleven Incoterms, so a customer's own words can settle which one. */
+const INCOTERMS = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
+
+function requestedIncoterm(text, current) {
+  const found = String(text ?? '').toUpperCase().match(/[A-Z]{3}/g)?.filter((w) => INCOTERMS.includes(w));
+  if (!found?.length) return null;
+  // "change EXW to FOB" names the old one first and the wanted one last.
+  const wanted = found[found.length - 1];
+  return wanted === String(current ?? '').trim().toUpperCase() ? null : wanted;
+}
+
 function asksForChange(text) {
   const s = String(text ?? '').trim();
   if (!s) return false;

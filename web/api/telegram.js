@@ -8,7 +8,7 @@
 
 import { config } from '../lib/config.js';
 import { respond, splitLanguages } from '../lib/agent.js';
-import { clearHistory } from '../lib/session.js';
+import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import { sendMessage, sendTyping, downloadFile, MAIN_KEYBOARD } from '../lib/telegram.js';
 import { ingestDocument, documentStatus } from '../lib/documents.js';
@@ -106,11 +106,18 @@ async function handleCommand(text, ctx) {
     return true;
   }
 
-  if (cmd === '/reset') {
-    await clearHistory(ctx.channel, ctx.chatId);
+  // /reset, and the "Start fresh" button that does the same thing in one tap.
+  if (cmd === '/reset' || /start fresh|ابدأ من جديد/i.test(text)) {
+    const { drafts } = await forgetConversation(ctx.channel, ctx.chatId);
+    const alsoAr = drafts ? ` وشلت ${drafts === 1 ? 'حجز' : drafts + ' حجوزات'} لسه ما اتأكدش.` : '';
+    const alsoEn = drafts ? ` I also dropped ${drafts} unconfirmed booking${drafts === 1 ? '' : 's'}.` : '';
     await sendMessage(
       ctx.chatId,
-      splitLanguages('تمام، مسحت المحادثة السابقة. | Done - I have cleared our conversation history.'),
+      splitLanguages(
+        `تمام، مسحت المحادثة السابقة وبدأنا من جديد.${alsoAr} حجوزاتك المؤكدة وشحناتك زي ما هي. |` +
+        `Done - cleared our conversation and started fresh.${alsoEn} Your confirmed bookings and ` +
+        'shipments are untouched.',
+      ),
       { keyboard: MAIN_KEYBOARD },
     );
     return true;

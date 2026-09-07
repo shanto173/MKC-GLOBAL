@@ -15,7 +15,10 @@ import { sendDocument, sendMessage } from './telegram.js';
  * @returns {Promise<{pdf: boolean, customer_email: boolean, ops_email: boolean, staff_telegram: boolean, errors: string[]}>}
  */
 export async function notifyBooking(booking) {
-  const result = { pdf: false, customer_email: false, ops_email: false, staff_telegram: false, errors: [] };
+  const result = {
+    pdf: false, customer_email: false, customer_telegram: false,
+    ops_email: false, staff_telegram: false, errors: [],
+  };
 
   let pdf = null;
   try {
@@ -59,13 +62,37 @@ export async function notifyBooking(booking) {
     }
   }
 
+  // -- send the customer their copy in the chat they booked from -------------
+  // Until a sending domain is verified, Resend will only deliver to the account
+  // owner, so a customer's email silently goes nowhere. The chat they are
+  // already in always works, and the PDF is the thing they need.
+  if (booking.channel === 'telegram' && booking.chat_id && pdf && config.telegram.token) {
+    try {
+      await sendDocument(
+        booking.chat_id,
+        pdf,
+        filename,
+        `طلب حجز ${booking.booking_ref} - نسختك بصيغة PDF
+` +
+        `Booking request ${booking.booking_ref} - your PDF copy`,
+      );
+      result.customer_telegram = true;
+    } catch (err) {
+      result.errors.push(`customer telegram: ${err.message}`);
+      console.error('customer telegram pdf failed:', err.message);
+    }
+  }
+
   // -- email the ops desk ----------------------------------------------------
   if (config.mail.opsEmail && config.mail.apiKey) {
     try {
       await sendEmail({
         to: opsRecipients,
         subject: `NEW BOOKING ${booking.booking_ref} - ${booking.origin_port} to ${booking.destination_port}`,
-        html: opsHtml(booking),
+        // The desk needs to know whether the customer actually got their copy.
+        // A silent failure here is how somebody waits a week for a PDF that was
+        // never sent, while the desk assumes they have it.
+        html: opsHtml(booking, deliveryNote(result, customerEmail)),
         attachments,
         replyTo: customerEmail || undefined,
       });
@@ -258,17 +285,34 @@ function customerHtml(b) {
     </div>`);
 }
 
-function opsHtml(b) {
+function opsHtml(b, delivery = '') {
   return wrap(`
     <div style="font-size:16px;font-weight:700;margin-bottom:4px">New booking request</div>
     <div style="font-size:13px;color:#475569;margin-bottom:18px">
       Captured by the assistant via <strong>${escapeHtml(b.channel)}</strong>. Status
       <strong>${escapeHtml(b.status)}</strong> — needs a human to confirm space and price.
     </div>
+    ${delivery ? `<div style="background:#fff5e0;color:#8a5a00;padding:10px 12px;border-radius:6px;
+      font-size:13px;margin-bottom:16px">${escapeHtml(delivery)}</div>` : ''}
     ${detailTable(b)}
     <div style="margin-top:18px;font-size:12px;color:#64748b">
       Reply to this email to reach the customer directly.
     </div>`);
+}
+
+/** One line for the desk: did the customer get their copy, and if not, why. */
+function deliveryNote(result, customerEmail) {
+  if (result.customer_email) return '';
+  const where = result.customer_telegram ? 'Their PDF was sent to them in the chat instead.' : '';
+  if (!customerEmail) {
+    return `The customer gave no email address, so no email copy was sent. ${where}`.trim();
+  }
+  const why = result.errors.find((e) => e.startsWith('customer email'));
+  return (
+    `⚠ The customer copy was NOT emailed to ${customerEmail}` +
+    (why ? ` (${why.replace('customer email: ', '')})` : ' - sending is limited until a domain is verified in Resend') +
+    `. ${where}`
+  ).trim();
 }
 
 function escapeHtml(s) {

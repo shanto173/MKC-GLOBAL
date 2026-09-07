@@ -26,6 +26,9 @@ const L = {
   eta:         ['الوصول المتوقع', 'ETA'],
   etd:         ['المغادرة المتوقعة', 'ETD'],
   customer:    ['العميل', 'Customer'],
+  company:     ['الشركة', 'Company'],
+  contact:     ['وسيلة التواصل', 'Contact'],
+  notes:       ['ملاحظات', 'Notes'],
   weight:      ['الوزن', 'Weight'],
   incoterm:    ['شرط التسليم', 'Incoterm'],
   ready:       ['تاريخ الجاهزية', 'Cargo ready'],
@@ -79,6 +82,11 @@ export function shipmentCard(s, lang = 'en') {
  */
 export function bookingCard(b, lang = 'en', { documents = null } = {}) {
   const vehicle = [b.make, b.model].filter(Boolean).join(' ');
+  // "telegram:6284..." is our own routing address, not something a customer
+  // recognises as their contact details.
+  const contact = /^(telegram|web|whatsapp):/i.test(String(b.customer_contact ?? ''))
+    ? null
+    : b.customer_contact;
 
   return block(`📋 ${b.booking_ref ?? ''}`.trim(), [
     line('chassis', b.vin, lang),
@@ -87,12 +95,18 @@ export function bookingCard(b, lang = 'en', { documents = null } = {}) {
     // single most expensive thing to get wrong on a declaration.
     line('condition', b.engine_condition, lang),
     line('customer', b.customer_name, lang),
+    // Everything the customer told us is on the card, because the card is what
+    // they are agreeing to - and what is on the card is what gets compared if
+    // they change something before confirming.
+    line('company', b.company, lang),
+    line('contact', contact, lang),
     line('route', `${b.origin_port} → ${b.destination_port}`, lang),
     line('weight', b.gross_weight_kg ? `${Number(b.gross_weight_kg).toLocaleString('en-US')} kg` : null, lang),
     line('incoterm', b.incoterm, lang),
     line('ready', b.ready_date, lang),
     line('mrn', b.mrn_number, lang),
     line('acid', b.acid_number, lang),
+    line('notes', b.notes, lang),
     line('status', b.status?.replace(/_/g, ' '), lang),
     documents ? line('documents', documents, lang) : null,
   ]);

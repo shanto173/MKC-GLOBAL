@@ -68,7 +68,12 @@ export async function createShipmentFromBooking(booking, { operator = 'operation
     incoterm: booking.incoterm,
     engine_condition: booking.raw?.engine_condition ?? null,
     acid_id: booking.acid_number || null,
-    etd: booking.ready_date || null,
+    // ETD is when the VESSEL sails, which nobody knows on the day a booking is
+    // confirmed. It used to be filled with the cargo ready date, so customers
+    // were quoted a departure that was really "the truck is ready" - and it
+    // never got corrected because the field already looked filled in.
+    // Operations sets it from the console once the sailing is booked.
+    etd: null,
     updated_at: new Date().toISOString(),
   };
 
@@ -88,6 +93,15 @@ export async function createShipmentFromBooking(booking, { operator = 'operation
     description: `Booking ${booking.booking_ref} confirmed by ${operator}. Shipment opened.`,
     location: booking.origin_port,
   });
+
+  // The ready date still matters to the desk; it is a fact about the cargo, so
+  // it is recorded as one instead of being passed off as a sailing date.
+  if (booking.ready_date) {
+    await addEvent(shipmentId, {
+      description: `Cargo ready from ${booking.ready_date} (customer's date). ETD to be set when the sailing is booked.`,
+      location: booking.origin_port,
+    });
+  }
 
   return { ok: true, existed: false, shipment_id: shipmentId };
 }
@@ -122,8 +136,13 @@ export async function updateShipmentStatus(shipmentId, changes, { operator = 'op
     'delivery_status', 'acid_id', 'bl_number', 'container_no'];
   const patch = {};
   for (const key of allowed) {
-    if (changes[key] === undefined || changes[key] === '' || changes[key] === current[key]) continue;
-    patch[key] = changes[key];
+    const value = changes[key];
+    // undefined or '' means "not sent"; an explicit null means "clear this".
+    // Without that distinction a wrong vessel name could be corrected but never
+    // removed, because emptying the box looked the same as not touching it.
+    if (value === undefined || value === '') continue;
+    if (value === current[key]) continue;
+    patch[key] = value === null ? null : value;
   }
   // `location` is not a shipments column - it belongs on the event.
   const location = patch.location ?? null;
@@ -144,7 +163,7 @@ export async function updateShipmentStatus(shipmentId, changes, { operator = 'op
 
   const described = Object.entries(patch)
     .filter(([k]) => k !== 'updated_at')
-    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v === null ? 'cleared' : v}`)
     .join('; ');
 
   await addEvent(shipmentId, {

@@ -7,7 +7,7 @@
  */
 
 import { respond } from '../lib/agent.js';
-import { clearHistory } from '../lib/session.js';
+import { forgetConversation } from '../lib/session.js';
 
 const MAX_MESSAGE_CHARS = 1500;
 
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   }
 
   if (reset) {
-    await clearHistory('web', sessionId);
+    await forgetConversation('web', sessionId);
     return res.status(200).json({ ok: true, reply: 'Conversation cleared.' });
   }
 

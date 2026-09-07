@@ -48,3 +48,21 @@ export async function saveHistory(channel, chatId, messages) {
 export async function clearHistory(channel, chatId) {
   await db().from('conversations').delete().eq('id', sessionId(channel, chatId));
 }
+
+/**
+ * Starting fresh: forget what was said, and drop the half-finished booking that
+ * was still waiting to be confirmed. Real bookings are never touched - those
+ * belong to the customer and to the operations desk, not to the chat window.
+ *
+ * @returns {Promise<{drafts: number}>} how many unconfirmed drafts were dropped
+ */
+export async function forgetConversation(channel, chatId) {
+  await clearHistory(channel, chatId);
+  const { data } = await db()
+    .from('bookings')
+    .delete()
+    .eq('chat_id', String(chatId))
+    .eq('status', 'draft')
+    .select('booking_ref');
+  return { drafts: data?.length ?? 0 };
+}

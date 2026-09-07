@@ -124,18 +124,18 @@ export function bookingConfirmationPdf(b, opts = {}) {
     let y = 118;
 
     // ---- status banner ---------------------------------------------------
-    doc.roundedRect(LEFT, y, RIGHT - LEFT, 36, 5).fill('#fff5e0');
-    line(s.statusBanner, LEFT + 14, y + 8, RIGHT - LEFT - 28, { size: 10, font: BOLD, color: '#8a5a00' });
-    line(s.statusNote, LEFT + 14, y + 21, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
-    y += 48;
+    doc.roundedRect(LEFT, y, RIGHT - LEFT, 32, 5).fill('#fff5e0');
+    line(s.statusBanner, LEFT + 14, y + 6, RIGHT - LEFT - 28, { size: 10, font: BOLD, color: '#8a5a00' });
+    line(s.statusNote, LEFT + 14, y + 19, RIGHT - LEFT - 28, { size: 8.5, color: '#8a5a00' });
+    y += 42;
 
     // ---- section heading + label/value rows -------------------------------
     const heading = (text) => {
       ensureSpace(46);   // heading, rule, and at least one row beneath it
       line(text, LEFT, y, RIGHT - LEFT, { size: 11, font: BOLD, color: BRAND });
-      y += 16;
+      y += 15;
       doc.moveTo(LEFT, y).lineTo(RIGHT, y).strokeColor(LINE).lineWidth(1).stroke();
-      y += 10;
+      y += 8;
     };
 
     const row = (label, value) => {
@@ -147,27 +147,27 @@ export function bookingConfirmationPdf(b, opts = {}) {
         // Label hugs the right edge; the value sits to its left.
         line(label, RIGHT - LABEL_W, y, LABEL_W, { align: 'right', size: 9.5, color: MUTED });
         const end = para(text, LEFT, y, RIGHT - LABEL_W - 12, { size: 10, font: BOLD });
-        y = Math.max(end, y + 15);
+        y = Math.max(end, y + 14);
       } else {
         line(label, LEFT, y, LABEL_W, { align: 'left', size: 9.5, color: MUTED });
         const end = para(text, LEFT + LABEL_W + 5, y, RIGHT - LEFT - LABEL_W - 5, { size: 10, font: BOLD });
-        y = Math.max(end, y + 15);
+        y = Math.max(end, y + 14);
       }
-      y += 2;
+      y += 1;
     };
 
     heading(s.customer);
     row(s.name, b.customer_name);
     row(s.company, b.company);
     row(s.contact, b.customer_contact);
-    y += 4;
+    y += 3;
 
     heading(s.route);
     row(s.originCountry, b.origin_country);
     row(s.originPort, b.origin_port);
     row(s.destinationPort, b.destination_port);
     row(s.incoterm, b.incoterm);
-    y += 4;
+    y += 3;
 
     heading(s.cargo);
     // The chassis number identifies the unit on every other document in the
@@ -185,26 +185,31 @@ export function bookingConfirmationPdf(b, opts = {}) {
     row(s.mrn, b.mrn_number);
     row(s.acid, b.acid_number);
     row(s.notes, b.notes);
-    y += 4;
+    y += 3;
 
     // ---- document checklist ----------------------------------------------
     heading(s.documents);
-    for (const item of s.docList) {
+    // Two columns. Six documents down one side pushed an Arabic booking - whose
+    // script sets taller than Latin - onto a second page for two lines of text.
+    const HALF = (RIGHT - LEFT) / 2;
+    const perColumn = Math.ceil(s.docList.length / 2);
+    ensureSpace(perColumn * 13 + 6);
+    const listTop = y;
+    s.docList.forEach((item, i) => {
+      const second = i >= perColumn;
+      // The first column is the right-hand one when the page reads right to left.
+      const colLeft = LEFT + (rtl === second ? 0 : HALF);
+      const rowY = listTop + (i % perColumn) * 13;
       // The bullet is drawn as a shape rather than a character, so bidi cannot
       // move it to the wrong side of the line.
-      ensureSpace(18);
-      const dotX = rtl ? RIGHT - 5 : LEFT + 3;
-      doc.circle(dotX, y + 5, 1.6).fill(BRAND);
-      const end = rtl
-        ? para(item, LEFT, y, RIGHT - LEFT - 14, { size: 9.5 })
-        : para(item, LEFT + 14, y, RIGHT - LEFT - 14, { size: 9.5 });
-      y = Math.max(end, y + 12) + 1;
-    }
-    y += 8;
+      doc.circle(rtl ? colLeft + HALF - 5 : colLeft + 3, rowY + 5, 1.6).fill(BRAND);
+      para(item, rtl ? colLeft : colLeft + 14, rowY, HALF - 14, { size: 9 });
+    });
+    y = listTop + perColumn * 13 + 6;
 
     // ---- next steps -------------------------------------------------------
     heading(s.next);
-    y = para(s.nextBody, LEFT, y, RIGHT - LEFT, { size: 9.5, lineGap: 3 });
+    y = para(s.nextBody, LEFT, y, RIGHT - LEFT, { size: 9, lineGap: 2 });
 
     // ---- footer -----------------------------------------------------------
     // Drawn on whatever page the content ended on, never on top of it.

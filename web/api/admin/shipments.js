@@ -13,6 +13,7 @@ import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
 import { updateShipmentStatus, addEvent, SHIPMENT_STATUSES } from '../../lib/shipments.js';
 import { sendMessage } from '../../lib/telegram.js';
+import { knownOperator } from './users.js';
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -27,8 +28,10 @@ export default async function handler(req, res) {
 async function list(req, res) {
   const q = (req.query.q ?? '').trim();
   const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
 
   let rows;
+  let total = null;
   if (q) {
     // Only the admin console may search by customer name; the customer-facing
     // tool must not, or one customer's search returns another's row.
@@ -36,14 +39,19 @@ async function list(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     rows = data ?? [];
   } else {
-    const query = db().from('shipments').select('*').order('updated_at', { ascending: false }).limit(limit);
+    const query = db()
+      .from('shipments')
+      .select('*', { count: 'exact' })
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
     // "Delivered" is the end of the road; hide it unless asked for explicitly.
     if (req.query.status === 'delivered') query.eq('delivery_status', 'Complete');
     else if (req.query.status && req.query.status !== 'all') query.eq('status', req.query.status);
     else if (!req.query.status) query.neq('delivery_status', 'Complete');
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) return res.status(500).json({ error: error.message });
     rows = data ?? [];
+    total = count ?? rows.length;
   }
 
   const ids = rows.map((s) => s.shipment_id);
@@ -60,7 +68,15 @@ async function list(req, res) {
     events: (events ?? []).filter((e) => e.shipment_id === s.shipment_id).slice(0, 8),
   }));
 
-  res.status(200).json({ count: shipments.length, statuses: SHIPMENT_STATUSES, shipments });
+  res.status(200).json({
+    count: shipments.length,
+    total: total ?? shipments.length,
+    offset,
+    limit,
+    has_more: total !== null && offset + shipments.length < total,
+    statuses: SHIPMENT_STATUSES,
+    shipments,
+  });
 }
 
 async function update(req, res) {
@@ -75,11 +91,16 @@ async function update(req, res) {
 
   if (!id) return res.status(400).json({ error: 'shipment_id is required' });
 
+  // Every change writes an event signed with this name, so it has to be a name
+  // the desk knows.
+  const who = await knownOperator(operator);
+  if (!who.ok) return res.status(400).json({ error: who.error });
+
   // An event with no field change is a legitimate update - "held at customs for
   // inspection" is worth recording even though nothing else moved.
   const result = eventOnly
     ? { ok: await addEvent(id, { description: note || 'Updated', location: changes.location ?? null }), event_only: true }
-    : await updateShipmentStatus(id, changes, { operator, note });
+    : await updateShipmentStatus(id, changes, { operator: who.name ?? operator, note });
 
   if (!result.ok) return res.status(400).json({ error: result.error ?? 'update failed' });
 

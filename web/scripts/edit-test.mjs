@@ -134,13 +134,24 @@ check('the damage shows on the summary', /damaged engine/i.test(damaged.display 
 // and booked the term the customer had just rejected.
 console.log('\nmodel ignores the correction: same values, customer asked for a change');
 const chat5 = `edit5-${Math.random().toString(36).slice(2, 8)}`;
-const said = 'i want to change incotermn EXW to FOB';
+const said = 'the weight you have is wrong, please fix it';
 const ctx5 = (turn, s = '') => ({ channel: 'web', chatId: chat5, turnId: `c${turn}`, customerLanguage: 'en', customerSaid: s });
 await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(1, `book chassis ${VIN}E`));
 const ignored = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(2, said));
 check('does not book when nothing changed but a change was asked for', ignored.ok === false && ignored.needs_correction === true, JSON.stringify(ignored).slice(0, 200));
 const secondTry = await runTool('create_booking', { ...DETAILS, vin: VIN + 'E' }, ctx5(3, said));
 check('held back only once, never stuck in a loop', secondTry.ok === true, JSON.stringify(secondTry).slice(0, 200));
+
+// 5e - an Incoterm is a closed list, so when the customer names one and the
+// model re-sends the old value, the customer's word wins - and the corrected
+// card still goes back for confirmation.
+console.log('\nthe customer names the Incoterm, the model re-sends the old one');
+const chat6 = `edit6-${Math.random().toString(36).slice(2, 8)}`;
+const ctx6 = (turn, s = '') => ({ channel: 'web', chatId: chat6, turnId: `i${turn}`, customerLanguage: 'en', customerSaid: s });
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'F' }, ctx6(1, 'book it please'));
+const rescued = await runTool('create_booking', { ...DETAILS, vin: VIN + 'F' }, ctx6(2, 'i want to change incotermn EXW to FOB'));
+check('the correction is applied from the customer words', /FOB/.test(rescued.display ?? '') && !/EXW/.test(rescued.display ?? ''), (rescued.display ?? '').slice(0, 200));
+check('and still asks before booking', rescued.ok === false && rescued.needs_confirmation === true, JSON.stringify(rescued).slice(0, 160));
 
 // 6 - the same correction through the whole agent, tools and database included.
 // This is the conversation a customer actually had: full details, then a change
@@ -179,9 +190,33 @@ await clearHistory('web', liveChat);
 await db().from('bookings').delete().eq('chat_id', liveChat);
 await db().from('shipments').delete().eq('vin', liveVin);
 
+// 7 - "Start fresh": forget the conversation and the half-finished proposal,
+// keep everything the customer actually booked.
+console.log('\nstart fresh: clears the chat, keeps real bookings');
+const { forgetConversation, saveHistory, loadHistory } = await import('../lib/session.js');
+const chat7 = `fresh-${Math.random().toString(36).slice(2, 8)}`;
+const ctx7 = { channel: 'web', chatId: chat7, turnId: 'f1', customerLanguage: 'en' };
+await saveHistory('web', chat7, [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }]);
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'G' }, ctx7);                       // a draft
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f2' });  // and another
+await runTool('create_booking', { ...DETAILS, vin: VIN + 'H' }, { ...ctx7, turnId: 'f3' });  // ...confirmed
+
+const beforeFresh = (await db().from('bookings').select('status').eq('chat_id', chat7)).data ?? [];
+check('one draft at a time, not one per chassis', beforeFresh.filter((b) => b.status === 'draft').length <= 1, JSON.stringify(beforeFresh.map((b) => b.status)));
+
+const { drafts } = await forgetConversation('web', chat7);
+const afterFresh = (await db().from('bookings').select('status').eq('chat_id', chat7)).data ?? [];
+check('the conversation is forgotten', (await loadHistory('web', chat7)).length === 0, 'history survived');
+check('the unconfirmed draft is gone', afterFresh.every((b) => b.status !== 'draft'), JSON.stringify(afterFresh.map((b) => b.status)));
+check('the real booking is untouched', afterFresh.some((b) => b.status === 'pending_review'), JSON.stringify(afterFresh.map((b) => b.status)));
+check('and it says what it dropped', typeof drafts === 'number', JSON.stringify(drafts));
+
+await db().from('bookings').delete().eq('chat_id', chat7);
+await db().from('shipments').delete().in('vin', [VIN + 'G', VIN + 'H']);
+
 // cleanup
-for (const id of [chatId, chat2, chat3, chat4, chat5]) await db().from('bookings').delete().eq('chat_id', id);
-await db().from('shipments').delete().in('vin', [VIN, VIN + 'B', VIN + 'C', VIN + 'D', VIN + 'E']);
+for (const id of [chatId, chat2, chat3, chat4, chat5, chat6]) await db().from('bookings').delete().eq('chat_id', id);
+await db().from('shipments').delete().in('vin', [VIN, VIN + 'B', VIN + 'C', VIN + 'D', VIN + 'E', VIN + 'F']);
 
 console.log(`\n${problems.length === 0 ? 'all checks pass' : problems.length + ' failed: ' + problems.join(', ')}`);
 process.exit(problems.length === 0 ? 0 : 1);

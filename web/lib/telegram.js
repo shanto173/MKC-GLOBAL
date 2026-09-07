@@ -112,4 +112,7 @@ export const MAIN_KEYBOARD = [
   [{ text: '1 · Book my shipment / احجز شحنة' }],
   [{ text: '2 · Track my shipment / تتبع شحنتي' }],
   [{ text: '3 · Contact our team / تواصل مع فريقنا' }],
+  // One tap to start over. Customers testing the bot end up staring at an old
+  // half-finished booking and cannot tell it apart from a real one.
+  [{ text: '🧹 Start fresh / ابدأ من جديد' }],
 ];

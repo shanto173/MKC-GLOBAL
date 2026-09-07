@@ -160,6 +160,18 @@ And if the customer clearly asked for a change but the bot sends the old values
 anyway, the booking is held back once and the bot is told to read the message
 again. Better one extra question than the wrong Incoterm on a customs entry.
 
+### Starting over
+
+There is a **🧹 Start fresh** button under the keyboard (and `/reset` if you
+prefer typing). It forgets the conversation and throws away a half-finished
+booking that was never confirmed. It does **not** touch a booking that was
+actually made, or any shipment - those belong to the customer and the desk, not
+to the chat window.
+
+One thing it cannot do: the messages already on your phone are Telegram's copy,
+not ours. To clear those, hold the chat in your Telegram list and delete it -
+the bot will greet you from scratch next time you write.
+
 **Important safety design:** the booking is saved to the database *first*, and
 only then do the emails go out. If the email service is down, the booking is
 still safe. We never lose a customer's booking because of an email problem.
@@ -271,14 +283,15 @@ To see bookings the bot has taken: Supabase → **Table Editor** → **bookings*
 
 ## 11. What is still to do
 
-| Task                                 | Why it matters                                                                    |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| Put real shipment data in            | The 12 shipments now are invented examples                                        |
-| Verify our email domain              | Until then customers do not receive their confirmation — only our own inbox does |
-| Finish the staff Telegram group      | So the team sees bookings instantly                                               |
-| Replace the security keys            | Some keys were shared during setup and should be renewed                          |
-| Limit the website chat               | To stop strangers using our AI credit                                             |
-| Decide how long to keep chat history | We store conversations; we should set a rule                                      |
+| Task                                 | Why it matters                                                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------- |
+| Put real shipment data in            | The 12 shipments now are invented examples                                          |
+| Verify our email domain              | Customers get their PDF in the chat, but still no email. See docs/ROTATE-CREDENTIALS |
+| Finish the staff Telegram group      | So the team sees bookings instantly                                                 |
+| Replace the security keys            | Some keys were shared during setup. `npm run rotate` does two; the doc lists the rest |
+| Limit the website chat               | To stop strangers using our AI credit                                               |
+| Decide how long to keep chat history | We store conversations; we should set a rule                                        |
+| Give the console a real login        | Today one shared password, and names are chosen from a list the desk keeps itself   |
 
 ---
 

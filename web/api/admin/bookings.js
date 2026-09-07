@@ -15,6 +15,7 @@ import { db } from '../../lib/supabase.js';
 import { notifyBookingDecision } from '../../lib/notify.js';
 import { signedUrl } from '../../lib/storage.js';
 import { createShipmentFromBooking } from '../../lib/shipments.js';
+import { knownOperator } from './users.js';
 
 const ACTIONS = { confirm: 'confirmed', reject: 'rejected', cancel: 'cancelled' };
 
@@ -38,18 +39,22 @@ export default async function handler(req, res) {
 async function list(req, res) {
   const status = req.query.status ?? 'pending_review';
   const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
 
+  // count: 'exact' asks Postgres how many rows MATCH, not how many were sent.
+  // The console used to print the length of the page as the total, so a desk
+  // with 60 requests waiting was told it had 50.
   const query = db()
     .from('bookings')
-    .select('*')
+    .select('*', { count: 'exact' })
     .order('created_at', { ascending: true })
-    .limit(limit);
+    .range(offset, offset + limit - 1);
 
   // "all" still hides drafts: they are unconfirmed proposals, not requests.
   if (status === 'all') query.neq('status', 'draft');
   else query.eq('status', status);
 
-  const { data, error } = await query;
+  const { data, error, count: total } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
   // Attach each booking's paperwork, with links an operator can actually open.
@@ -78,12 +83,24 @@ async function list(req, res) {
     });
   }
 
-  res.status(200).json({ status, count: bookings.length, bookings });
+  res.status(200).json({
+    status,
+    count: bookings.length,
+    total: total ?? bookings.length,
+    offset,
+    limit,
+    has_more: offset + bookings.length < (total ?? 0),
+    bookings,
+  });
 }
 
 async function openShipment(req, res) {
   const { booking_ref: ref, operator = 'operations' } = req.body ?? {};
   if (!ref) return res.status(400).json({ error: 'booking_ref is required' });
+
+  // Whose decision is this? A name nobody can check is not a signature.
+  const who = await knownOperator(operator);
+  if (!who.ok) return res.status(400).json({ error: who.error });
 
   const { data: booking, error } = await db().from('bookings').select('*').eq('booking_ref', ref).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -104,6 +121,10 @@ async function decide(req, res) {
   if (!ref || !status) {
     return res.status(400).json({ error: `booking_ref and action are required. action is one of: ${Object.keys(ACTIONS).join(', ')}` });
   }
+
+  // Whose decision is this? A name nobody can check is not a signature.
+  const who = await knownOperator(operator);
+  if (!who.ok) return res.status(400).json({ error: who.error });
 
   const { data: booking, error } = await db().from('bookings').select('*').eq('booking_ref', ref).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -133,7 +154,7 @@ async function decide(req, res) {
       // made without a note erases what a colleague wrote earlier.
       ...(note ? { ops_notes: note } : {}),
       confirmed_at: new Date().toISOString(),
-      confirmed_by: String(operator).slice(0, 80),
+      confirmed_by: who.name ?? String(operator).slice(0, 80),
     })
     .eq('booking_ref', ref)
     .eq('status', 'pending_review')
