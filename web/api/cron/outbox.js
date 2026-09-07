@@ -5,10 +5,17 @@
  *   GET /api/cron/outbox?secret=...   run it by hand
  *
  * The flows and the Operations console both drain inline after they queue
- * something, so in the normal case a client hears back within a second. This
- * exists for the abnormal case: a Telegram outage, a rate limit, a client whose
- * phone was off. Those rows sit with a future available_at and nothing else
- * would ever come back for them.
+ * something, AND every inline drain sends whatever else is due - not just the
+ * row it queued. So on a bot anyone is using, a message that failed its first
+ * attempt goes out on the next customer message, within minutes.
+ *
+ * This cron is the backstop for a bot nobody has messaged since the failure.
+ *
+ * SCHEDULE: daily, because Vercel's Hobby plan refuses any cron more frequent
+ * than once a day - and refuses it at BUILD time, so a `*/5 * * * *` here does
+ * not degrade the deployment, it fails it outright and leaves the previous
+ * version serving. On Pro, change this to `*/5 * * * *`; nothing else needs to
+ * change.
  *
  * Authorisation: Vercel Cron signs its calls with CRON_SECRET in an
  * Authorization header. A manual run uses ADMIN_SECRET. Neither is optional -
