@@ -9,3 +9,5 @@ _*.pdf
 _*.mjs
 data/sample-booking-ar.pdf
 data/*.png
+data/test-*.pdf
+data/customer-*.pdf
