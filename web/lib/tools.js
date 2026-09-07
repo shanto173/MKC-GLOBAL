@@ -655,7 +655,10 @@ const executors = {
       return {
         ok: false,
         needs_confirmation: true,
-        documents_outstanding: docs?.missing_labels ?? undefined,
+        documents_outstanding: docs?.missing_labels?.length ? docs.missing_labels : undefined,
+        // A paper that arrived for another vehicle is not outstanding, it is
+        // wrong - and the customer needs to hear which one and why.
+        documents_for_another_chassis: docs?.wrong_vehicle_labels?.length ? docs.wrong_vehicle_labels : undefined,
         also_ask: alsoAsk.length ? alsoAsk : undefined,
         // Shown from the canonical values, so what the customer approves is
         // exactly what the operations desk will read back out of the database.
