@@ -145,6 +145,21 @@ export function pinnedCard(rows, extra = 0) {
   ].join('\n\n');
 }
 
+/**
+ * "Here is what we still need." A short bilingual list, one item per line.
+ *
+ * Written here rather than by the model because the model writes it as a
+ * paragraph - "please provide the make and model, your full name, the city or
+ * port of loading, and..." - which nobody reads on a phone. Every line is one
+ * thing, in both languages, so the customer can work down it.
+ */
+export function checklistCard(sections) {
+  const blocks = sections
+    .filter((s) => s.items?.length)
+    .map((s) => [s.title, ...s.items.map((i) => `\u2022 ${i}`)].join('\n'));
+  return blocks.join('\n\n');
+}
+
 /** The document checklist: what arrived, what is still needed. */
 export function documentsCard(status, lang = 'en') {
   const received = (status.received ?? []).map((d) => d.label).join(', ');

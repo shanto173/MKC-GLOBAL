@@ -9,7 +9,7 @@ import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
-import { shipmentCard, bookingCard, documentsCard } from './format.js';
+import { shipmentCard, bookingCard, documentsCard, checklistCard } from './format.js';
 
 export const toolDefinitions = [
   {
@@ -286,7 +286,7 @@ const executors = {
     return { matches: data.map(strip) };
   },
 
-  async lookup_vehicle({ vin }) {
+  async lookup_vehicle({ vin }, ctx) {
     const norm = normalizeVin(vin);
     if (norm.length < 6) {
       return { error: 'That does not look like a chassis number. Ask the customer to send it again.' };
@@ -334,6 +334,20 @@ const executors = {
         'and the route (city of loading and Egyptian destination port).';
     }
 
+    // What we still need goes out as a block, one line per item, built here.
+    // Left to the model it came out as a paragraph - "please provide the make
+    // and model, your full name, the city or port of loading, and..." - which
+    // nobody reads on a phone.
+    const opening = verdict === 'new'
+      ? 'الوحدة دي جديدة عندنا - دي البيانات اللي ناقصة / This unit is new to us - here is what we still need'
+      : 'الوحدة دي عندنا بالفعل - دي البيانات اللي ناقصة / We already hold this unit - here is what we still need';
+    const checklist = openBooking ? null : detailsNeededCard(ctx?.customerSaid, { opening });
+    // Only a field the booking cannot exist without makes the list the whole
+    // answer. Weight, Incoterm, ready date and damage are asked for on the same
+    // list, but they must not stop the booking reaching its summary - doing so
+    // left a customer who had given everything staring at a checklist.
+    const missingBasics = !openBooking && missingRequiredDetails(ctx?.customerSaid);
+
     return {
       verdict,
       vin: vehicle.data?.vin ?? booking.data?.vin ?? shipment.data?.vin ?? String(vin).toUpperCase(),
@@ -341,7 +355,12 @@ const executors = {
       vehicle: vehicle.data ?? null,
       existing_booking: openBooking,
       existing_shipment: shipment.data ?? null,
-      next_step,
+      display: checklist ?? undefined,
+      // The block says everything, in both languages, one line per item. A
+      // sentence added to it only repeats it as a paragraph, so this reply is
+      // the block by itself.
+      verbatim: Boolean(checklist) && missingBasics,
+      next_step: checklist ? 'The list has already gone to the customer as it is.' : next_step,
     };
   },
 
@@ -518,8 +537,13 @@ const executors = {
     // closed list, so the customer's own words settle it rather than the
     // arguments the model chose - and the corrected card still goes back for
     // confirmation, so a misread costs a question, never a wrong booking.
-    if (draft && asksForChange(ctx?.customerSaid)) {
-      const wanted = requestedIncoterm(ctx.customerSaid, draft.raw?.incoterm);
+    // Not only when a draft exists: the customer often corrects the Incoterm
+    // before any summary has been drawn, and their word settles it either way.
+    if (asksForChange(ctx?.customerSaid)) {
+      // Compared against what the model just sent, not against the draft: on a
+      // second call in the same turn the draft already carried the correction,
+      // so the check passed and the old value went back in behind it.
+      const wanted = requestedIncoterm(ctx.customerSaid);
       if (wanted && wanted !== String(args.incoterm ?? '').trim().toUpperCase()) args.incoterm = wanted;
     }
 
@@ -982,6 +1006,123 @@ function strip(row) {
 }
 
 /** Customers type a chassis number with spaces, dashes and lower case. */
+/**
+ * What still has to be asked for, given what the customer has just written.
+ *
+ * Deliberately cautious: a detail is only treated as given when it is
+ * unmistakably there. Asking for something twice is the complaint we hear most,
+ * but missing one is recoverable - create_booking asks again from the data.
+ */
+const DETAIL_ITEMS = [
+  {
+    key: 'make',
+    required: true,
+    ar: '\u0627\u0644\u0645\u0627\u0631\u0643\u0629 \u0648\u0627\u0644\u0645\u0648\u062f\u064a\u0644',
+    en: 'Make and model',
+    hint: 'Mercedes-Benz Actros 1845',
+    found: (s) => /\b(mercedes|benz|volvo|scania|man|daf|iveco|renault|ford|isuzu|hino|krone|schmitz)\b/i.test(s)
+      || /\b(make|model)\b\s*[:=]/i.test(s) || /\u0627\u0644\u0645\u0627\u0631\u0643\u0629/.test(s),
+  },
+  {
+    key: 'vehicle_type',
+    ar: '\u0646\u0648\u0639 \u0627\u0644\u0645\u0631\u0643\u0628\u0629',
+    en: 'Vehicle type',
+    hint: 'truck / tractor unit / trailer / van',
+    found: (s) => /\b(truck|tractor|trailer|van|car|lorry)\b/i.test(s)
+      || /\u062c\u0631\u0627\u0631|\u0645\u0642\u0637\u0648\u0631\u0629|\u0644\u0648\u0631\u064a/.test(s),
+  },
+  {
+    key: 'engine_condition',
+    ar: '\u062d\u0627\u0644\u0629 \u0627\u0644\u0645\u0631\u0643\u0628\u0629 - \u0623\u064a \u062a\u0644\u0641',
+    en: 'Any damage',
+    hint: 'engine, gearbox, accident - or "none"',
+    found: (s) => /\b(damage|damaged|accident|not running|runs fine|no damage|condition)\b/i.test(s)
+      || /\u062a\u0627\u0644\u0641|\u062d\u0627\u062f\u062b|\u0633\u0644\u064a\u0645\u0629|\u0645\u0639\u0637\u0644/.test(s),
+  },
+  {
+    key: 'customer_name',
+    required: true,
+    ar: '\u0627\u0633\u0645\u0643 \u0628\u0627\u0644\u0643\u0627\u0645\u0644',
+    en: 'Your full name',
+    found: (s) => /\b(name)\b\s*[:=]/i.test(s) || /\bmy name is\b|\bi am\b/i.test(s)
+      || /\u0627\u0633\u0645\u064a|\u0627\u0644\u0627\u0633\u0645/.test(s),
+  },
+  {
+    key: 'origin_port',
+    required: true,
+    ar: '\u0645\u062f\u064a\u0646\u0629 \u0623\u0648 \u0645\u064a\u0646\u0627\u0621 \u0627\u0644\u0634\u062d\u0646',
+    en: 'City or port of loading',
+    hint: 'Vilnius, Klaipeda, Antwerp...',
+    found: (s) => /\bfrom\b\s*[:=]?\s*\w/i.test(s) || /\u0645\u0646\s/.test(s),
+  },
+  {
+    key: 'destination_port',
+    required: true,
+    ar: '\u0627\u0644\u0645\u064a\u0646\u0627\u0621 \u0627\u0644\u0645\u0635\u0631\u064a',
+    en: 'Egyptian port',
+    hint: 'Alexandria, Port Said, Damietta, Ain Sokhna, Suez',
+    found: (s) => /\b(alexandria|port said|damietta|sokhna|suez|dekheila)\b/i.test(s)
+      || /\u0627\u0644\u0625\u0633\u0643\u0646\u062f\u0631\u064a\u0629|\u0628\u0648\u0631\u0633\u0639\u064a\u062f|\u062f\u0645\u064a\u0627\u0637|\u0627\u0644\u0633\u062e\u0646\u0629|\u0627\u0644\u0633\u0648\u064a\u0633/.test(s),
+  },
+  {
+    key: 'gross_weight_kg',
+    ar: '\u0627\u0644\u0648\u0632\u0646 \u0628\u0627\u0644\u0643\u064a\u0644\u0648',
+    en: 'Gross weight in kg',
+    found: (s) => /\d[\d.,]*\s*(kg|kgs|kilo|tonne|ton)\b/i.test(s) || /\u0643\u062c\u0645|\u0643\u064a\u0644\u0648/.test(s),
+  },
+  {
+    key: 'incoterm',
+    ar: '\u0634\u0631\u0637 \u0627\u0644\u062a\u0633\u0644\u064a\u0645',
+    en: 'Incoterm',
+    hint: 'EXW / FOB / CIF / DAP',
+    found: (s) => /\b(EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DPU|DDP)\b/.test(String(s).toUpperCase()),
+  },
+  {
+    key: 'ready_date',
+    ar: '\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062c\u0627\u0647\u0632\u064a\u0629',
+    en: 'Cargo ready date',
+    found: (s) => /\d{4}-\d{2}-\d{2}/.test(s)
+      || /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(s)
+      || /\bready\b\s*[:=]/i.test(s) || /\u062c\u0627\u0647\u0632/.test(s),
+  },
+];
+
+const DOC_ITEMS = [
+  ['\u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0627\u0644\u062a\u062c\u0627\u0631\u064a\u0629', 'Commercial invoice'],
+  ['\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u0646\u0642\u0644 \u0623\u0648 EUR.1', 'Transport document or EUR.1'],
+  ['\u0631\u0642\u0645 MRN', 'MRN from the export country'],
+  ['\u0631\u0642\u0645 ACID (\u0646\u0627\u0641\u0630\u0629)', 'ACID number (Nafeza)'],
+];
+
+/** The block a customer reads when we need more from them. */
+/** Is anything a booking cannot exist without still unsaid? */
+export function missingRequiredDetails(said) {
+  const text = String(said ?? '');
+  return DETAIL_ITEMS.some((item) => item.required && !item.found(text));
+}
+
+export function detailsNeededCard(said, { includeDocuments = true, opening = null } = {}) {
+  const text = String(said ?? '');
+  const missing = DETAIL_ITEMS.filter((item) => !item.found(text));
+
+  const details = missing.map((i) => `${i.ar} / ${i.en}${i.hint ? ` (${i.hint})` : ''}`);
+  const documents = includeDocuments
+    ? DOC_ITEMS.map(([ar, en]) => `${ar} / ${en}`)
+    : [];
+
+  if (!details.length && !documents.length) return null;
+
+  const body = checklistCard([
+    { title: '\u{1F4DD} \u0645\u062d\u062a\u0627\u062c\u064a\u0646 \u0645\u0646\u0643 / What we still need', items: details },
+    { title: '\u{1F4C4} \u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a - \u0627\u0628\u0639\u062a\u0647\u0627 \u062f\u0644\u0648\u0642\u062a\u064a \u0623\u0648 \u0628\u0639\u062f\u064a\u0646 / Documents - now or later', items: documents },
+  ]);
+
+  // The opening line lives inside the block, so the whole reply can be this
+  // block and nothing else. Every sentence the model wrote around it repeated
+  // the same items as a paragraph, which is what we are getting rid of.
+  return opening ? `${opening}\n\n${body}` : body;
+}
+
 export function normalizeVin(v) {
   return String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
@@ -1073,12 +1214,11 @@ const MAKES = new Map(Object.entries({
 /** The eleven Incoterms, so a customer's own words can settle which one. */
 const INCOTERMS = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
 
-function requestedIncoterm(text, current) {
+function requestedIncoterm(text) {
   const found = String(text ?? '').toUpperCase().match(/[A-Z]{3}/g)?.filter((w) => INCOTERMS.includes(w));
   if (!found?.length) return null;
   // "change EXW to FOB" names the old one first and the wanted one last.
-  const wanted = found[found.length - 1];
-  return wanted === String(current ?? '').trim().toUpperCase() ? null : wanted;
+  return found[found.length - 1];
 }
 
 /**

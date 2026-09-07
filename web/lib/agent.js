@@ -561,6 +561,7 @@ export async function respond(userText, ctx) {
   };
 
   let finalText = '';
+  let verbatimOnly = false;
   const displays = [];
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -578,10 +579,15 @@ export async function respond(userText, ctx) {
 
     messages.push({ role: 'assistant', content, tool_calls: toolCalls });
 
+
     for (const call of toolCalls) {
       toolsUsed.push(call.name);
       const result = await runTool(call.name, call.args, turnCtx);
       if (result?.display && !displays.includes(result.display)) displays.push(result.display);
+      // Some blocks are the whole answer - a checklist of what is still needed
+      // says it in both languages, one line per item. Anything the model adds
+      // to that is the same list again as a paragraph.
+      if (result?.verbatim) verbatimOnly = true;
       // The display block is deliberately withheld from the model. Shown it, the
       // model retypes it - in Arabic, with the ports translated, or a second
       // time below its own sentence. It cannot copy what it never sees, and the
@@ -597,6 +603,10 @@ export async function respond(userText, ctx) {
         }).slice(0, 12_000),
       });
     }
+
+    // A block that is the whole answer ends the turn here: another round would
+    // only produce a paragraph saying the same thing.
+    if (verbatimOnly) break;
   }
 
   // The customer looked at the summary and said yes - and sometimes the model
@@ -624,7 +634,9 @@ export async function respond(userText, ctx) {
     if (content?.trim()) finalText = content.trim();
   }
 
-  if (!finalText) {
+  // A block that is the whole answer needs no prose, so the "something went
+  // wrong" fallback must not be bolted onto it.
+  if (!finalText && !verbatimOnly) {
     finalText =
       'Sorry, I had trouble putting that answer together. Could you rephrase, or would you like me to pass this to a colleague?';
   }
