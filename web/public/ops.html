@@ -338,8 +338,16 @@
         <span class="dim">${k.age_hours}h old</span>
         <span class="pill ${open ? 'pending' : 'ok'}">${esc(k.status)}</span>
       </div>
+      <div class="note-line" style="padding-top:12px;font-size:15px;color:var(--ink)">
+        <strong style="font-weight:700">Call them on:</strong>
+        ${k.contact
+          ? `<a href="${/@/.test(k.contact) ? 'mailto:' : 'tel:'}${esc(k.contact)}" style="color:var(--accent);font-weight:700;text-decoration:none">${esc(k.contact)}</a>
+             <span class="dim" style="font-size:12px"> · ${esc(k.contact_source || '')}</span>`
+          : `<span style="color:var(--warn);font-weight:600">no number given</span>
+             <span class="dim" style="font-size:12px"> · reply to them in the chat and ask for one</span>`}
+      </div>
       <dl class="grid">
-        ${f('Customer', k.customer)}${f('Call them on', k.contact)}${f('Channel', k.channel)}
+        ${f('Customer', k.customer)}${f('Channel', k.channel)}
         ${f('Raised', k.created_at ? new Date(k.created_at).toLocaleString() : '')}
         ${f('Resolved by', k.resolved_by)}${f('Resolved', k.resolved_at ? new Date(k.resolved_at).toLocaleString() : '')}
       </dl>

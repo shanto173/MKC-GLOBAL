@@ -39,10 +39,35 @@ async function list(req, res) {
   const { data, error, count } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  const tickets = (data ?? []).map((t) => ({
-    ...t,
-    age_hours: Math.round((Date.now() - new Date(t.created_at).getTime()) / 36e5),
-  }));
+  // The number to call is the point of the tab. Tickets raised before the bot
+  // asked for one carry none, so the newest booking from the same chat lends
+  // its contact, marked as such - a number from a booking form is still a
+  // number the desk can ring.
+  const chats = [...new Set((data ?? []).filter((t) => !t.contact && t.chat_id).map((t) => t.chat_id))];
+  const { data: bookings } = chats.length
+    ? await db()
+        .from('bookings')
+        .select('chat_id, customer_contact, customer_name, created_at')
+        .in('chat_id', chats)
+        .neq('status', 'draft')
+        .order('created_at', { ascending: false })
+    : { data: [] };
+  const fromBooking = new Map();
+  for (const b of bookings ?? []) {
+    if (!fromBooking.has(b.chat_id) && b.customer_contact && !/^(telegram|web):/i.test(b.customer_contact)) {
+      fromBooking.set(b.chat_id, { contact: b.customer_contact, name: b.customer_name });
+    }
+  }
+
+  const tickets = (data ?? []).map((t) => {
+    const lent = !t.contact ? fromBooking.get(t.chat_id) : null;
+    return {
+      ...t,
+      contact: t.contact || lent?.contact || null,
+      contact_source: t.contact ? 'given with the ticket' : lent ? 'from their latest booking' : null,
+      age_hours: Math.round((Date.now() - new Date(t.created_at).getTime()) / 36e5),
+    };
+  });
 
   res.status(200).json({
     status,
