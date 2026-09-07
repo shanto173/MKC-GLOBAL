@@ -68,14 +68,22 @@ for (const c of cases) {
   // Arabic replies carry the English translation after a single bar, so each
   // half is judged separately: Arabic on the left, English on the right.
   if (ARABIC.test(reply)) {
-    const bars = (reply.match(/\|/g) || []).length;
-    if (bars !== 1) problems.push(`expected exactly one | separating the languages, found ${bars}`);
+    // The two languages are separated by a divider line, not a bar. A reply
+    // built around a structured card needs no divider at all: that card's
+    // labels already carry both languages on every line.
+    const hasCard = /^\s*[\u{1F4E6}\u{1F4C4}\u{1F4CB}]/mu.test(reply);
+    const dividers = (reply.match(/━+/g) || []).length;
+    if (!hasCard && dividers !== 1) {
+      problems.push(`expected one divider separating the languages, found ${dividers}`);
+    }
+    if (dividers > 1) problems.push(`${dividers} dividers - only one is allowed`);
+    if (/\|/.test(reply)) problems.push('a raw | survived instead of becoming a divider');
 
     // A bracketed gloss is deliberate on both sides - "الفاتورة التجارية
     // (commercial invoice)" and "Alexandria Port (الإسكندرية)" are both wanted -
     // so parentheses are stripped before judging which language a half is in.
     const unglossed = (s) => s.replace(/\([^)]*\)/g, ' ');
-    const [rawArabic = '', rawEnglish = ''] = reply.split('|');
+    const [rawArabic = '', rawEnglish = ''] = reply.split(/━+/);
     const arabicHalf = unglossed(rawArabic);
     const englishHalf = unglossed(rawEnglish);
 
