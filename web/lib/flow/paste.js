@@ -161,3 +161,134 @@ export function splitMakeModel(value) {
   }
   return { make: text, model: '' };
 }
+
+// ---------------------------------------------------------------------------
+// Pulling one value out of a sentence
+// ---------------------------------------------------------------------------
+
+/**
+ * People do not answer a form, they answer a question.
+ *
+ * "here is my chasis number : WMA06XZZ8KM745219" was refused outright, because
+ * the chassis test rejects anything longer than four words - so a client who
+ * wrote a polite sentence was told their real chassis number was not one.
+ *
+ * Everything below is a parser, not a model: the same input gives the same
+ * answer every time, and whatever it returns is validated exactly as if it had
+ * been typed on its own.
+ */
+
+/** Openers people put in front of an answer, stripped repeatedly. */
+const LEAD_IN = /^\s*(?:here\s+(?:is|are)|this\s+is|that\s+is|it\s*'?s|its|please|pls|ok(?:ay)?|yes|so|and|the|my|our|we|i|am|is|are|use|put|write|send(?:ing)?|sure)\b[\s,:;.-]*/i;
+
+/** The word for the field itself, e.g. "chassis number is …". */
+const FIELD_WORDS = {
+  vin: /\b(?:chass?is|chasis|chasse|vin|serial)\s*(?:number|no\.?|nr\.?|#)?\b/i,
+  make: /\b(?:make|brand|manufacturer|marque)\b/i,
+  customer_name: /\b(?:client|customer|company|consignee|name)\b/i,
+  origin_port: /\b(?:port\s+of\s+loading|loading\s+port|place\s+of\s+loading|loading|origin|shipping\s+from|ship\s+from|from)\b/i,
+  destination_port: /\b(?:destination\s+port|destination|discharge|deliver(?:y|ed)?\s+to|going\s+to|to)\b/i,
+};
+
+/**
+ * A chassis number hiding in a sentence.
+ *
+ * Scored rather than first-match: a message may hold a date, an invoice number
+ * and a chassis, and the chassis is the token that mixes letters and digits at
+ * the right length. Seventeen characters wins outright, because that is what a
+ * modern VIN is.
+ */
+export function findVin(text) {
+  const tokens = String(text ?? '').split(/[\s,;:|]+/).filter(Boolean);
+  let best = null;
+
+  for (const raw of tokens) {
+    // Trailing punctuation is not part of the number.
+    const token = raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+    const norm = token.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    if (norm.length < 8 || norm.length > 25) continue;
+    if (!/[A-Z]/.test(norm) || !/[0-9]/.test(norm)) continue;
+    // Our own references are not chassis numbers.
+    if (/^MKY-/i.test(token)) continue;
+    // A date, or a price.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(token)) continue;
+
+    const score = norm.length === 17 ? 100 : 50 - Math.abs(17 - norm.length);
+    if (!best || score > best.score) best = { value: token, score };
+  }
+
+  return best?.value ?? null;
+}
+
+/**
+ * The value for one field, from whatever the client actually wrote.
+ *
+ * Order matters. A labelled row is the strongest signal, then a field-specific
+ * reading, then the message with its openers removed. Anything it returns is
+ * still checked by the caller.
+ */
+export function extractField(field, text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return '';
+
+  // "Chassis │ ABC123" and "Chassis: ABC123" are already handled.
+  const labelled = valueFor(field, raw);
+
+  if (field === 'vin') {
+    // A whole sentence, or a bare number: either way, find the number.
+    return findVin(labelled) ?? findVin(raw) ?? labelled;
+  }
+
+  if (field === 'destination_port' || field === 'origin_port') {
+    // These are matched against a known list by the caller, which already
+    // searches inside a sentence - so the tidied text is enough.
+    return tidy(labelled, field);
+  }
+
+  if (field === 'make') {
+    const cleaned = tidy(labelled, field);
+    // A manufacturer named anywhere in the sentence beats the whole sentence.
+    const found = findMake(cleaned) ?? findMake(raw);
+    return found ?? cleaned;
+  }
+
+  return tidy(labelled, field);
+}
+
+/** Strips openers and the name of the field, as many times as they appear. */
+function tidy(text, field) {
+  let s = String(text ?? '').trim();
+  const word = FIELD_WORDS[field];
+
+  for (let i = 0; i < 4; i++) {
+    const before = s;
+    s = s.replace(LEAD_IN, '');
+    if (word) {
+      // "make is X", "make: X", "make = X", "make X"
+      s = s.replace(new RegExp(`^${word.source}\s*(?:is|are|=|:)?[\s,:;.-]*`, 'i'), '');
+    }
+    s = s.replace(/^[\s,:;.\-–—]+/, '');
+    if (s === before) break;
+  }
+
+  return s.trim().replace(/\s+/g, ' ') || String(text ?? '').trim();
+}
+
+/**
+ * A manufacturer we recognise, and everything after it.
+ *
+ * "it is a DAF XF 480" gives back "DAF XF 480", not "DAF": the model is worth
+ * keeping, and splitMakeModel separates the two a moment later. Cutting at the
+ * make would throw the model away before anything had a chance to store it.
+ */
+function findMake(text) {
+  const words = String(text ?? '').split(/[\s,]+/).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    const bare = words[i].replace(/[^A-Za-z-]/g, '');
+    if (bare && KNOWN_MAKES.has(bare.toLowerCase())) {
+      return [bare, ...words.slice(i + 1)].join(' ').replace(/[.,;]+$/, '').trim();
+    }
+  }
+  return null;
+}

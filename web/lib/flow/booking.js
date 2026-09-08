@@ -22,7 +22,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
-import { parsePastedFields, looksLikePaste, splitMakeModel, valueFor } from './paste.js';
+import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
@@ -114,10 +114,11 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
     if (vin) typed = vin;
   }
 
-  // "Chassis │ YV2RT40A8FB712905" is one row, not a paste, so it never reached
-  // the parser above - and the label and the box character went into the
-  // database as part of the chassis number.
-  typed = valueFor('vin', typed);
+  // A chassis number arrives inside whatever sentence the client wrote around
+  // it - "here is my chasis number : WMA06XZZ8KM745219". The word test rejects
+  // anything over four words, so a polite client was told their real chassis
+  // number was not one. Find the number in the message instead.
+  typed = extractField('vin', typed);
 
   if (!looksLikeVin(typed)) {
     return reply(say(M.vinTooShort(), kb.homeOnly()));
@@ -301,9 +302,9 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
     }
   }
 
-  // A single labelled row - "Make │ Volvo" - answers the question that was
-  // asked; the label is not part of the answer.
-  const bare = valueFor(field, value);
+  // The answer to the question that was asked, out of whatever was written
+  // around it: a labelled row, a sentence, or the bare value.
+  const bare = extractField(field, value);
 
   // "yes" to the suggested name means the suggestion, not the word "yes".
   const resolved = field === 'customer_name' && isYes(bare) && ctx.userName ? ctx.userName : bare;

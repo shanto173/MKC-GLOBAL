@@ -1417,3 +1417,88 @@ test('a bare phone number is never mistaken for a problem description', async ()
   assert.equal((h.db._tables.support_tickets ?? []).length, 0);
   assert.match(said(r), /What is the problem/);
 });
+
+// ---------------------------------------------------------------------------
+// People answer in sentences, not in form fields
+// ---------------------------------------------------------------------------
+
+test('regression: a chassis number inside a sentence is accepted', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  // The exact message that was refused in the field.
+  const r = await h.text('here is my chasis number : WMA06XZZ8KM745219');
+
+  assert.doesNotMatch(said(r), /does not look like a full chassis number/);
+  assert.match(said(r), /This unit is new/);
+  assert.equal(h.booking().vin, 'WMA06XZZ8KM745219', 'the number, not the sentence');
+});
+
+test('a chassis in a sentence still faces the duplicate check', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260908-TAKEN', status: 'confirmed', chat_id: OTHER_CHAT,
+      vin: 'WMA06XZZ8KM745219', make: 'MAN', customer_name: 'Other',
+      origin_port: 'Hamburg', destination_port: 'Port Said',
+    }],
+  });
+  await h.command('/start');
+  await h.tap('menu:book');
+  const r = await h.text('my chassis is WMA06XZZ8KM745219, please book it');
+  assert.match(said(r), /already booked/);
+});
+
+test('the other fields are read out of a sentence too', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('chassis WMA06XZZ8KM745219');
+
+  await h.text('it is a MAN TGX 18.500');
+  assert.equal(h.booking().make, 'MAN');
+  assert.equal(h.booking().model, 'TGX 18.500');
+
+  await h.text('my name is Nile Cargo Egypt');
+  assert.equal(h.booking().customer_name, 'Nile Cargo Egypt');
+
+  await h.text('we ship from Hamburg');
+  assert.equal(h.booking().origin_port, 'Hamburg');
+
+  const r = await h.text('destination is Port Said please');
+  assert.equal(h.booking().destination_port, 'Port Said');
+  assert.match(said(r), /Do you already have an MRN/);
+});
+
+test('a sentence with no chassis number in it is still refused', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('I want to book a truck to Alexandria');
+  assert.match(said(r), /does not look like a full chassis number/);
+  assert.equal(h.booking().vin, undefined);
+});
+
+test('a phone number is never mistaken for a chassis number', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('my number is +20 100 555 1234');
+  assert.match(said(r), /does not look like a full chassis number/);
+});
+
+test('our own booking reference is not read as a chassis number', async () => {
+  const { findVin } = await import('../lib/flow/paste.js');
+  assert.equal(findVin('booking MKY-BKG-260907-4YMR chassis WMA06XZZ8KM745219'), 'WMA06XZZ8KM745219');
+  assert.equal(findVin('MKY-BKG-260907-4YMR'), null);
+});
+
+test('a seventeen-character number wins over other codes in the message', async () => {
+  const { findVin } = await import('../lib/flow/paste.js');
+  assert.equal(
+    findVin('invoice INV2026447 dated 2026-09-08, chassis WMA06XZZ8KM745219, EUR1 AA7567790'),
+    'WMA06XZZ8KM745219',
+  );
+});
