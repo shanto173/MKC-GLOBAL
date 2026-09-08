@@ -1,6 +1,11 @@
 # Demo data
 
-Everything to type, per menu. Reset between takes with `/reset`.
+**The one file for testing or filming the bot.** Everything to type, per menu,
+in English and in Arabic. Reset between takes with `/reset`.
+
+Two earlier versions of this - DEMO-SCRIPT.md and TEST-DATA.md - were deleted:
+three overlapping lists of test data is how somebody films with a chassis
+number that was already booked.
 
 ---
 
