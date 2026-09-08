@@ -1635,3 +1635,80 @@ test('an Arabic lead-in is not stored as part of the value', async () => {
   assert.equal(extractField('vin', 'رقم الشاسيه WMA06XZZ8KM745219'), 'WMA06XZZ8KM745219');
   assert.equal(extractField('customer_name', 'اسمي شركة النيل'), 'شركة النيل');
 });
+
+// ---------------------------------------------------------------------------
+// However the table was copied
+// ---------------------------------------------------------------------------
+
+// What copying the Markdown table out of DEMO-DATA.md actually produces: the
+// pipes gone, the row numbers glued to the next label, and every line run
+// together into one.
+const MARKDOWN_PASTE =
+  '2VIN / Chassis number`WMA06XZZ8KM745219`3Make / Brand`MAN`4Client name`Nile Cargo Egypt`'
+  + '5Port of loading`Hamburg`6Egyptian destination port`Port Said`';
+
+test('regression: a copied Markdown table fills the whole booking at once', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text(MARKDOWN_PASTE);
+
+  const b = h.booking();
+  assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  assert.equal(b.make, 'MAN');
+  assert.equal(b.customer_name, 'Nile Cargo Egypt');
+  assert.equal(b.origin_port, 'Hamburg');
+  assert.equal(b.destination_port, 'Port Said');
+  assert.equal(r.state, S.BOOK_MRN_CHOICE, 'straight to the MRN question');
+});
+
+test('regression: the same paste part-way through fills what is left', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('WMA06XZZ8KM745219');
+
+  const r = await h.text(
+    'Make / Brand`MAN`4Client name`Nile Cargo Egypt`5Port of loading`Hamburg`6Egyptian destination port`Port Said`',
+  );
+
+  const b = h.booking();
+  assert.equal(b.make, 'MAN');
+  assert.equal(b.customer_name, 'Nile Cargo Egypt');
+  assert.equal(b.origin_port, 'Hamburg');
+  assert.equal(b.destination_port, 'Port Said');
+  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
+
+test('backtick pairs are read one per line too', async () => {
+  const { parsePastedFields } = await import('../lib/flow/paste.js');
+  const out = parsePastedFields(
+    'Make / Brand`MAN`\nClient name`Nile Cargo Egypt`\nPort of loading`Hamburg`\nEgyptian destination port`Port Said`',
+  );
+  assert.equal(out.make, 'MAN');
+  assert.equal(out.customer_name, 'Nile Cargo Egypt');
+  assert.equal(out.origin_port, 'Hamburg');
+  assert.equal(out.destination_port, 'Port Said');
+});
+
+test('a single backticked value is still one answer, not a paste', async () => {
+  const { looksLikePaste, parsePastedFields } = await import('../lib/flow/paste.js');
+  assert.equal(looksLikePaste('Make`MAN`'), false, 'one field is an answer');
+  assert.equal(parsePastedFields('Make`MAN`').make, 'MAN');
+});
+
+test('every paste shape reaches the same result', async () => {
+  const { parsePastedFields } = await import('../lib/flow/paste.js');
+  const shapes = [
+    'Chassis: WMA06XZZ8KM745219\nMake: MAN\nClient: Nile Cargo Egypt\nLoading: Hamburg\nDestination: Port Said',
+    'Chassis`WMA06XZZ8KM745219`Make`MAN`Client`Nile Cargo Egypt`Loading`Hamburg`Destination`Port Said`',
+    '│ Chassis │ WMA06XZZ8KM745219 │\n│ Make │ MAN │\n│ Client │ Nile Cargo Egypt │\n│ Loading │ Hamburg │\n│ Destination │ Port Said │',
+  ];
+  for (const shape of shapes) {
+    const out = parsePastedFields(shape);
+    assert.equal(out.vin, 'WMA06XZZ8KM745219', shape.slice(0, 30));
+    assert.equal(out.make, 'MAN', shape.slice(0, 30));
+    assert.equal(out.destination_port, 'Port Said', shape.slice(0, 30));
+  }
+});

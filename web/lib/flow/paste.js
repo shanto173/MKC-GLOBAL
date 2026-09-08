@@ -56,35 +56,7 @@ export function parsePastedFields(text) {
   const raw = String(text ?? '');
   if (!raw.trim()) return found;
 
-  for (const rawLine of raw.split(/[\n\r]+/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    // A rule between rows carries no data: "├─────┼─────┤".
-    if (!line.replace(DECORATION, '').replace(COLUMN, '').trim()) continue;
-
-    let label = null;
-    let value = null;
-
-    if (COLUMN.test(line)) {
-      // "│ Client │ Delta Trans Egypt │" - the cells are the columns.
-      const cells = line.split(COLUMN).map((c) => c.replace(DECORATION, ' ').trim()).filter(Boolean);
-      if (cells.length >= 2) {
-        label = cells[0];
-        value = cells[1];
-      }
-    } else {
-      // "Client: Delta Trans Egypt", or two or more spaces standing in for the
-      // column rule once the borders are gone.
-      const m = line.match(/^(.{2,40}?)\s*(?::|=|→|\s{2,})\s*(.+)$/);
-      if (m) {
-        label = m[1];
-        value = m[2];
-      }
-    }
-
-    if (!label || !value) continue;
-
+  for (const [label, value] of labelledPairs(raw)) {
     const key = label.toLowerCase().replace(/[^a-z؀-ۿ/ ]/g, '').trim();
     const clean = value.replace(DECORATION, ' ').trim().replace(/\s+/g, ' ');
     if (!key || !clean || clean.length > 120) continue;
@@ -96,12 +68,66 @@ export function parsePastedFields(text) {
       if (found[field]) continue;
       if (names.some((n) => key === n || key.startsWith(n + ' ') || key.endsWith(' ' + n))) {
         found[field] = clean;
-        break;                                       // this line is spoken for
+        break;                                       // this pair is spoken for
       }
     }
   }
 
   return found;
+}
+
+/**
+ * Every "label, then value" pair in a message, however it was written.
+ *
+ * People do not retype a table, they copy one - and what arrives depends
+ * entirely on what they copied it FROM. A Markdown table copied out of a
+ * document arrives as backticks with the row numbers still attached and every
+ * line run together:
+ *
+ *   Make / Brand`MAN`4Client name`Nile Cargo Egypt`5Port of loading`Hamburg`
+ *
+ * A terminal table arrives with box rules. A phone keyboard gives colons. All
+ * three are the same intention, so all three are read here rather than in three
+ * places that each know about one of them.
+ */
+function labelledPairs(raw) {
+  const pairs = [];
+
+  // Backticks first: a value wrapped in them is unambiguous, and this shape
+  // has no line breaks to work from.
+  if (raw.includes('`')) {
+    const parts = raw.split('`');
+    // parts alternate label, value, label, value… A trailing empty string from
+    // the closing backtick is simply never paired.
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+      const label = parts[i].trim();
+      const value = parts[i + 1].trim();
+      if (label && value) pairs.push([label, value]);
+    }
+    if (pairs.length) return pairs;
+  }
+
+  for (const rawLine of raw.split(/[\n\r]+/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // A rule between rows carries no data: "├─────┼─────┤".
+    if (!line.replace(DECORATION, '').replace(COLUMN, '').trim()) continue;
+
+    if (COLUMN.test(line)) {
+      // "│ Client │ Delta Trans Egypt │" - the cells are the columns.
+      const cells = line.split(COLUMN).map((c) => c.replace(DECORATION, ' ').trim()).filter(Boolean);
+      if (cells.length >= 2) pairs.push([cells[0], cells[1]]);
+      continue;
+    }
+
+    // "Client: Delta Trans Egypt", or two or more spaces standing in for the
+    // column rule once the borders are gone.
+    const m = line.match(/^(.{2,40}?)\s*(?::|=|→|\s{2,})\s*(.+)$/);
+    if (m) pairs.push([m[1], m[2]]);
+  }
+
+  return pairs;
 }
 
 /**
