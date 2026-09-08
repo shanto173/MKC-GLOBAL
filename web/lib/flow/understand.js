@@ -107,10 +107,30 @@ export function classify(field, text) {
   if (REFUSAL.test(raw)) return { kind: 'refusal' };
 
   // 7. Free text, and nothing above claimed it: a make, a client name or a
-  //    loading city is whatever the client says it is.
-  if (!STRICT.has(field) && fits(field, asAsked)) return { kind: 'answer', value: asAsked };
+  //    loading city is whatever the client says it is - PROVIDED it reads like
+  //    a value rather than a sentence. "Cairo Heavy Haulage" is a name; "bill
+  //    it to Cairo Heavy Haulage" is an instruction containing one, and storing
+  //    the whole thing puts a sentence on the paperwork.
+  //
+  //    Anything longer falls through to unknown, which is what sends it to the
+  //    model. If no model is configured the caller stores it as typed, exactly
+  //    as before - so this costs accuracy nowhere and buys it where there is
+  //    something to ask.
+  if (!STRICT.has(field) && fits(field, asAsked) && !looksLikeProse(asAsked)) {
+    return { kind: 'answer', value: asAsked };
+  }
 
   return { kind: 'unknown' };
+}
+
+/**
+ * More words than a value has.
+ *
+ * Four is the line: "Cairo Heavy Haulage" and "Mercedes-Benz Actros 1845 LS"
+ * are values; anything longer is usually a sentence wrapped around one.
+ */
+function looksLikeProse(value) {
+  return String(value ?? '').trim().split(/\s+/).length > 4;
 }
 
 /** Does this value satisfy the field it was collected for? */

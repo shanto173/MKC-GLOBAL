@@ -386,3 +386,38 @@ test('shipment colour follows meaning, and a hold is the only red', () => {
   assert.equal(shipmentTone(null), 'gray');
   assert.equal(shipmentTone('Booking confirmed, awaiting cargo'), 'gray');
 });
+
+// ---------------------------------------------------------------------------
+// The model layer, and the wall around it
+// ---------------------------------------------------------------------------
+
+test('everything the model returns is validated like a typed value', async () => {
+  const { __validateForTests } = await import('../lib/flow/nlu.js');
+  if (!__validateForTests) return;   // not exported in this build
+
+  const out = __validateForTests({
+    vin: 'not a chassis at all',
+    destination_port: 'Aswan',
+    origin_port: 'Alexandria',
+    make: 'the customer said it might be a Volvo or possibly a Scania, unclear',
+    customer_name: 'what do you need from me?',
+    contact: 'nonsense',
+  });
+
+  assert.equal(out.vin, undefined, 'a chassis that is not one is dropped');
+  assert.equal(out.destination_port, undefined, 'a port we do not serve is dropped');
+  assert.equal(out.origin_port, undefined, 'an Egyptian port is not a loading point');
+  assert.equal(out.make, undefined, 'a sentence is not a make');
+  assert.equal(out.customer_name, undefined, 'a question is not a name');
+  assert.equal(out.contact, undefined, 'a contact needs a digit or an @');
+});
+
+test('the model layer stands aside when nothing is configured', async () => {
+  const { nluAvailable, understand } = await import('../lib/flow/nlu.js');
+  // The test process has no API key, which is the point: the whole suite runs
+  // with no network, and the flow degrades to patterns alone.
+  assert.equal(nluAvailable(), false);
+  const r = await understand('anything at all', { asked: 'the chassis' });
+  assert.equal(r.used, false);
+  assert.deepEqual(r.fields, {});
+});

@@ -22,8 +22,10 @@ import {
   lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
+import { canonicalMake } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn } from './understand.js';
+import { understand, nluAvailable } from './nlu.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
@@ -127,7 +129,10 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
     const understood = await handleUnexpected(session, 'vin', text, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
     if (understood?.messages) return reply(understood.messages);
-    return reply(say(M.vinTooShort(), kb.homeOnly()));
+    // The model found a chassis number the patterns missed. It still goes
+    // through the lookup below - being recovered by a model buys it nothing.
+    if (understood?.answer && looksLikeVin(understood.answer)) typed = understood.answer;
+    else return reply(say(M.vinTooShort(), kb.homeOnly()));
   }
 
   const ref = session.active_booking_ref;
@@ -200,6 +205,8 @@ const NEED = {
 
 const GOT = {
   vin: ['رقم الشاسيه', 'the chassis number'],
+  model: ['الموديل', 'the model'],
+  contact: ['وسيلة التواصل', 'your contact details'],
   make: ['الماركة', 'the make'],
   customer_name: ['اسم العميل', 'the client name'],
   origin_port: ['ميناء الشحن', 'the loading point'],
@@ -255,9 +262,61 @@ async function handleUnexpected(session, field, text, ctx) {
       }
       return null;
 
+    // The patterns made nothing of it. Ask the model - and only here, so a
+    // normal booking never waits on one.
     default:
-      return null;
+      return askTheModel(session, field, text, ctx);
   }
+}
+
+/**
+ * The model's reading of a message the patterns could not place.
+ *
+ * It EXTRACTS. Every value it returns has already been through the same
+ * validation as a typed one by the time it arrives here, so the worst a wrong
+ * answer can do is fill a field with something the client then corrects - never
+ * skip a rule, never satisfy a requirement.
+ *
+ * If no model is configured, or it is slow, or it returns nothing usable, this
+ * gives back null and the client gets the plain "I need X". Degrading to the
+ * previous behaviour is the intended failure.
+ */
+async function askTheModel(session, field, text, ctx) {
+  if (!nluAvailable()) return null;
+
+  const read = await understand(text, { asked: NEED[field]?.[1] ?? field }).catch(() => null);
+  if (!read?.used) return null;
+
+  if (read.intent && ['track', 'contact', 'menu', 'cancel'].includes(read.intent)) {
+    return { switchTo: read.intent };
+  }
+
+  // A question, and nothing in it we can use: the assistant answers.
+  if (read.question && !Object.keys(read.fields).length) return { passToAssistant: true };
+
+  const found = read.fields;
+  if (!Object.keys(found).length) return null;
+
+  // It answered the question that was asked.
+  if (found[field]) {
+    const answer = found[field];
+    const rest = { ...found };
+    delete rest[field];
+    await bankFields(session, rest, ctx, { except: field }).catch(() => []);
+    return { answer };
+  }
+
+  // It supplied something else. Keep it and ask again.
+  const saved = await bankFields(session, found, ctx, { except: field });
+  if (!saved.length) return null;
+
+  return {
+    messages: [say(M.notedNowNeed(
+      saved.map((f) => GOT[f]?.[0] ?? f).join(' و '),
+      saved.map((f) => GOT[f]?.[1] ?? f).join(' and '),
+      NEED[field][0], NEED[field][1],
+    ), kb.homeOnly())],
+  };
 }
 
 /**
@@ -278,8 +337,13 @@ async function bankFields(session, found, ctx, { except = null } = {}) {
       // A chassis arriving sideways is stored, but it still has to face the
       // duplicate rule - which handleVin does when it is asked for.
       if (looksLikeVin(value)) patch.vin = String(value).toUpperCase().replace(/\s+/g, '');
-    } else if (String(value).trim() && String(value).length <= 120) {
-      patch[field] = String(value).trim();
+    } else if (['make', 'model', 'customer_name', 'origin_port'].includes(field)
+               && String(value).trim() && String(value).length <= 120) {
+      patch[field] = field === 'make'
+        ? (canonicalMake(String(value).trim()) || String(value).trim())
+        : String(value).trim();
+    } else if (field === 'contact' && String(value).trim()) {
+      patch.customer_contact = String(value).trim().slice(0, 120);
     }
   }
 
@@ -429,17 +493,21 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   // Before storing free text, check it is not a question, another field, or a
   // request to go elsewhere. Without this "what makes do you accept?" becomes
   // the manufacturer.
+  let resolvedValue = resolved;
   const verdict = classify(field, value);
   if (verdict.kind !== 'answer') {
     const understood = await handleUnexpected(session, field, value, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
     if (understood?.messages) return reply(understood.messages);
+    if (understood?.answer) resolvedValue = understood.answer;
   }
 
-  const fields = { [field]: resolved };
+  const fields = { [field]: resolvedValue };
   if (field === 'make') {
-    const { make, model } = splitMakeModel(resolved);
-    fields.make = make;
+    const { make, model } = splitMakeModel(resolvedValue);
+    // "scania" and "Scania" are the same manufacturer, and the operations list
+    // has to sort. One spelling, decided here rather than by whoever typed it.
+    fields.make = canonicalMake(make) || make;
     if (model) fields.model = model;
   }
 
@@ -481,7 +549,15 @@ export async function handleDestination(session, text, ctx, { editing = false } 
     const understood = await handleUnexpected(session, 'destination_port', text, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
     if (understood?.messages) return reply(understood.messages);
-    return reply(say(M.destinationNotServed(String(text).trim(), DESTINATION_PORTS), kb.homeOnly()));
+    // A port the model recovered is still checked against the five we serve.
+    const recovered = understood?.answer ? matchPort(understood.answer) : null;
+    if (!recovered) {
+      return reply(say(M.destinationNotServed(String(text).trim(), DESTINATION_PORTS), kb.homeOnly()));
+    }
+    const saved = await updateDraft(session.active_booking_ref, { destination_port: recovered }, { chatId: ctx.chatId });
+    if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+    if (editing) return backToConfirmation(session, ctx, { lead: M.editSaved() });
+    return askNextBasic(saved.draft, ctx);
   }
 
   const saved = await updateDraft(session.active_booking_ref, { destination_port: port }, { chatId: ctx.chatId });
