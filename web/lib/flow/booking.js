@@ -22,7 +22,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
-import { canonicalMake } from '../tools.js';
+import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn } from './understand.js';
 import { understand, nluAvailable } from './nlu.js';
@@ -503,12 +503,24 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   }
 
   const fields = { [field]: resolvedValue };
+
   if (field === 'make') {
-    const { make, model } = splitMakeModel(resolvedValue);
+    // Latinise BEFORE splitting. "مرسيدس أكتروس" split first finds no known
+    // manufacturer - the table is Latin - so the whole phrase became the make
+    // and the model was lost. Transliterated first, it splits properly.
+    const { make, model } = splitMakeModel(latinizeName(resolvedValue) || resolvedValue);
     // "scania" and "Scania" are the same manufacturer, and the operations list
     // has to sort. One spelling, decided here rather than by whoever typed it.
     fields.make = canonicalMake(make) || make;
     if (model) fields.model = model;
+  }
+
+  if (field === 'origin_port') {
+    // The loading city goes on the bill of lading and the customs entry, so it
+    // has to match the paperwork: فيلنيوس is Vilnius there. A place not in the
+    // table is left exactly as written - a wrong Latin guess is worse than
+    // Arabic somebody can read.
+    fields.origin_port = latinizeName(resolvedValue) || resolvedValue;
   }
 
   const saved = await updateDraft(session.active_booking_ref, fields, { chatId: ctx.chatId });

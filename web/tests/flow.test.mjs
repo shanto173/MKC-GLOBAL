@@ -1591,3 +1591,47 @@ test('a seventeen-character number wins over other codes in the message', async 
     'WMA06XZZ8KM745219',
   );
 });
+
+// ---------------------------------------------------------------------------
+// A booking taken entirely in Arabic
+// ---------------------------------------------------------------------------
+
+test('a whole booking works in Arabic, and the paperwork values come out Latin', async () => {
+  const h = harness();
+  await h.text('عايز أحجز شحنة');
+  await h.text('رقم الشاسيه WMA06XZZ8KM745219');
+  await h.text('مرسيدس أكتروس');
+  await h.text('شركة النيل للنقل');
+  await h.text('الشحن من فيلنيوس');
+  const r = await h.text('الإسكندرية');
+
+  const b = h.booking();
+  assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  // Transliterated, because these end up on the bill of lading and the customs
+  // entry, where they must match the rest of the file.
+  assert.equal(b.make, 'Mercedes-Benz', 'مرسيدس is Mercedes-Benz on the paperwork');
+  assert.equal(b.model, 'Actros', 'and the model is split off, not glued to the make');
+  assert.equal(b.origin_port, 'Vilnius', 'فيلنيوس is Vilnius');
+  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  // The client's own business name is left exactly as they wrote it: a wrong
+  // Latin guess is worse than Arabic somebody can read.
+  assert.equal(b.customer_name, 'شركة النيل للنقل');
+
+  assert.match(said(r), /عندك رقم MRN/, 'and the reply is in Arabic');
+});
+
+test('every reply carries both languages', async () => {
+  const h = harness();
+  const r = await h.command('/start');
+  const text = said(r);
+  assert.match(text, /[\u0600-\u06FF]/, 'Arabic half');
+  assert.match(text, /Welcome/, 'English half');
+  assert.match(text, /━━━/, 'divided, so each is readable on a phone');
+});
+
+test('an Arabic lead-in is not stored as part of the value', async () => {
+  const { extractField } = await import('../lib/flow/paste.js');
+  assert.equal(extractField('origin_port', 'الشحن من فيلنيوس'), 'فيلنيوس');
+  assert.equal(extractField('vin', 'رقم الشاسيه WMA06XZZ8KM745219'), 'WMA06XZZ8KM745219');
+  assert.equal(extractField('customer_name', 'اسمي شركة النيل'), 'شركة النيل');
+});

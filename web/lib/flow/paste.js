@@ -179,15 +179,21 @@ export function splitMakeModel(value) {
  */
 
 /** Openers people put in front of an answer, stripped repeatedly. */
-const LEAD_IN = /^\s*(?:here\s+(?:is|are)|this\s+is|that\s+is|it\s*'?s|its|please|pls|ok(?:ay)?|yes|so|and|the|my|our|we|i|am|is|are|use|put|write|send(?:ing)?|sure)\b[\s,:;.-]*/i;
+const LEAD_IN = /^\s*(?:here\s+(?:is|are)|this\s+is|that\s+is|it\s*'?s|its|please|pls|ok(?:ay)?|yes|so|and|the|my|our|we|i|am|is|are|use|put|write|send(?:ing)?|sure|تمام|ماشي|طبعا|هو|هي)\b[\s,:;.-]*/i;
 
-/** The word for the field itself, e.g. "chassis number is …". */
+/**
+ * The word for the field itself, e.g. "chassis number is …".
+ *
+ * Both languages. Half the clients on this lane write Arabic, and "الشحن من
+ * فيلنيوس" stored whole put the words "shipping from" into the loading-port
+ * column on the paperwork.
+ */
 const FIELD_WORDS = {
-  vin: /\b(?:chass?is|chasis|chasse|vin|serial)\s*(?:number|no\.?|nr\.?|#)?\b/i,
-  make: /\b(?:make|brand|manufacturer|marque)\b/i,
-  customer_name: /\b(?:client|customer|company|consignee|name)\b/i,
-  origin_port: /\b(?:port\s+of\s+loading|loading\s+port|place\s+of\s+loading|loading|origin|shipping\s+from|ship\s+from|from)\b/i,
-  destination_port: /\b(?:destination\s+port|destination|discharge|deliver(?:y|ed)?\s+to|going\s+to|to)\b/i,
+  vin: /\b(?:chass?is|chasis|chasse|vin|serial)\s*(?:number|no\.?|nr\.?|#)?\b|رقم الشاسيه|الشاسيه/i,
+  make: /\b(?:make|brand|manufacturer|marque)\b|الماركة|ماركة/i,
+  customer_name: /\b(?:client|customer|company|consignee|name)\b|اسمي|الاسم|العميل/i,
+  origin_port: /\b(?:port\s+of\s+loading|loading\s+port|place\s+of\s+loading|loading|origin|shipping\s+from|ship\s+from|from)\b|الشحن من|ميناء الشحن|من/i,
+  destination_port: /\b(?:destination\s+port|destination|discharge|deliver(?:y|ed)?\s+to|going\s+to|to)\b|ميناء الوصول|إلى/i,
 };
 
 /**
