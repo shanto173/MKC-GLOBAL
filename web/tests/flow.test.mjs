@@ -1470,23 +1470,112 @@ test('the other fields are read out of a sentence too', async () => {
   assert.match(said(r), /Do you already have an MRN/);
 });
 
-test('a sentence with no chassis number in it is still refused', async () => {
+test('a sentence with no chassis keeps what it DID contain, and asks again', async () => {
   const h = harness();
   await h.command('/start');
   await h.tap('menu:book');
 
   const r = await h.text('I want to book a truck to Alexandria');
-  assert.match(said(r), /does not look like a full chassis number/);
-  assert.equal(h.booking().vin, undefined);
+
+  // The destination was in the message, so it is kept rather than thrown away
+  // and asked for again two messages later.
+  assert.equal(h.booking().destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(h.booking().vin, undefined, 'and the sentence is not stored as a chassis');
+  assert.match(said(r), /Noted/);
+  assert.match(said(r), /chassis/i);
+  assert.equal(r.state, S.BOOK_VIN, 'still waiting for the chassis');
 });
 
-test('a phone number is never mistaken for a chassis number', async () => {
+test('a phone number is kept as a contact, not stored as a chassis', async () => {
   const h = harness();
   await h.command('/start');
   await h.tap('menu:book');
 
   const r = await h.text('my number is +20 100 555 1234');
-  assert.match(said(r), /does not look like a full chassis number/);
+
+  assert.equal(h.booking().vin, undefined);
+  assert.match(h.booking().customer_contact, /\+20 100 555 1234/);
+  assert.match(said(r), /contact/i);
+  assert.equal(r.state, S.BOOK_VIN);
+});
+
+test('an email is kept as a contact too', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  await h.text('you can reach me at ariful@example.com');
+  assert.equal(h.booking().vin, undefined);
+  assert.match(h.booking().customer_contact, /ariful@example\.com/);
+});
+
+test('a question mid-form is answered by the assistant, and the form survives', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('how long does shipping to Alexandria take?');
+
+  assert.equal(r.handled, false, 'handed to the knowledge assistant');
+  assert.equal(r.state, S.BOOK_VIN, 'and the booking is exactly where it was');
+});
+
+test('asking to track mid-booking takes them there', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('where is my shipment');
+  assert.match(said(r), /VIN \/ Chassis number or Booking Reference/);
+  assert.equal(r.state, S.TRACK_IDENTIFIER);
+});
+
+test('a whole sentence fills every field it names', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  await h.text('chassis WMA06XZZ8KM745219 from Klaipeda going to Alexandria');
+
+  const b = h.booking();
+  assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  assert.equal(b.origin_port, 'Klaipeda');
+  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+});
+
+test('a company name containing a city is not read as a destination', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('WMA06XZZ8KM745219');
+  await h.text('MAN');
+
+  await h.text('Alexandria Trading Co');
+
+  assert.equal(h.booking().customer_name, 'Alexandria Trading Co');
+  assert.equal(h.booking().destination_port, undefined,
+    'a client name is not a port, however it is spelled');
+});
+
+test('a question at the make step is not stored as a manufacturer', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('WMA06XZZ8KM745219');
+
+  const r = await h.text('what makes do you accept?');
+  assert.equal(r.handled, false);
+  assert.equal(h.booking().make, undefined);
+});
+
+test('"I do not have it" at the chassis step explains rather than repeating', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('I do not have it yet');
+  assert.match(said(r), /cannot go further without/i);
+  assert.doesNotMatch(said(r), /does not look like/);
 });
 
 test('our own booking reference is not read as a chassis number', async () => {

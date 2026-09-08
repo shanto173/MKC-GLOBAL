@@ -111,6 +111,34 @@ export const M = {
     `⚠️ We are missing some information.\n\nPlease provide:\n${labelsEn.map((l) => `• ${l}`).join('\n')}`,
   ),
 
+  // When the client answers a different question than the one asked. What they
+  // gave is kept and said back, so they can see it landed, and then the
+  // original question is repeated - rather than silently dropping it.
+  notedNowNeed: (gotAr, gotEn, needAr, needEn) => both(
+    `تمام، سجلت ${gotAr}.
+
+لسه محتاج ${needAr}.`,
+    `Noted — ${gotEn}.
+
+I still need ${needEn}.`,
+  ),
+
+  contactNoted: (value, needAr, needEn) => both(
+    `تمام، سجلت وسيلة التواصل ${value}.
+
+بس اللي محتاجه دلوقتي هو ${needAr}.`,
+    `Noted, I have ${value} as your contact.
+
+What I need right now is ${needEn}.`,
+  ),
+
+  cannotSkip: (needAr, needEn) => both(
+    `مفهوم. للأسف مش هينفع نكمل الحجز من غير ${needAr} - هو اللي بنعرف بيه الوحدة. ` +
+    'لو مش معاك دلوقتي تقدر ترجع في أي وقت، أو اضغط "تواصل مع فريقنا".',
+    `Understood. We cannot go further without ${needEn} — it is how the unit is identified. ` +
+    'Come back whenever you have it, or choose "Contact our team".',
+  ),
+
   basicsComplete: () => both('✅ تمام! يلا نكمل. 🚀', '✅ Perfect! Let us continue. 🚀'),
 
   // -- booking, step 3: MRN + documents -------------------------------------

@@ -23,6 +23,7 @@ import {
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
+import { classify, fieldsIn } from './understand.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
@@ -121,6 +122,11 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
   typed = extractField('vin', typed);
 
   if (!looksLikeVin(typed)) {
+    // Not a chassis number - but it may still be something. A destination, a
+    // phone number, a question, or a request to go somewhere else.
+    const understood = await handleUnexpected(session, 'vin', text, ctx);
+    if (understood?.passToAssistant || understood?.switchTo) return understood;
+    if (understood?.messages) return reply(understood.messages);
     return reply(say(M.vinTooShort(), kb.homeOnly()));
   }
 
@@ -160,6 +166,10 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
   const saved = await updateDraft(ref, patch, { chatId: ctx.chatId });
   if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
+  // "chassis X from Klaipeda going to Alexandria" names three things. Asking
+  // for the other two afterwards is what makes a bot tiring to use.
+  if (!editing) await bankFields(session, fieldsIn(text), ctx, { except: 'vin' }).catch(() => []);
+
   const opening = editing
     ? M.editSaved()
     : result.verdict === 'new'
@@ -177,6 +187,106 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
 // ---------------------------------------------------------------------------
 // Step 2 - the basics
 // ---------------------------------------------------------------------------
+
+
+/** What each field is called when we ask for it again. */
+const NEED = {
+  vin: ['رقم الشاسيه', 'the chassis / VIN number'],
+  make: ['الماركة', 'the make'],
+  customer_name: ['اسم العميل', 'the client name'],
+  origin_port: ['ميناء أو مدينة الشحن', 'the port of loading'],
+  destination_port: ['ميناء الوصول المصري', 'the Egyptian destination port'],
+};
+
+const GOT = {
+  vin: ['رقم الشاسيه', 'the chassis number'],
+  make: ['الماركة', 'the make'],
+  customer_name: ['اسم العميل', 'the client name'],
+  origin_port: ['ميناء الشحن', 'the loading point'],
+  destination_port: ['ميناء الوصول', 'the destination'],
+};
+
+/**
+ * The client said something that was not the answer to the question asked.
+ *
+ * Refusing it is the easy thing and the wrong one: "I want my car to go to Port
+ * Said" contains a destination, "how long does it take" deserves an answer, and
+ * a phone number is worth keeping. So work out what it was and act on it, then
+ * ask the original question again.
+ *
+ * @returns {object|null} a reply, or null to fall through to the plain refusal
+ */
+async function handleUnexpected(session, field, text, ctx) {
+  const verdict = classify(field, text);
+
+  switch (verdict.kind) {
+    // A question. The knowledge assistant answers it and the booking is left
+    // exactly where it was - asking something mid-form must not cost the form.
+    case 'question':
+      return { passToAssistant: true };
+
+    // They want to be somewhere else. The machine takes them.
+    case 'intent':
+      return { switchTo: verdict.value };
+
+    // A value for another field: keep it, say so, ask again for this one.
+    case 'other_field': {
+      const saved = await bankFields(session, fieldsIn(text), ctx, { except: field });
+      if (!saved.length) return null;
+      const got = saved.map((f) => GOT[f][0]).join(' و ');
+      const gotEn = saved.map((f) => GOT[f][1]).join(' and ');
+      return {
+        messages: [say(M.notedNowNeed(got, gotEn, NEED[field][0], NEED[field][1]), kb.homeOnly())],
+      };
+    }
+
+    case 'contact': {
+      await updateDraft(session.active_booking_ref, { customer_contact: verdict.value }, { chatId: ctx.chatId })
+        .catch(() => null);
+      return {
+        messages: [say(M.contactNoted(verdict.value, NEED[field][0], NEED[field][1]), kb.homeOnly())],
+      };
+    }
+
+    // They have not got it. Only the chassis genuinely stops everything.
+    case 'refusal':
+      if (field === 'vin') {
+        return { messages: [say(M.cannotSkip(NEED.vin[0], NEED.vin[1]), kb.mainMenu())] };
+      }
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Stores every field a message supplied, validating each one exactly as if it
+ * had been typed on its own.
+ *
+ * @returns {Promise<string[]>} the fields actually written
+ */
+async function bankFields(session, found, ctx, { except = null } = {}) {
+  const patch = {};
+
+  for (const [field, value] of Object.entries(found)) {
+    if (field === except) continue;
+    if (field === 'destination_port') {
+      const port = matchPort(value);
+      if (port) patch.destination_port = port;
+    } else if (field === 'vin') {
+      // A chassis arriving sideways is stored, but it still has to face the
+      // duplicate rule - which handleVin does when it is asked for.
+      if (looksLikeVin(value)) patch.vin = String(value).toUpperCase().replace(/\s+/g, '');
+    } else if (String(value).trim() && String(value).length <= 120) {
+      patch[field] = String(value).trim();
+    }
+  }
+
+  if (!Object.keys(patch).length) return [];
+  const saved = await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId });
+  return saved.ok ? Object.keys(patch) : [];
+}
 
 /**
  * Asks for the next thing this request is missing, in a fixed order.
@@ -316,6 +426,16 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
     ), kb.homeOnly()));
   }
 
+  // Before storing free text, check it is not a question, another field, or a
+  // request to go elsewhere. Without this "what makes do you accept?" becomes
+  // the manufacturer.
+  const verdict = classify(field, value);
+  if (verdict.kind !== 'answer') {
+    const understood = await handleUnexpected(session, field, value, ctx);
+    if (understood?.passToAssistant || understood?.switchTo) return understood;
+    if (understood?.messages) return reply(understood.messages);
+  }
+
   const fields = { [field]: resolved };
   if (field === 'make') {
     const { make, model } = splitMakeModel(resolved);
@@ -358,6 +478,9 @@ export async function handleEditPol(session, text, ctx) {
 export async function handleDestination(session, text, ctx, { editing = false } = {}) {
   const port = matchPort(text);
   if (!port) {
+    const understood = await handleUnexpected(session, 'destination_port', text, ctx);
+    if (understood?.passToAssistant || understood?.switchTo) return understood;
+    if (understood?.messages) return reply(understood.messages);
     return reply(say(M.destinationNotServed(String(text).trim(), DESTINATION_PORTS), kb.homeOnly()));
   }
 

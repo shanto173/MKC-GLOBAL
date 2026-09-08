@@ -44,8 +44,12 @@ export function normalizeVin(value) {
 export function looksLikeVin(value) {
   const v = normalizeVin(value);
   if (v.length < 6 || v.length > 25) return false;
-  // All digits is a reference, a phone number or a quantity - never a chassis.
+  // A chassis number always mixes letters and digits. Requiring only a letter
+  // let "cancel", "where is my shipment" and an email address through as
+  // chassis numbers - the last one normalises to seventeen characters, which
+  // is exactly the length that looks most convincing.
   if (!/[A-Z]/.test(v)) return false;
+  if (!/[0-9]/.test(v)) return false;
   // More than a handful of words is prose, whatever characters it contains.
   if (String(value).trim().split(/\s+/).length > 4) return false;
   return true;

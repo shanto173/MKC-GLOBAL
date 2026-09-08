@@ -162,7 +162,21 @@ async function dispatch(session, input, ctx) {
   // asked for their company name may perfectly well answer "7", and that is a
   // name, not a menu choice.
   if (AWAITING_TEXT.has(session.current_state)) {
-    return { handled: true, ...(await handleText(session, input.text ?? '', ctx)) };
+    const result = await handleText(session, input.text ?? '', ctx);
+
+    // The handler recognised a question. The assistant answers it and the
+    // session is left untouched, so asking something mid-form does not cost
+    // the form.
+    if (result?.passToAssistant) return { handled: false };
+
+    // Or a request to be somewhere else entirely.
+    if (result?.switchTo) {
+      if (result.switchTo === 'cancel') return handleCommand(session, '/cancel', ctx);
+      const started = await startFlow(session, result.switchTo, ctx);
+      if (started) return { handled: true, ...started };
+    }
+
+    return { handled: true, ...result };
   }
 
   // 5b. A number standing in for a button. The website widget has no inline
