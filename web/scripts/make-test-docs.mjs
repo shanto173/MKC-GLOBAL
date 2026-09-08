@@ -335,12 +335,18 @@ async function mismatchedInvoice() {
   return buffer;
 }
 
+// A prefix keeps several kits side by side. Without it every run overwrote the
+// same three filenames, so filming three bookings back to back meant
+// regenerating between takes - and a chassis can only be booked once, so a
+// second take needs a second set anyway.
+const PREFIX = (process.argv[8] || 'test').replace(/[^\w-]/g, '');
+
 const files = [
-  ['test-invoice.pdf', await invoice()],
-  ['test-cmr-transport.pdf', await transportDocument()],
-  ['test-mrn-export-declaration.pdf', await exportDeclaration()],
-  ['test-acid-nafeza.pdf', await acidRegistration()],
-  ['test-invoice-WRONG-CHASSIS.pdf', await mismatchedInvoice()],
+  [`${PREFIX}-invoice.pdf`, await invoice()],
+  [`${PREFIX}-cmr-transport.pdf`, await transportDocument()],
+  [`${PREFIX}-mrn-export-declaration.pdf`, await exportDeclaration()],
+  [`${PREFIX}-acid-nafeza.pdf`, await acidRegistration()],
+  [`${PREFIX}-invoice-WRONG-CHASSIS.pdf`, await mismatchedInvoice()],
 ];
 
 for (const [name, buffer] of files) {
@@ -357,11 +363,12 @@ The matched set names chassis ${VIN}
   ACID  ${ACID}
   EUR.1 ${EUR1}
 
-The booking flow asks for three of them, in this order:
-  test-invoice.pdf              -> invoice
-  test-cmr-transport.pdf        -> brief
-  test-mrn-export-declaration.pdf -> mrn
+Send these three, in this order:
+  ${PREFIX}-invoice.pdf
+  ${PREFIX}-cmr-transport.pdf
+  ${PREFIX}-mrn-export-declaration.pdf
 
-test-acid-nafeza.pdf is only asked for when bot_settings.acid_required is true.
-test-invoice-WRONG-CHASSIS.pdf is for exercising the mismatch warning; it should
-be refused as an invoice for this unit.`);
+${PREFIX}-acid-nafeza.pdf is only asked for when bot_settings.acid_required is
+true. ${PREFIX}-invoice-WRONG-CHASSIS.pdf exercises the mismatch warning.
+
+  npm run testdocs -- <CHASSIS> "<CLIENT>" <MAKE> "<MODEL>" <CITY> <PORT> <PREFIX>`);
