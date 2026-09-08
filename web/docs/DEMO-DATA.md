@@ -143,7 +143,34 @@ chassis one digit off its own kit:
 | `takeB-invoice-WRONG-CHASSIS.pdf` | `XLRTEH4390G512884` | B is `XLRTEH4300G512884` |
 | `takeC-invoice-WRONG-CHASSIS.pdf` | `VF622GPA900123457` | C is `VF622GPA000123457` |
 
-## 1g. Rejected inputs
+## 1g. Talking normally - KIT A, one message at a time
+
+The bot reads the answer out of whatever sentence it arrives in. Nothing below
+is a fixed phrase; type it however you like.
+
+| # | You send | What it does |
+|---|---|---|
+| 1 | `the lorry needs collecting near Bremen and dropping at the Suez one` | keeps **loading Bremen** and **destination Suez Port**, then asks for the chassis |
+| 2 | `sorry the chassis is WMA06XZZ8KM745219` | takes the number out of the sentence |
+| 3 | `its a big scania` | make **Scania**, properly cased |
+| 4 | `bill it to Cairo Heavy Haulage` | client **Cairo Heavy Haulage**, not the whole sentence |
+
+Other things worth trying at any step:
+
+| You send | What it does |
+|---|---|
+| `here is my chasis number : WMA06XZZ8KM745219` | finds the number |
+| `I want my car to go to Port Said` | keeps the destination, asks for the chassis |
+| `we ship from Hamburg` / `loading at Klaipeda` / `pick up at Rotterdam` | keeps the loading port |
+| `chassis WMA06XZZ8KM745219 from Klaipeda going to Alexandria` | fills **three fields at once** |
+| `my number is +20 100 555 1234` | kept as your contact, then asks again |
+| `you can reach me at ariful@example.com` | same |
+| `how long does shipping take?` | answers it, booking untouched |
+| `where is my shipment` | switches to tracking |
+| `I do not have it yet` | explains why the chassis cannot be skipped |
+| `Alexandria Trading Co` as the **client name** | stays a client name - not read as a destination |
+
+## 1h. Rejected inputs
 
 | Send | Result |
 |---|---|
@@ -224,12 +251,47 @@ unfinished booking and it lists exactly what is outstanding.
 
 # ARABIC
 
+**Yes - the bot replies in Arabic and takes the whole booking in Arabic.**
+
+Every reply carries both languages: Egyptian colloquial Arabic first, a divider,
+then the same message in English. That is deliberate - these cards get forwarded
+to drivers, brokers and customs agents, and a card in only one language is
+useless to at least one of them.
+
+## A complete booking in Arabic - KIT A
+
+| # | You send | Bot replies |
+|---|---|---|
+| 1 | `عايز أحجز شحنة` | تمام، يلا نبدأ الحجز. ابعتلي رقم الشاسيه |
+| 2 | `رقم الشاسيه WMA06XZZ8KM745219` | تمام! الوحدة دي جديدة عندنا |
+| 3 | `مرسيدس أكتروس` | الحجز هيتسجل باسم مين؟ |
+| 4 | `شركة النيل للنقل` | هتشحن من فين؟ |
+| 5 | `الشحن من فيلنيوس` | وميناء الوصول في مصر؟ |
+| 6 | `الإسكندرية` | تمام! عندك رقم MRN بالفعل؟ |
+
+**What gets stored** - worth showing on camera, because it is the point:
+
+| Field | Stored as | Why |
+|---|---|---|
+| Chassis | `WMA06XZZ8KM745219` | taken out of the Arabic sentence |
+| Make | `Mercedes-Benz` | مرسيدس transliterated for the paperwork |
+| Model | `Actros` | أكتروس, split off the make |
+| Loading | `Vilnius` | فيلنيوس - it goes on the bill of lading |
+| Destination | `Alexandria Port (incl. El Dekheila)` | الإسكندرية matched to our port list |
+| Client | `شركة النيل للنقل` | left in Arabic - a wrong Latin guess at somebody's company name is worse than Arabic they can read |
+
+## Other Arabic phrases
+
 | Send | Does |
 |---|---|
-| `عايز أحجز شحنة` | starts a booking |
 | `الشحنة فين` | starts tracking |
 | `عايز أكلم موظف` | contact the team |
+| `معنديش الرقم دلوقتي` | explains the chassis cannot be skipped |
+| `ماشي ابعت العربية من كوبر لبورسعيد` | loading Koper, destination Port Said |
 | `1` `2` `3` | the three menu choices |
+
+Franco-Arabic works too - `el sha7na fen?` is understood and answered in Arabic
+script.
 
 ---
 
