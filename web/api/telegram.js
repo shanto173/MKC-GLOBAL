@@ -116,6 +116,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // /start and /menu are the moments a client puts the chat back in order, so
+    // they are also when a stale pinned card gets put right. The card is
+    // otherwise only touched by booking events, which means one left behind by
+    // anything else - a booking removed outside the flow, a chat restored on a
+    // new device - stays at the top advertising something that is over.
+    if (input.kind === 'command' && (input.command === '/start' || input.command === '/menu')) {
+      refreshPinSafely(ctx.chatId).catch(() => null);
+    }
+
     if (input.kind === 'rejected') {
       await sendMessage(chatId, input.text, { inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');

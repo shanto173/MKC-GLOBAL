@@ -107,6 +107,19 @@ export async function refreshPin(chatId, { channel = 'telegram' } = {}) {
       await unpinAll(chatId);
       return { action: 'cleared' };
     }
+
+    // getChat says the chat has no pin, but the customer can still be looking
+    // at one - the bar outlives the message often enough that it cannot be
+    // trusted as proof. Nothing of theirs is at risk when Telegram itself
+    // reports no pin, so clear the chat rather than leave a card advertising a
+    // booking that no longer exists.
+    if (!current) {
+      const cleared = await unpinAll(chatId);
+      return { action: cleared?.ok ? 'cleared' : 'none' };
+    }
+
+    // Something IS pinned and it is not ours. That is the customer's own
+    // message and it stays exactly where they put it.
     return { action: 'none' };
   }
 
