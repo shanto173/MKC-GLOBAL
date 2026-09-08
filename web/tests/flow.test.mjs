@@ -1713,6 +1713,39 @@ test('every paste shape reaches the same result', async () => {
   }
 });
 
+test('a paste that begins mid-row still lands on the right fields', async () => {
+  const { parsePastedFields } = await import('../lib/flow/paste.js');
+
+  // Copied from a numbered table by selecting from inside the first row, so the
+  // opening label - "2VIN / Chassis number" - never made it into the message.
+  // The run therefore STARTS with a value, and pairing left-to-right marries
+  // every label to the cell after the one it names.
+  const out = parsePastedFields(
+    'WMA06XZZ8KM745219`3Make / Brand`MAN`4Client name`Nile Cargo Egypt'
+    + '`5Port of loading`Hamburg`6Egyptian destination port`Port Said');
+
+  assert.equal(out.vin, 'WMA06XZZ8KM745219');
+  assert.equal(out.make, 'MAN');
+  assert.equal(out.customer_name, 'Nile Cargo Egypt');
+  assert.equal(out.origin_port, 'Hamburg');
+  assert.equal(out.destination_port, 'Port Said');
+});
+
+test('a paste with no chassis in it offers no chassis', async () => {
+  const { parsePastedFields } = await import('../lib/flow/paste.js');
+
+  // The recovery that finds an unpaired chassis must not invent one. Row
+  // numbers glued to label words - "6Egyptian" - have letters, digits and the
+  // right length, and were being stored as the client's chassis number.
+  const out = parsePastedFields(
+    'Make / Brand`MAN`4Client name`Nile Cargo Egypt'
+    + '`5Port of loading`Hamburg`6Egyptian destination port`Port Said`');
+
+  assert.equal(out.vin, undefined);
+  assert.equal(out.make, 'MAN');
+  assert.equal(out.destination_port, 'Port Said');
+});
+
 test('the Arabic block pastes as one message too', async () => {
   const h = harness();
   await h.command('/start');

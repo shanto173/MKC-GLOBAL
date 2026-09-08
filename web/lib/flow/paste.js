@@ -21,6 +21,8 @@
  * Field labels, in both languages, longest first so "port of loading" is tested
  * before "port" and "client name" before "name".
  */
+import { looksLikeVin } from '../bookings.js';
+
 const LABELS = [
   ['destination_port', ['destination port', 'port of discharge', 'destination', 'discharge', 'to port', 'egyptian port',
                         'ميناء الوصول', 'ميناء الوصول المصري', 'الوجهة']],
@@ -51,6 +53,14 @@ const DECORATION = /[─━┄┅┈┉╌╍═┌┍┎┏┐┑┒┓└┕�
  * @param {string} text
  * @returns {Record<string,string>} only fields it is confident about
  */
+/** Is this segment one of the labels we know? Used to settle the alignment. */
+function isKnownLabel(text) {
+  const key = String(text).toLowerCase().replace(/[^a-z؀-ۿ/ ]/g, '').trim();
+  if (!key) return false;
+  return LABELS.some(([, names]) =>
+    names.some((n) => key === n || key.startsWith(n + ' ') || key.endsWith(' ' + n)));
+}
+
 export function parsePastedFields(text) {
   const found = {};
   const raw = String(text ?? '');
@@ -71,6 +81,17 @@ export function parsePastedFields(text) {
         break;                                       // this pair is spoken for
       }
     }
+  }
+
+  // A value whose label was cut off in the copy is left unpaired - which is
+  // exactly what happens to the chassis when somebody starts selecting from
+  // the middle of the first row. It has a shape, so it can be recovered from
+  // the message whatever the pairing did.
+  if (!found.vin) {
+    const vin = findVin(raw);
+    // Recovered, not stated - so it clears the same bar as a typed one before
+    // it is offered. A paste with no chassis in it must yield no chassis.
+    if (vin && looksLikeVin(vin)) found.vin = vin;
   }
 
   return found;
@@ -96,15 +117,27 @@ function labelledPairs(raw) {
   // Backticks first: a value wrapped in them is unambiguous, and this shape
   // has no line breaks to work from.
   if (raw.includes('`')) {
-    const parts = raw.split('`');
-    // parts alternate label, value, label, value… A trailing empty string from
-    // the closing backtick is simply never paired.
-    for (let i = 0; i + 1 < parts.length; i += 2) {
-      const label = parts[i].trim();
-      const value = parts[i + 1].trim();
-      if (label && value) pairs.push([label, value]);
-    }
-    if (pairs.length) return pairs;
+    const parts = raw.split('`').map((x) => x.trim());
+
+    // The segments alternate label, value, label, value… but WHICH one comes
+    // first depends on where the person started selecting. Copying from the
+    // middle of a row drops the opening label, so the run begins with a value
+    // and every pair after it is off by one - every label married to the wrong
+    // cell, and nothing recognised.
+    //
+    // So both alignments are tried and the one that recognises more labels
+    // wins. Guessing the parity is what broke it.
+    const best = [0, 1]
+      .map((offset) => {
+        const found = [];
+        for (let i = offset; i + 1 < parts.length; i += 2) {
+          if (parts[i] && parts[i + 1]) found.push([parts[i], parts[i + 1]]);
+        }
+        return { offset, found, score: found.filter(([label]) => isKnownLabel(label)).length };
+      })
+      .sort((a, b) => b.score - a.score || a.offset - b.offset)[0];
+
+    if (best.score) return best.found;
   }
 
   for (const rawLine of raw.split(/[\n\r]+/)) {
@@ -231,7 +264,10 @@ const FIELD_WORDS = {
  * modern VIN is.
  */
 export function findVin(text) {
-  const tokens = String(text ?? '').split(/[\s,;:|]+/).filter(Boolean);
+  // Backticks and box rules separate cells as surely as a space does. Without
+  // them a copied table gives one enormous token that happens to mix letters
+  // and digits, and it reads as a chassis number.
+  const tokens = String(text ?? '').split(/[\s,;:|`│┃｜]+/).filter(Boolean);
   let best = null;
 
   for (const raw of tokens) {
@@ -241,6 +277,12 @@ export function findVin(text) {
 
     if (norm.length < 8 || norm.length > 25) continue;
     if (!/[A-Z]/.test(norm) || !/[0-9]/.test(norm)) continue;
+    // A row number stuck to the front of a label word - "6Egyptian", from a
+    // numbered table pasted without its line breaks - has letters and digits
+    // and the right length, and it was being stored as somebody's chassis.
+    // A real one carries digits THROUGH it, not only in a leading run.
+    // Seventeen characters is a VIN and is never second-guessed.
+    if (norm.length !== 17 && !/[0-9]/.test(norm.replace(/^[0-9]+/, ''))) continue;
     // Our own references are not chassis numbers.
     if (/^MKY-/i.test(token)) continue;
     // A date, or a price.
