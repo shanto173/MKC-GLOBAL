@@ -96,6 +96,43 @@ duplicate message instead.
 
 Result: 🎉 Booking request confirmed + a PDF of the request.
 
+## 1b-fast. The whole booking in ONE message
+
+Paste any of these as a single message right after tapping **Book my shipment**.
+All three go straight to the MRN question.
+
+**Kit A**
+```
+Chassis: WMA06XZZ8KM745219
+Make: MAN TGX 18.500
+Client: Nile Cargo Egypt
+Loading: Hamburg
+Destination: Port Said
+```
+
+**Kit B**
+```
+Chassis: XLRTEH4300G512884
+Make: DAF XF 480 FT
+Client: Horus Logistics
+Loading: Rotterdam
+Destination: Damietta
+```
+
+**Kit C**
+```
+Chassis: VF622GPA000123457
+Make: Renault T High 520
+Client: Pyramid Freight
+Loading: Vilnius
+Destination: Alexandria
+```
+
+The label may be anything recognisable — `Chassis`, `VIN`, `Make`, `Brand`,
+`Client`, `Customer`, `Loading`, `From`, `Destination`, `To` — and the separator
+may be a colon, an equals sign, a backtick, a pipe, or two spaces. Copying the
+tables further up this page works too, backticks, row numbers and all.
+
 ## 1b. Pasted in one message — KIT B
 
 Tap **📦 Book my shipment**, then paste:
