@@ -562,6 +562,47 @@ test('TEST 19 - tracking by chassis number', async () => {
   assert.match(said(r), /MKY-26001/);
 });
 
+test('tracking finds it when the chassis arrives with its label attached', async () => {
+  const h = harness({ shipments: [SHIPMENT] });
+  await h.tap('menu:track');
+
+  // What the demo sheet tells people to send, and what anyone copying the line
+  // out of their own booking card sends. normalizeVin() strips the separator,
+  // so this used to be looked up as CHASSISW1T96340310484233 and the client was
+  // told we had never heard of the booking we had just confirmed for them.
+  const r = await h.text('Chassis: W1T96340310484233');
+  assert.match(said(r), /MKY-26001/);
+});
+
+test('tracking finds it inside a sentence, and in Arabic', async () => {
+  for (const sent of ['my chassis is W1T96340310484233',
+                      'رقم الشاسيه W1T96340310484233',
+                      'booking MKY-BKG-260901-DDDD please']) {
+    const h = harness({ shipments: [SHIPMENT] });
+    await h.tap('menu:track');
+    const r = await h.text(sent);
+    assert.match(said(r), /MKY-26001/, sent);
+  }
+});
+
+test('extracting the identifier does not widen who may see it', async () => {
+  // The lookup got broader; access must not have. A stranger quoting the label
+  // form gets the same answer as a stranger quoting anything else.
+  const h = harness({ shipments: [{ ...SHIPMENT, chat_id: OTHER_CHAT, booking_ref: null }] });
+  await h.tap('menu:track');
+  const r = await h.text('Chassis: W1T96340310484233');
+  assert.match(said(r), /could not find a shipment/);
+});
+
+test('punctuation in the identifier cannot reshape the query', async () => {
+  // Candidates are interpolated into a PostgREST or() expression, so anything
+  // that is not part of a reference is stripped before it gets there.
+  const h = harness({ shipments: [SHIPMENT] });
+  await h.tap('menu:track');
+  const r = await h.text('AAAA,vin_norm.neq.ZZZZ');
+  assert.match(said(r), /could not find a shipment/);
+});
+
 test('TEST 20 - an unknown identifier offers retry, contact and menu', async () => {
   const h = harness({ shipments: [SHIPMENT] });
   await h.tap('menu:track');

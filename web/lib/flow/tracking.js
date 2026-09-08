@@ -18,6 +18,7 @@ import { S, FLOWS } from './states.js';
 import { M, NOT_AVAILABLE, NOT_ASSIGNED, both } from './messages.js';
 import * as kb from './keyboards.js';
 import { normalizeVin } from '../bookings.js';
+import { valueFor, findVin } from './paste.js';
 import { setting } from '../settings.js';
 import { logEvent } from '../audit.js';
 
@@ -41,19 +42,26 @@ export async function lookupForClient(identifier, viewer) {
   const raw = String(identifier ?? '').trim();
   if (!raw) return { found: false };
 
-  const upper = raw.toUpperCase();
-  const norm = normalizeVin(raw);
+  const refs = identifiersIn(raw);
+  if (!refs.length) return { found: false };
+
+  const upper = refs[0];
+  const norm = normalizeVin(refs[0]);
 
   // Exact matches only, and never on customer name: matching a name meant a
   // client typing a single letter was handed five other companies' shipments.
-  const filters = [
-    `shipment_id.eq.${upper}`,
-    `booking_ref.eq.${upper}`,
-    `acid_id.eq.${upper}`,
-    `bl_number.eq.${upper}`,
-    `container_no.eq.${upper}`,
-  ];
-  if (norm.length >= 6) filters.push(`vin_norm.eq.${norm}`);
+  const filters = [];
+  for (const ref of refs) {
+    filters.push(
+      `shipment_id.eq.${ref}`,
+      `booking_ref.eq.${ref}`,
+      `acid_id.eq.${ref}`,
+      `bl_number.eq.${ref}`,
+      `container_no.eq.${ref}`,
+    );
+    const vinNorm = normalizeVin(ref);
+    if (vinNorm.length >= 6) filters.push(`vin_norm.eq.${vinNorm}`);
+  }
 
   const { data, error } = await db()
     .from('shipments')
@@ -84,10 +92,47 @@ export async function lookupForClient(identifier, viewer) {
   // No shipment. There may still be a booking they own that has not become one
   // yet - a client who booked this morning and is quoting the reference we gave
   // them must not be told we have never heard of it.
-  const booking = await ownedBooking(upper, norm, viewer);
+  const booking = await ownedBooking(refs, viewer);
   if (booking) return { found: false, booking };
 
   return { found: false };
+}
+
+/**
+ * Every reference a message might be quoting.
+ *
+ * People do not send a bare identifier. They send "Chassis: WMA06XZZ8KM745219",
+ * or they copy the line out of the booking card we sent them, or they write a
+ * sentence around it. normalizeVin() strips the separators, so the word CHASSIS
+ * was being glued onto the front of the number and the lookup matched nothing -
+ * the client was told we had never heard of the booking we had just confirmed
+ * for them.
+ *
+ * So the identifier is EXTRACTED rather than assumed, the same way the booking
+ * flow extracts it. Every candidate is still matched exactly; widening what we
+ * look for never widens what counts as a match.
+ */
+function identifiersIn(raw) {
+  const out = [];
+  const add = (value) => {
+    // Only the characters a reference is made of. Anything else - a comma, a
+    // bracket - would otherwise be interpolated straight into the PostgREST
+    // or() expression below and change what is being asked.
+    const clean = String(value ?? '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (clean.length >= 4 && clean.length <= 40 && !out.includes(clean)) out.push(clean);
+  };
+
+  // What they typed, unchanged: still the common case, and still first.
+  add(raw);
+
+  // One of our own references sitting inside a sentence.
+  for (const m of raw.matchAll(/\bMKY[A-Z0-9-]*[A-Z0-9]/gi)) add(m[0]);
+
+  // A labelled answer - "Chassis: X" - and a chassis anywhere in a sentence.
+  add(valueFor('vin', raw));
+  add(findVin(raw));
+
+  return out;
 }
 
 async function mayView(shipment, viewer) {
@@ -114,9 +159,14 @@ async function mayView(shipment, viewer) {
   return false;
 }
 
-async function ownedBooking(upper, norm, viewer) {
-  const filters = [`booking_ref.eq.${upper}`];
-  if (norm.length >= 6) filters.push(`vin_norm.eq.${norm}`);
+async function ownedBooking(refs, viewer) {
+  const filters = [];
+  for (const ref of [].concat(refs)) {
+    filters.push(`booking_ref.eq.${ref}`);
+    const vinNorm = normalizeVin(ref);
+    if (vinNorm.length >= 6) filters.push(`vin_norm.eq.${vinNorm}`);
+  }
+  if (!filters.length) return null;
 
   const { data } = await db()
     .from('bookings')
