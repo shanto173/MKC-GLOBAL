@@ -194,6 +194,38 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
 // ---------------------------------------------------------------------------
 
 
+/**
+ * A make, as it should be stored, wherever it came from.
+ *
+ * Transliterate BEFORE splitting: the manufacturer table is Latin, so
+ * "مرسيدس أكتروس" split first finds no known make and the whole phrase becomes
+ * one field with the model lost. Then one spelling per manufacturer, because
+ * the operations list has to sort and "scania" and "Scania" are one company.
+ *
+ * Used by every path that can set a make - a single answer, a paste, a sentence
+ * the model read - so they cannot disagree about what "مرسيدس" means.
+ */
+function normaliseMake(value) {
+  const latin = latinizeName(value) || String(value);
+  const { make, model } = splitMakeModel(latin);
+  const out = {};
+  if (make && make.length <= 120) out.make = canonicalMake(make) || make;
+  if (model) out.model = model;
+  return out;
+}
+
+/**
+ * A loading city, as it appears on the paperwork.
+ *
+ * فيلنيوس is Vilnius on the bill of lading and the customs entry, and a value
+ * that has to match the rest of the file cannot be in another script. A place
+ * not in the table is left exactly as written - a wrong Latin guess is worse
+ * than Arabic somebody can read.
+ */
+function normalisePlace(value) {
+  return latinizeName(value) || String(value).trim();
+}
+
 /** What each field is called when we ask for it again. */
 const NEED = {
   vin: ['رقم الشاسيه', 'the chassis / VIN number'],
@@ -337,11 +369,13 @@ async function bankFields(session, found, ctx, { except = null } = {}) {
       // A chassis arriving sideways is stored, but it still has to face the
       // duplicate rule - which handleVin does when it is asked for.
       if (looksLikeVin(value)) patch.vin = String(value).toUpperCase().replace(/\s+/g, '');
-    } else if (['make', 'model', 'customer_name', 'origin_port'].includes(field)
+    } else if (field === 'make' && String(value).trim()) {
+      Object.assign(patch, normaliseMake(String(value).trim()));
+    } else if (field === 'origin_port' && String(value).trim() && String(value).length <= 120) {
+      patch.origin_port = normalisePlace(String(value).trim());
+    } else if (['model', 'customer_name'].includes(field)
                && String(value).trim() && String(value).length <= 120) {
-      patch[field] = field === 'make'
-        ? (canonicalMake(String(value).trim()) || String(value).trim())
-        : String(value).trim();
+      patch[field] = String(value).trim();
     } else if (field === 'contact' && String(value).trim()) {
       patch.customer_contact = String(value).trim().slice(0, 120);
     }
@@ -418,11 +452,7 @@ async function applyPastedFields(session, text, ctx) {
   const rejected = [];
 
   if (parsed.make) {
-    const { make, model } = splitMakeModel(parsed.make);
-    if (make.length <= 120) {
-      patch.make = make;
-      if (model) patch.model = model;
-    }
+    Object.assign(patch, normaliseMake(parsed.make));
   }
 
   if (parsed.customer_name && parsed.customer_name.length <= 120) {
@@ -430,7 +460,7 @@ async function applyPastedFields(session, text, ctx) {
   }
 
   if (parsed.origin_port && parsed.origin_port.length <= 120) {
-    patch.origin_port = parsed.origin_port;
+    patch.origin_port = normalisePlace(parsed.origin_port);
   }
 
   if (parsed.destination_port) {
@@ -504,24 +534,10 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
 
   const fields = { [field]: resolvedValue };
 
-  if (field === 'make') {
-    // Latinise BEFORE splitting. "مرسيدس أكتروس" split first finds no known
-    // manufacturer - the table is Latin - so the whole phrase became the make
-    // and the model was lost. Transliterated first, it splits properly.
-    const { make, model } = splitMakeModel(latinizeName(resolvedValue) || resolvedValue);
-    // "scania" and "Scania" are the same manufacturer, and the operations list
-    // has to sort. One spelling, decided here rather than by whoever typed it.
-    fields.make = canonicalMake(make) || make;
-    if (model) fields.model = model;
-  }
-
-  if (field === 'origin_port') {
-    // The loading city goes on the bill of lading and the customs entry, so it
-    // has to match the paperwork: فيلنيوس is Vilnius there. A place not in the
-    // table is left exactly as written - a wrong Latin guess is worse than
-    // Arabic somebody can read.
-    fields.origin_port = latinizeName(resolvedValue) || resolvedValue;
-  }
+  // One normaliser per field, shared with the paste and sentence paths, so all
+  // three agree about what مرسيدس and فيلنيوس mean.
+  if (field === 'make') Object.assign(fields, normaliseMake(resolvedValue));
+  if (field === 'origin_port') fields.origin_port = normalisePlace(resolvedValue);
 
   const saved = await updateDraft(session.active_booking_ref, fields, { chatId: ctx.chatId });
   if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));

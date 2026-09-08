@@ -25,7 +25,7 @@ const LABELS = [
   ['destination_port', ['destination port', 'port of discharge', 'destination', 'discharge', 'to port', 'egyptian port',
                         'ميناء الوصول', 'ميناء الوصول المصري', 'الوجهة']],
   ['origin_port', ['port of loading', 'place of loading', 'loading port', 'loading', 'origin port', 'origin', 'from',
-                   'ميناء الشحن', 'مدينة الشحن', 'مكان الشحن']],
+                   'ميناء الشحن', 'مدينة الشحن', 'مكان الشحن', 'الشحن من', 'شحن من', 'من']],
   ['customer_name', ['client name', 'customer name', 'client', 'customer', 'consignee', 'name',
                      'اسم العميل', 'العميل', 'الاسم']],
   ['vin', ['chassis / vin', 'chassis no', 'chassis number', 'chassis', 'vin no', 'vin',

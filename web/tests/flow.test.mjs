@@ -1712,3 +1712,25 @@ test('every paste shape reaches the same result', async () => {
     assert.equal(out.destination_port, 'Port Said', shape.slice(0, 30));
   }
 });
+
+test('the Arabic block pastes as one message too', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text(
+    'رقم الشاسيه: WMA06XZZ8KM745219\n'
+    + 'الماركة: مرسيدس أكتروس\n'
+    + 'العميل: شركة النيل للنقل\n'
+    + 'الشحن من: فيلنيوس\n'
+    + 'ميناء الوصول: الإسكندرية',
+  );
+
+  const b = h.booking();
+  assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  assert.equal(b.make, 'Mercedes-Benz');
+  assert.equal(b.customer_name, 'شركة النيل للنقل');
+  assert.equal(b.origin_port, 'Vilnius');
+  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
