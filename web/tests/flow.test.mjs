@@ -1253,24 +1253,95 @@ test('the number given in step 1 of a booking serves the next request for an age
   assert.equal(h.db._tables.support_tickets[0].contact, PHONE_STORED);
 });
 
-test('after 7 PM the bot says when the desk is back, and gives the direct number', async () => {
+const afterHoursTap = (h, data, now = AFTER_HOURS) => runFlow(
+  { kind: 'callback', callback: { ...parseCallback(data), id: 'cbq' } },
+  { ...h.ctx, now },
+);
+
+test('after 7 PM the bot says when the desk is back, and asks whether it is urgent', async () => {
   const h = harness();
-  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+20 100 000 0001' });
+  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+48 512 345 678' });
   invalidateSettings();
 
-  const r = await runFlow(
-    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
-    { ...h.ctx, now: AFTER_HOURS },
-  );
+  const r = await afterHoursTap(h, 'menu:contact');
 
   assert.match(said(r), /available from 9 AM to 7 PM Cairo time/);
   assert.match(said(r), /tomorrow from 9 AM/);
-  assert.match(said(r), /If it is urgent, call us directly on \+20 100 000 0001/);
+  assert.match(said(r), /Is it urgent/);
+  assert.deepEqual(buttons(r), ['ct:urgent:yes', 'ct:urgent:no', 'menu:home']);
+  // The direct line is not read out to everyone - only to somebody who says
+  // it cannot wait.
+  assert.doesNotMatch(said(r), /512 345 678/);
   assert.doesNotMatch(said(r), /Connecting you with our Operations Team/);
-  // Still logged, and the question still asked, so the first agent in has it.
+  assert.doesNotMatch(said(r), /sentence or two/, 'no lecturing about length');
+  // Still logged, so the first agent in has it.
   const task = h.tasks().find((t) => t.task_type === 'client_callback');
   assert.equal(task.payload.after_hours, true);
-  assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
+  assert.equal(r.state, S.CONTACT_URGENCY);
+});
+
+test('urgent after hours: the responsible person\'s number, then the emergency, then a ticket marked urgent', async () => {
+  const h = harness();
+  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+48 512 345 678' });
+  h.db._tables.clients[0].phone = '+201005551234';
+  invalidateSettings();
+
+  await afterHoursTap(h, 'menu:contact');
+  const yes = await afterHoursTap(h, 'ct:urgent:yes');
+  assert.match(said(yes), /reach our responsible person directly on \+48 512 345 678, any time/);
+  assert.match(said(yes), /what the emergency is about/);
+  assert.doesNotMatch(said(yes), /phone number we can call you on/, 'the number is on file');
+  assert.equal(yes.state, S.CONTACT_TICKET_DETAILS);
+
+  const done = await h.text('My truck is stuck at the port and the driver has no papers.');
+  const ticket = h.db._tables.support_tickets[0];
+  assert.match(ticket.summary, /^URGENT: My truck is stuck/);
+  assert.equal(ticket.contact, '+201005551234');
+  const task = h.tasks().find((t) => t.payload?.ticket_ref === ticket.ticket_ref);
+  assert.equal(task.priority, 'high');
+  assert.equal(task.payload.urgent, true);
+  assert.match(said(done), /marked urgent/);
+  assert.match(said(done), /tomorrow from 9 AM/);
+  assert.match(said(done), /responsible person is on \+48 512 345 678/);
+});
+
+test('not urgent after hours: the question, and when the desk is back', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+
+  await afterHoursTap(h, 'menu:contact');
+  const no = await afterHoursTap(h, 'ct:urgent:no');
+  assert.match(said(no), /Tell me what you need help with/);
+  assert.match(said(no), /tomorrow from 9 AM/);
+  assert.doesNotMatch(said(no), /responsible person/);
+
+  const done = await h.text('The vessel on my shipment is wrong.');
+  const ticket = h.db._tables.support_tickets[0];
+  assert.doesNotMatch(ticket.summary, /URGENT/);
+  assert.match(said(done), /Ticket MKY-TKT-/);
+  assert.match(said(done), /tomorrow from 9 AM/);
+  assert.doesNotMatch(said(done), /marked urgent/);
+});
+
+test('typing the emergency instead of tapping is understood, and marked urgent when it says so', async () => {
+  const h = harness();
+  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+48 512 345 678' });
+  h.db._tables.clients[0].phone = '+201005551234';
+  invalidateSettings();
+
+  await afterHoursTap(h, 'menu:contact');
+  const r = await h.text('Emergency: customs are holding my truck at Damietta right now.');
+  const ticket = h.db._tables.support_tickets[0];
+  assert.match(ticket.summary, /^URGENT: Emergency: customs/);
+  assert.match(said(r), /responsible person is on \+48 512 345 678/);
+
+  const h2 = harness();
+  h2.db._tables.clients[0].phone = '+201005551234';
+  await afterHoursTap(h2, 'menu:contact');
+  await h2.text('no');
+  const r2 = await h2.text('I need a copy of my booking PDF again.');
+  assert.doesNotMatch(h2.db._tables.support_tickets[0].summary, /URGENT/);
+  assert.match(said(r2), /Ticket MKY-TKT-/);
 });
 
 test('before 9 AM it is "today from 9 AM", not tomorrow', async () => {
@@ -1282,26 +1353,24 @@ test('before 9 AM it is "today from 9 AM", not tomorrow', async () => {
   assert.match(said(r), /today from 9 AM/);
 });
 
-test('after hours with no direct number configured, no number is invented', async () => {
+test('urgent after hours with no direct number configured: flagged, and no number invented', async () => {
   const h = harness();      // direct_phone and operations_phone both unset
-  const r = await runFlow(
-    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
-    { ...h.ctx, now: AFTER_HOURS },
-  );
-  assert.match(said(r), /tomorrow from 9 AM/);
-  assert.doesNotMatch(said(r), /call us directly/);
-  assert.doesNotMatch(said(r), /\+20/);
+  await afterHoursTap(h, 'menu:contact');
+  const r = await afterHoursTap(h, 'ct:urgent:yes');
+  assert.match(said(r), /flagged your request as urgent/);
+  assert.match(said(r), /what the emergency is about/);
+  assert.doesNotMatch(said(r), /responsible person directly/);
+  assert.doesNotMatch(said(r), /\+20|\+48/);
 });
 
 test('the placeholder number from .env.example is never read out as the direct line', async () => {
   const h = harness();
   h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+20 3 555 0143' });
   invalidateSettings();
-  const r = await runFlow(
-    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
-    { ...h.ctx, now: AFTER_HOURS },
-  );
+  await afterHoursTap(h, 'menu:contact');
+  const r = await afterHoursTap(h, 'ct:urgent:yes');
   assert.doesNotMatch(said(r), /555 0143/);
+  assert.match(said(r), /flagged your request as urgent/);
 });
 
 test('the desk hours come from settings, so early evening is inside a desk that closes at 11', async () => {
@@ -2117,7 +2186,7 @@ test('regression: sharing a number asks for the problem instead of raising a tic
   const r = await h.send({ kind: 'contact', phone: '+8801818488624' });
 
   assert.equal((h.db._tables.support_tickets ?? []).length, 0, 'nothing raised yet');
-  assert.match(said(r), /What is the problem/);
+  assert.match(said(r), /what the problem is/i);
   assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
 
   const done = await h.text('My invoice shows the wrong gross weight for chassis YV2RT40A8FB712905.');
@@ -2179,7 +2248,7 @@ test('a bare phone number is never mistaken for a problem description', async ()
   const r = await h.text('+8801818488624');
 
   assert.equal((h.db._tables.support_tickets ?? []).length, 0);
-  assert.match(said(r), /What is the problem/);
+  assert.match(said(r), /what the problem is/i);
 });
 
 // ---------------------------------------------------------------------------

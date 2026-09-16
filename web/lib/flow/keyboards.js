@@ -192,6 +192,15 @@ export function contactMenu() {
   );
 }
 
+/** After hours: does this wait for the desk, or does the client need someone now? */
+export function urgencyChoice() {
+  return rows(
+    cb('🚨 أيوه، مستعجل / Yes, it is urgent', 'ct:urgent:yes'),
+    cb('🕘 لا، يستنى لبكرة / No, it can wait', 'ct:urgent:no'),
+    MENU_HOME,
+  );
+}
+
 export function documentsHelpMenu() {
   return rows(
     cb('1️⃣ رفع مستندات / Upload documents', 'ct:docs:upload'),

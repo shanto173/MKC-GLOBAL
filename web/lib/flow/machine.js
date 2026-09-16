@@ -425,6 +425,7 @@ async function contactCallback(session, action, arg, ctx) {
       if (!arg) return contact.documentsMenu();
       return contact.handleDocumentsChoice(session, arg, ctx);
     case 'ops': return contact.talkToAgent(session, ctx);
+    case 'urgent': return contact.handleUrgency(session, arg, ctx);
     default: return reply(say(M.notUnderstood(), kb.mainMenu()));
   }
 }
@@ -455,6 +456,7 @@ async function handleText(session, text, ctx) {
     case S.CONTACT_BOOKING_IDENTIFIER: return contact.handleBookingIdentifier(session, text, ctx);
     case S.CONTACT_TRACKING_IDENTIFIER: return contact.handleTrackingIdentifier(session, text, ctx);
     case S.CONTACT_DOCUMENT_REQUEST: return contact.handleDocumentRequest(session, text, ctx);
+    case S.CONTACT_URGENCY: return contact.handleUrgencyText(session, text, ctx);
     case S.CONTACT_TICKET_DETAILS: return contact.handleTicketDetails(session, text, ctx);
 
     default:

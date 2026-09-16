@@ -404,16 +404,29 @@ The same button, after hours:
 > those hours now. I have logged your request — an agent will get back to you
 > tomorrow from 9 AM.
 >
-> ☎️ If it is urgent, call us directly on +20 …
+> 🚨 Is it urgent?     **[Yes, it is urgent]  [No, it can wait]**
 
-The direct number is `DIRECT_PHONE` (or `bot_settings.direct_phone`), falling
-back to the operations phone. With neither set the last line is simply absent —
-the bot never invents a number. The request is logged and the question still
-asked, so the first agent in has it.
+Tap **Yes, it is urgent**:
 
-**To film this before 7 PM:** in the console's settings, or directly in
-`bot_settings`, set `support_hours_end` to the current hour. Set it back after.
-The hours are `support_hours_start` / `support_hours_end` / `support_timezone`.
+> ☎️ If it cannot wait, you can reach our responsible person directly on
+> +48 512 345 678, any time. And tell me what the emergency is about, so the
+> team has it in front of them first thing.
+
+Describe the emergency. The ticket is opened marked **URGENT**, the desk task is
+high priority, and the reply repeats the direct number. Tap **No, it can wait**
+and it simply asks what you need, and says the agent is back at 9 AM. Typing
+instead of tapping works too: a message with "urgent" or "emergency" in it is
+treated as urgent.
+
+The direct number is `bot_settings.direct_phone` (currently the **dummy
+Polish number** above — replace it with the real responsible person's), falling
+back to `DIRECT_PHONE`, then the operations phone. With none set the bot says it
+has flagged the request as urgent and never invents a number.
+
+**To film this before 7 PM:** in `bot_settings`, set `support_hours_end` to the
+current hour. Set it back to `19` after. The hours are `support_hours_start` /
+`support_hours_end` / `support_timezone`, and the bot picks changes up within a
+minute.
 
 ## 3c. The older routes
 

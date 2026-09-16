@@ -225,18 +225,13 @@ export async function talkToAgent(session, ctx) {
     phoneOnFile(ctx).catch(() => null),
   ]);
 
+  // Before opening time it is "today from 9"; after closing it is tomorrow.
+  const desk = hours.open ? null : { start: hours.start, end: hours.end, tomorrow: hours.hour >= hours.end };
+
   const messages = [];
   if (hours.open) {
     messages.push(say(M.contactOperations()));
     messages.push(say(contact.configured ? M.operationsContact(contact) : M.operationsContactUnknown()));
-  } else {
-    messages.push(say(M.agentAfterHours({
-      start: hours.start,
-      end: hours.end,
-      // Before opening time it is "today from 9"; after closing it is tomorrow.
-      tomorrow: hours.hour >= hours.end,
-      directPhone: contact.directPhone,
-    })));
   }
 
   // A request to speak to a person is logged whether or not we could hand over
@@ -271,7 +266,16 @@ export async function talkToAgent(session, ctx) {
     ...session.context,
     department: DEPARTMENT_FOR.operations,
     ticket: held ? { phone: held } : {},
+    desk,
+    urgent: false,
   };
+
+  // After hours the first question is whether it can wait. The direct line
+  // is given to a client who says it cannot - not read out to everyone.
+  if (desk) {
+    messages.push(say(M.agentAfterHours(desk), kb.urgencyChoice()));
+    return reply(messages, { active_flow: FLOWS.CONTACT, current_state: S.CONTACT_URGENCY, context });
+  }
 
   messages.push(held ? say(M.agentAskProblem(held), kb.homeOnly()) : askForContact());
   return reply(messages, {
@@ -279,6 +283,51 @@ export async function talkToAgent(session, ctx) {
     current_state: S.CONTACT_TICKET_DETAILS,
     context,
   });
+}
+
+/**
+ * The client's answer to "is it urgent?", after hours.
+ *
+ * Urgent: the responsible person's direct line, when one is configured, and
+ * the question of what the emergency is - so the ticket carries it, marked.
+ * Not urgent: what they need, and when the desk is back. A problem typed
+ * along with the answer goes straight onto the ticket.
+ */
+export async function handleUrgency(session, decision, ctx, { problem = null } = {}) {
+  const urgent = decision === 'yes';
+  const contact = await operationsContact();
+  const desk = session.context?.desk ?? { start: 9, tomorrow: true };
+  const held = session.context?.ticket?.phone ?? null;
+  const context = { ...session.context, urgent };
+
+  logEvent('after_hours_urgency', { chat_id: String(ctx.chatId), urgent, direct_number_given: urgent && Boolean(contact.directPhone) });
+
+  // The problem is already in hand: straight to the ticket, which says the
+  // rest - including the direct line, when it is urgent.
+  if (problem) return progressTicket({ ...session, context }, { problem }, ctx);
+
+  const messages = [];
+  if (urgent) {
+    messages.push(say(contact.directPhone ? M.urgentDirectLine(contact.directPhone) : M.urgentNoNumber(), held ? kb.homeOnly() : null));
+  } else {
+    messages.push(say(M.notUrgentAskProblem(desk), held ? kb.homeOnly() : null));
+  }
+  if (!held) messages.push(askForContact());
+
+  return reply(messages, { active_flow: FLOWS.CONTACT, current_state: S.CONTACT_TICKET_DETAILS, context });
+}
+
+const SAYS_URGENT = /\b(?:urgent|emergency|asap|immediately|right now|critical)\b|عاجل|طوارئ|مستعجل|ضروري|حالاً/i;
+const SAYS_YES = /^\s*(?:yes|yeah|yep|urgent|emergency|it is|أيوه|ايوه|نعم|عاجل|مستعجل|اه|آه)\s*[.!،]*$/i;
+const SAYS_NO = /^\s*(?:no|nope|not urgent|it can wait|tomorrow|tomorrow is fine|لا|لأ|مش مستعجل|يستنى|بكرة)\b/i;
+
+/** The client typed instead of tapping at "is it urgent?". */
+export async function handleUrgencyText(session, text, ctx) {
+  const s = String(text ?? '').trim();
+  if (SAYS_NO.test(s)) return handleUrgency(session, 'no', ctx);
+  if (SAYS_YES.test(s)) return handleUrgency(session, 'yes', ctx);
+  // They described the problem itself. Urgent if they said so.
+  return handleUrgency(session, SAYS_URGENT.test(s) ? 'yes' : 'no', ctx, { problem: s.length >= 3 ? s : null });
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +394,8 @@ async function progressTicket(session, incoming, ctx) {
 
 async function raiseTicket(ticket, ctx, session) {
   const ref = `${config.refPrefix}-TKT-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const urgent = session.context?.urgent === true;
+  const desk = session.context?.desk ?? null;
 
   const row = {
     ticket_ref: ref,
@@ -354,7 +405,8 @@ async function raiseTicket(ticket, ctx, session) {
     customer: ctx.userName ?? null,
     // The chat is a real way to reach someone when they will not give a number.
     contact: ticket.phone || `${ctx.channel}:${ctx.chatId}`,
-    summary: ticket.problem,
+    // Marked in the summary itself, so it is the first thing the desk reads.
+    summary: urgent ? `URGENT: ${ticket.problem}` : ticket.problem,
   };
 
   const { data, error } = await db().from('support_tickets').insert(row).select().single();
@@ -368,8 +420,9 @@ async function raiseTicket(ticket, ctx, session) {
     clientId: ctx.clientId ?? null,
     chatId: ctx.chatId,
     channel: ctx.channel,
-    priority: 'normal',
-    payload: { ticket_ref: data.ticket_ref, department: ticket.department, contact: row.contact },
+    priority: urgent ? 'high' : 'normal',
+    payload: { ticket_ref: data.ticket_ref, department: ticket.department, contact: row.contact, urgent, after_hours: Boolean(desk) },
+    notes: urgent ? 'Marked urgent by the client, after hours.' : null,
     idempotencyKey: `ticket:${data.ticket_ref}`,
   });
 
@@ -379,14 +432,24 @@ async function raiseTicket(ticket, ctx, session) {
     actor_type: 'client', actor_id: ctx.chatId,
     action: 'support_ticket_created',
     entity_type: 'support_ticket', entity_id: data.ticket_ref,
-    metadata: { department: ticket.department, has_phone: Boolean(ticket.phone) },
+    metadata: { department: ticket.department, has_phone: Boolean(ticket.phone), urgent },
   });
 
   const context = { ...session.context };
   delete context.ticket;
   delete context.department;
+  delete context.desk;
+  delete context.urgent;
 
-  return reply(say(M.ticketOpened(data.ticket_ref, ticket.department), kb.mainMenu()), {
+  const contact = urgent ? await operationsContact() : null;
+  const opened = M.ticketOpened(data.ticket_ref, ticket.department, {
+    urgent,
+    directPhone: contact?.directPhone ?? null,
+    start: desk?.start ?? null,
+    tomorrow: desk?.tomorrow ?? true,
+  });
+
+  return reply(say(opened, kb.mainMenu()), {
     active_flow: null, current_state: S.MAIN_MENU, context,
   });
 }

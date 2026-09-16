@@ -447,29 +447,50 @@ What I need right now is ${needEn}.`,
   ),
 
   // After 7 PM. The rule MKY gave: say the desk is closed, say when it opens,
-  // and leave the direct number so a client with something urgent is not left
-  // talking to a bot. The number is only ever the configured one.
-  agentAfterHours: ({ start, end, tomorrow, directPhone }) => both(
+  // and ask whether it can wait - because a client with something urgent
+  // should not be left talking to a bot.
+  agentAfterHours: ({ start, end, tomorrow }) => both(
     `🌙 فريقنا بيرد من ${hourAr(start)} لحد ${hourAr(end)} بتوقيت القاهرة، ودلوقتي برة مواعيد العمل.\n` +
-    `سجلت طلبك، وموظف هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.` +
-    (directPhone ? `\n\n☎️ لو الموضوع مستعجل، اتصل بينا مباشرة على ${directPhone}.` : ''),
+    `سجلت طلبك، وموظف هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.\n\n` +
+    '🚨 الموضوع مستعجل؟',
     `🌙 Our agents are available from ${hourEn(start)} to ${hourEn(end)} Cairo time, and it is outside those hours now.\n` +
-    `I have logged your request — an agent will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.` +
-    (directPhone ? `\n\n☎️ If it is urgent, call us directly on ${directPhone}.` : ''),
+    `I have logged your request — an agent will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.\n\n` +
+    '🚨 Is it urgent?',
+  ),
+
+  // Urgent, and a direct line is configured: the responsible person's number,
+  // so the client is never left with only a bot. Only ever the configured one.
+  urgentDirectLine: (directPhone) => both(
+    `☎️ لو الموضوع مش بيستنى، تقدر تكلم المسؤول عندنا مباشرة على ${directPhone} في أي وقت.\n\n` +
+    'واكتبلي الطوارئ عن إيه، عشان تبقى قدام الفريق أول ما يبدأ.',
+    `☎️ If it cannot wait, you can reach our responsible person directly on ${directPhone}, any time.\n\n` +
+    'And tell me what the emergency is about, so the team has it in front of them first thing.',
+  ),
+
+  // Urgent, and nobody has configured a direct line. Inventing one is the
+  // single worst thing this bot could do, so it says what it can actually do.
+  urgentNoNumber: () => both(
+    '🚨 علّمت طلبك إنه مستعجل عشان الفريق يشوفه الأول.\n\nاكتبلي الطوارئ عن إيه.',
+    '🚨 I have flagged your request as urgent, so the team sees it first.\n\nTell me what the emergency is about.',
+  ),
+
+  notUrgentAskProblem: ({ start, tomorrow }) => both(
+    `🕘 تمام. اكتبلي محتاج مساعدة في إيه، وموظف هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.`,
+    `🕘 No problem. Tell me what you need help with, and an agent will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.`,
   ),
 
   // The number is already on file, so the only thing left to ask is the question.
   agentAskProblem: (phone) => both(
-    `📝 عندي رقمك ${phone}. قولي محتاج مساعدة في إيه - جملة أو اتنين كفاية.`,
-    `📝 I have your number (${phone}). What do you need help with? A sentence or two is enough.`,
+    `📝 عندي رقمك ${phone}. قولي محتاج مساعدة في إيه.`,
+    `📝 I have your number (${phone}). Tell me what you need help with.`,
   ),
 
   // Asked separately, because the two arrive in either order: some clients tap
   // "share my number" first, some describe the problem first. Asking for both
   // again once one is in hand reads as not having listened.
   askProblemOnly: () => both(
-    'تمام، وصلني رقمك. المشكلة إيه بالظبط؟ اكتبها في جملة أو اتنين.',
-    'Thanks, I have your number. What is the problem? A sentence or two is enough.',
+    'تمام، وصلني رقمك. قولي المشكلة إيه.',
+    'Thanks, I have your number. Tell me what the problem is.',
   ),
 
   askPhoneOnly: () => both(
@@ -487,9 +508,19 @@ What I need right now is ${needEn}.`,
     'To open this with the team, send in one message:\n• What the problem is\n• A phone number we can call you on',
   ),
 
-  ticketOpened: (ref, department) => both(
-    `🎫 اتفتح طلب رقم ${ref} مع قسم ${department}. الفريق هيكلمك في مواعيد العمل.`,
-    `🎫 Ticket ${ref} has been opened with ${department}. The team will call you during business hours.`,
+  // In hours: the team calls back. After hours: when. Urgent: marked so, and
+  // the direct line again, so it is in the last message the client reads.
+  ticketOpened: (ref, department, { urgent = false, directPhone = null, start = null, tomorrow = true } = {}) => both(
+    `🎫 اتفتح طلب رقم ${ref} مع قسم ${department}${urgent ? ' ومتعلّم إنه مستعجل' : ''}.\n` +
+    (start === null
+      ? 'الفريق هيكلمك في مواعيد العمل.'
+      : `الفريق هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.`) +
+    (urgent && directPhone ? `\n☎️ ولحد ما يبدأوا، المسؤول عندنا على ${directPhone}.` : ''),
+    `🎫 Ticket ${ref} has been opened with ${department}${urgent ? ' and marked urgent' : ''}.\n` +
+    (start === null
+      ? 'The team will call you during business hours.'
+      : `The team will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.`) +
+    (urgent && directPhone ? `\n☎️ Until then, our responsible person is on ${directPhone}.` : ''),
   ),
 
   // -- errors --------------------------------------------------------------
