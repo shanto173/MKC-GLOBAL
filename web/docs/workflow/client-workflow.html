@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MKY Forwarding — Booking Assistant: How it works</title>
+<style>
+  @page { size: 297mm 167mm; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #17212b; font-family: "Segoe UI", Arial, Helvetica, sans-serif; }
+  .slide { width: 297mm; height: 167mm; padding: 16mm 18mm 14mm 18mm; page-break-after: always; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .slide:last-child { page-break-after: auto; }
+  .kicker { font-size: 11pt; letter-spacing: .12em; text-transform: uppercase; color: #0e8f7e; font-weight: 600; margin: 0 0 4mm; }
+  h1 { font-size: 30pt; line-height: 1.15; margin: 0 0 6mm; color: #0f2a44; font-weight: 700; }
+  h2 { font-size: 15pt; margin: 0 0 3mm; color: #0f2a44; }
+  p, li { font-size: 13pt; line-height: 1.45; margin: 0 0 3mm; }
+  ul { margin: 0; padding-left: 6mm; }
+  li { margin-bottom: 2mm; }
+  .lead { font-size: 16pt; color: #2f3e4e; max-width: 230mm; }
+  .grid { display: grid; gap: 6mm; flex: 1; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .card { background: #f4f7f9; border-radius: 4mm; padding: 6mm 7mm; border-top: 3mm solid #0e8f7e; }
+  .card.amber { border-top-color: #d9822b; }
+  .card.navy { border-top-color: #0f2a44; }
+  .card h2 { font-size: 15pt; }
+  .card p, .card li { font-size: 12pt; }
+  .num { display: inline-block; width: 11mm; height: 11mm; border-radius: 50%; background: #0f2a44; color: #fff; text-align: center; line-height: 11mm; font-weight: 700; font-size: 14pt; margin-right: 3mm; }
+  .steps { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch; gap: 4mm; flex: 1; }
+  .arrow { align-self: center; font-size: 28pt; color: #9aa7b3; }
+  .foot { position: absolute; bottom: 8mm; left: 18mm; right: 18mm; display: flex; justify-content: space-between; font-size: 9pt; color: #8a97a3; }
+  .cover { background: #0f2a44; color: #fff; justify-content: center; }
+  .cover h1 { color: #fff; font-size: 40pt; }
+  .cover .kicker { color: #7fd6c8; }
+  .cover p { color: #d5dee6; font-size: 16pt; }
+  .chat { background: #eef3f7; border-radius: 3mm; padding: 4mm 5mm; font-size: 11.5pt; line-height: 1.4; margin: 0 0 3mm; white-space: pre-line; }
+  .chat.bot { border-left: 2mm solid #0e8f7e; }
+  .chat.client { border-left: 2mm solid #d9822b; background: #fdf3ea; }
+  .rule { display: flex; gap: 4mm; align-items: flex-start; margin-bottom: 4mm; }
+  .rule .no { flex: 0 0 auto; width: 9mm; height: 9mm; border-radius: 50%; background: #d9822b; color: #fff; text-align: center; line-height: 9mm; font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; font-size: 11.5pt; }
+  th, td { text-align: left; padding: 2.5mm 3mm; border-bottom: 1px solid #d9e1e8; vertical-align: top; }
+  th { color: #0f2a44; font-size: 10.5pt; text-transform: uppercase; letter-spacing: .06em; }
+  .pill { display: inline-block; padding: 1mm 3mm; border-radius: 3mm; background: #e2f3ef; color: #0b6b5e; font-size: 10.5pt; font-weight: 600; margin-right: 2mm; }
+  .pill.stop { background: #fde8e8; color: #a32b2b; }
+  .pill.wait { background: #fff1de; color: #8a4d0a; }
+  .q { font-size: 12.5pt; }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="slide cover">
+  <p class="kicker">MKY Forwarding</p>
+  <h1>The Booking Assistant<br>How it works, step by step</h1>
+  <p>A walk through the client's experience and your team's, so we can check it against the way MKY works and decide what to change.</p>
+  <p style="margin-top:12mm;font-size:12pt;color:#9fb3c4">Telegram and website · Arabic and English · Prepared 16 September 2026</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <p class="kicker">In one sentence</p>
+  <h1>A booking desk that is open all day, in the client's own chat</h1>
+  <p class="lead">The assistant takes a booking request, collects the papers, tracks the shipment, and hands anything else to a person. Every decision that matters comes from MKY's own records, not from guesswork.</p>
+  <div class="grid g3" style="margin-top:6mm">
+    <div class="card"><h2>Where</h2><p>Telegram, and the chat window on the website. The same conversation, the same rules, on both.</p></div>
+    <div class="card"><h2>Language</h2><p>Every message is in Egyptian Arabic and English at once, so a card can be forwarded to a driver, a broker or a customs agent.</p></div>
+    <div class="card"><h2>When</h2><p>Bookings and tracking, any hour. A person from 9 AM to 7 PM Cairo time — and a direct number for anything that cannot wait.</p></div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>2</span></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <p class="kicker">The first screen</p>
+  <h1>Three things a client can do</h1>
+  <div class="grid g3">
+    <div class="card"><h2>📦 Book my shipment</h2><p>Three steps: who is booking, the vehicle and its papers, the booking itself. A reference and a PDF at the end.</p></div>
+    <div class="card navy"><h2>🚚 Track my shipment</h2><p>By chassis number or booking reference. Status, vessel, location and arrival date, read live from MKY's records.</p></div>
+    <div class="card amber"><h2>💬 Talk to an agent</h2><p>Straight to a person, no menu in between. After hours: when the desk is back, and a direct number if it is urgent.</p></div>
+  </div>
+  <p style="margin-top:5mm;color:#5a6a79">A client can tap the buttons or simply type: "I want to book", "where is my truck", "عايز أكلم موظف".</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>3</span></div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <p class="kicker">Booking</p>
+  <h1>Booking in three steps</h1>
+  <div class="steps">
+    <div class="card"><h2><span class="num">1</span>Your details</h2><p>The client's name and a mobile number. On Telegram, one tap shares a verified number.</p></div>
+    <div class="arrow">→</div>
+    <div class="card"><h2><span class="num">2</span>The vehicle and its papers</h2><p>Chassis check, make, route, MRN, and the documents — one at a time, or all in one message with the files attached.</p></div>
+    <div class="arrow">→</div>
+    <div class="card"><h2><span class="num">3</span>Your booking</h2><p>A summary card to confirm. Then the booking reference and a PDF copy, straight away.</p></div>
+  </div>
+  <p style="margin-top:5mm;color:#5a6a79">The client is told which step they are on at every stage: "Step 1 of 3 — your details", "Step 2 of 3 — the vehicle and its papers", "Step 3 of 3 — your booking".</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>4</span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <p class="kicker">Step 1 of 3</p>
+  <h1>Your details</h1>
+  <div class="grid g2">
+    <div>
+      <ul>
+        <li><strong>Name</strong> — the client name the booking is registered under.</li>
+        <li><strong>Mobile number</strong> — shared with Telegram's "Share my number" button (verified), typed in any digit system, or offered back from the last booking: "Is +20… still your number? Reply yes."</li>
+        <li>Both can come in <strong>one message</strong>: "Ariful and my number is +49 176 …" is read as a name and a number.</li>
+        <li>The number is kept on the client's record. When they later ask for an agent, they are not asked for it again.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="chat bot">📦 Let us start your booking.
+Step 1 of 3 — your details.
+👤 What client name should we use for this booking?</div>
+      <div class="chat client">Giza Freight Lines and my number is +20 111 222 3344</div>
+      <div class="chat bot">✅ Thank you, Giza Freight Lines — I have +201112223344 as your number.
+Step 2 of 3 — the vehicle and its papers. …</div>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>5</span></div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <p class="kicker">Step 2 of 3</p>
+  <h1>The vehicle</h1>
+  <div class="grid g2">
+    <div>
+      <h2>The chassis number is checked first</h2>
+      <p><span class="pill">New</span> nothing on file — continue.</p>
+      <p><span class="pill">Known, not booked</span> we hold the unit — the make is filled in from our records.</p>
+      <p><span class="pill stop">Already booked</span> a live booking exists — the client is given its reference and route, and <strong>no second request is created</strong>. This check runs wherever the chassis appears, even inside a pasted block.</p>
+    </div>
+    <div>
+      <h2>Then the rest</h2>
+      <ul>
+        <li><strong>Make</strong> (and model) — "مرسيدس أكتروس" becomes Mercedes-Benz Actros on the paperwork.</li>
+        <li><strong>Port of loading</strong> — any city or port in Europe.</li>
+        <li><strong>Egyptian destination</strong> — one of the five we serve: Alexandria (incl. El Dekheila), Port Said, Damietta, Ain Sokhna, Suez. Anything else is refused with the list.</li>
+        <li><strong>MRN</strong> — "I already have one" or "I need MKY to issue it", which opens a request for the customs desk.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>6</span></div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <p class="kicker">Step 2 of 3</p>
+  <h1>The papers</h1>
+  <div class="grid g2">
+    <div>
+      <h2>What is asked for</h2>
+      <ul>
+        <li>Commercial invoice</li>
+        <li>Transport document (CMR / brief)</li>
+        <li>MRN export declaration — unless MKY is obtaining the MRN</li>
+      </ul>
+      <h2 style="margin-top:4mm">What happens to each file</h2>
+      <ul>
+        <li>It is read automatically and its type recognised — a scan or a phone photo works too.</li>
+        <li>The chassis on the paper is checked against the booking. A paper for another vehicle is flagged, not counted.</li>
+        <li>A file the assistant cannot make out is asked about by name: "I have scan-1.pdf, but I am not sure what it is."</li>
+        <li>The assistant says <em>received</em>. Only your team says <em>verified</em>.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Everything at once</h2>
+      <p>The client can attach the three files to one message and write the details on it. Several files sent together get <strong>one</strong> answer, after all of them are read.</p>
+      <div class="chat client">[ 3 files ]
+Rotterdam to Damietta. DAF XF 480 FT, client Giza Freight Lines, chassis XLRTEH4350G741552</div>
+      <div class="chat bot">✅ Received: Brief, Invoice, MRN.
+📝 Noted from your message: client Giza Freight Lines · chassis XLRTEH4350G741552 · make DAF XF 480 FT · route Rotterdam → Damietta Port.
+✅ Perfect! We have everything we need.
+Step 3 of 3 — your booking.</div>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>7</span></div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <p class="kicker">Step 3 of 3</p>
+  <h1>Your booking</h1>
+  <div class="grid g2">
+    <div>
+      <ul>
+        <li>A <strong>summary card</strong> built from exactly what the client gave: client, phone, chassis, make, route, and each document with a tick.</li>
+        <li><strong>Edit</strong> any line — a changed chassis is checked again, a changed route re-asks both ports.</li>
+        <li><strong>Confirm</strong> — the request is sent to Operations in one step that cannot be done twice, however many times the button is pressed.</li>
+        <li>The client immediately gets the <strong>booking reference</strong> in the reply and a <strong>PDF copy</strong> of the request, headed "Awaiting confirmation".</li>
+        <li>A <strong>status card</strong> is pinned to the top of the chat and follows the vehicle until delivery.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="chat bot">📋 Please confirm your booking details
+👤 Client: Giza Freight Lines
+📱 Phone: +201112223344
+🚘 Chassis · VIN: XLRTEH4350G741552
+🚗 Make: DAF XF 480 FT
+🌍 Route: Rotterdam → Damietta Port
+📄 Documents: ✅ Invoice ✅ Brief ✅ MRN
+[ ✅ Confirm ] [ ✏️ Edit ] [ ❌ Cancel ]</div>
+      <div class="chat bot">🎉 Booking request confirmed!
+📋 Your booking reference: MKY-BKG-260916-0AFH
+Keep it — it is how you track the shipment.
+I am sending your request to our Operations Team now, and your PDF copy follows.</div>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>8</span></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <p class="kicker">Your side</p>
+  <h1>What happens at the desk after Confirm</h1>
+  <div class="steps">
+    <div class="card"><h2>Review</h2><p>The request appears in the Booking Queue with its documents. Each paper can be verified, or rejected with a reason — the client is told and sends a replacement in the same chat.</p></div>
+    <div class="arrow">→</div>
+    <div class="card amber"><h2>Ask the client</h2><p>"Request info" parks the request as <em>waiting for client</em> and messages them. Their reply — text or a file — brings it back to the queue with a "client responded" badge.</p></div>
+    <div class="arrow">→</div>
+    <div class="card navy"><h2>Confirm or reject</h2><p>Confirm opens the shipment and sends the client a confirmation and a second PDF, headed "Confirmed". Reject sends the reason and a way to reach the team.</p></div>
+  </div>
+  <p style="margin-top:5mm;color:#5a6a79">Every message to the client is queued and retried until it is delivered, and never sent twice. A booking is never lost because an email or a Telegram call failed.</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>9</span></div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <p class="kicker">Tracking</p>
+  <h1>Track my shipment</h1>
+  <div class="grid g2">
+    <div>
+      <ul>
+        <li>The client sends a chassis number or a booking reference — in a sentence, with a label, in Arabic, in any spacing.</li>
+        <li>The card shows status, vessel, current location, route, expected arrival and the last update — every value from MKY's records, or "Not available yet". Nothing is guessed.</li>
+        <li><strong>Refresh</strong> re-reads the records rather than repeating the last answer.</li>
+        <li>A booking that has been confirmed but not yet shipped says so, instead of showing empty fields.</li>
+        <li>A client sees <strong>only their own</strong> shipments. A reference that belongs to somebody else gets the same "not found" as a wrong one.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="chat client">Chassis: WDB96340310777421</div>
+      <div class="chat bot">🔎 Found it!
+📦 MKY-26025 — Mercedes-Benz Actros 1845
+Status: In transit
+Vessel: MSC Aurora
+Location: Mediterranean
+Route: Vilnius → Alexandria Port
+ETA: 2026-09-19
+[ 🔄 Refresh status ] [ 💬 Talk to an agent ]</div>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>10</span></div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <p class="kicker">A person</p>
+  <h1>Talk to an agent</h1>
+  <div class="grid g2">
+    <div>
+      <h2>In hours — 9 AM to 7 PM Cairo time</h2>
+      <p>Connected right away. The desk's number is shown, the request is logged for the team before the client has typed a word, and the assistant asks what they need. A number already on file is not asked for again.</p>
+      <h2 style="margin-top:5mm">After hours</h2>
+      <p>The assistant says when agents are back and asks whether it is urgent.</p>
+      <p><span class="pill stop">Urgent</span> the responsible person's direct number, and the ticket is opened marked URGENT at the top of the desk's list.</p>
+      <p><span class="pill wait">It can wait</span> the question is taken and the ticket waits for the morning.</p>
+    </div>
+    <div>
+      <div class="chat bot">🌙 Our agents are available from 9 AM to 7 PM Cairo time, and it is outside those hours now. I have logged your request — an agent will get back to you tomorrow from 9 AM.
+🚨 Is it urgent?
+[ 🚨 Yes, it is urgent ] [ 🕘 No, it can wait ]</div>
+      <div class="chat bot">☎️ If it cannot wait, you can reach our responsible person directly on +48 512 345 678, any time.
+And tell me what the emergency is about, so the team has it in front of them first thing.</div>
+      <p style="font-size:10.5pt;color:#8a4d0a">The number shown is a placeholder until MKY provides the real one.</p>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>11</span></div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <p class="kicker">Trust</p>
+  <h1>Rules the assistant never breaks</h1>
+  <div class="grid g2">
+    <div>
+      <div class="rule"><div class="no">1</div><p><strong>It never invents.</strong> No phone number, price, date or customs requirement is made up. If something is not configured, it says so.</p></div>
+      <div class="rule"><div class="no">2</div><p><strong>One chassis, one booking.</strong> A unit with a live booking cannot be booked again — the rule is enforced three times over, down to the database itself.</p></div>
+      <div class="rule"><div class="no">3</div><p><strong>Received is not verified.</strong> The assistant confirms a file arrived. Only your team declares it correct.</p></div>
+    </div>
+    <div>
+      <div class="rule"><div class="no">4</div><p><strong>Your own shipments only.</strong> A forwarded reference cannot be used to read another company's route or schedule.</p></div>
+      <div class="rule"><div class="no">5</div><p><strong>Decisions come from records.</strong> The AI reads a chassis out of a sentence and answers questions. Whether a booking may be made, what is missing, and what goes to Operations is decided from MKY's data — and tested, 237 times, without any AI in the loop.</p></div>
+      <div class="rule"><div class="no">6</div><p><strong>Every action is logged.</strong> Who did what, when — without document contents or secrets.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>12</span></div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <p class="kicker">Your side</p>
+  <h1>The Operations console</h1>
+  <table>
+    <tr><th>Screen</th><th>What it is for</th></tr>
+    <tr><td><strong>Dashboard</strong></td><td>Counts you can click: new, under review, waiting for client, overdue. The desk is never marked late for something the client owes.</td></tr>
+    <tr><td><strong>Booking Queue</strong></td><td>Every request with whose turn it is (us / client) and the next action. Open one: readiness ticklist, documents to verify or reject, messages to the client, internal notes, Confirm.</td></tr>
+    <tr><td><strong>Document Review</strong></td><td>Everything waiting to be checked, across all bookings.</td></tr>
+    <tr><td><strong>MRN Requests</strong></td><td>Applications MKY is making on a client's behalf. Record the MRN and the client is told.</td></tr>
+    <tr><td><strong>Client Requests</strong></td><td>Tickets from "Talk to an agent", with the number and what they said; urgent ones marked. Reply, or send and wait.</td></tr>
+    <tr><td><strong>Confirmed Bookings · Shipments</strong></td><td>What was confirmed and by whom; set vessel and ETA on a shipment and tick "tell the client".</td></tr>
+    <tr><td><strong>My Tasks</strong></td><td>Only what is assigned to you.</td></tr>
+  </table>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>13</span></div>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <p class="kicker">For discussion</p>
+  <h1>Does this match how MKY works?</h1>
+  <div class="grid g2">
+    <div>
+      <p class="q"><strong>1.</strong> Are the three steps in the right order — the person first, then the vehicle, then the booking?</p>
+      <p class="q"><strong>2.</strong> Documents: invoice, transport document and MRN. Should ACID or EUR.1 be required at booking time?</p>
+      <p class="q"><strong>3.</strong> When MKY obtains the MRN, what exactly is needed from the client? The assistant currently asks for a free description and raises a task.</p>
+      <p class="q"><strong>4.</strong> Desk hours: 9 AM to 7 PM, every day? Which days off? Whose direct number goes to urgent after-hours clients?</p>
+    </div>
+    <div>
+      <p class="q"><strong>5.</strong> General questions ("how long to Alexandria?") are answered by the AI from MKY's documents. Should they go to an agent instead?</p>
+      <p class="q"><strong>6.</strong> The five Egyptian ports — complete? Any European loading points to refuse?</p>
+      <p class="q"><strong>7.</strong> How long may a new request wait before it counts as overdue on the dashboard?</p>
+      <p class="q"><strong>8.</strong> Who is told about a new booking: which email inbox, which staff Telegram group?</p>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>14</span></div>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <p class="kicker">Next</p>
+  <h1>Next steps</h1>
+  <div class="grid g3">
+    <div class="card"><h2>Decisions from MKY</h2><p>The eight questions on the previous page. Most are settings the desk can change without a new release.</p></div>
+    <div class="card amber"><h2>Real data and numbers</h2><p>Replace the placeholder direct number, load real shipment data, connect the team's email and Telegram group.</p></div>
+    <div class="card navy"><h2>Hand-over</h2><p>A short session with the desk on the console, a run-through of the demo kit, and the go-live checklist.</p></div>
+  </div>
+  <p style="margin-top:6mm;color:#5a6a79">Everything shown here is running today and can be tried on the Telegram bot with the demo kits.</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant</span><span>15</span></div>
+</section>
+
+</body>
+</html>

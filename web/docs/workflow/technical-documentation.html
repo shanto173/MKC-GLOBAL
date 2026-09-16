@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MKY Forwarding — Booking Assistant: Technical Documentation</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: #17212b; font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.45; }
+  h1 { font-size: 24pt; color: #0f2a44; margin: 0 0 4mm; line-height: 1.15; }
+  h2 { font-size: 15pt; color: #0f2a44; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid #0e8f7e; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #0f2a44; margin: 5mm 0 2mm; page-break-after: avoid; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f1f4f7; padding: 0 1mm; border-radius: 1mm; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 7.9pt; line-height: 1.3; background: #f6f8fa; border: 1px solid #dde4ea; border-radius: 2mm; padding: 3mm 4mm; white-space: pre; overflow: hidden; page-break-inside: avoid; margin: 0 0 4mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 4mm; font-size: 9.5pt; page-break-inside: auto; }
+  th, td { text-align: left; padding: 1.6mm 2.5mm; border-bottom: 1px solid #dde4ea; vertical-align: top; }
+  th { background: #eef3f7; color: #0f2a44; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; }
+  tr { page-break-inside: avoid; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover h1 { font-size: 34pt; }
+  .cover .sub { font-size: 14pt; color: #2f3e4e; margin-bottom: 10mm; }
+  .cover table { width: auto; font-size: 10.5pt; }
+  .cover th { background: none; text-transform: none; letter-spacing: 0; font-size: 10.5pt; }
+  .kicker { font-size: 10pt; letter-spacing: .12em; text-transform: uppercase; color: #0e8f7e; font-weight: 600; margin-bottom: 3mm; }
+  .note { background: #fff7e8; border-left: 2mm solid #d9822b; padding: 2.5mm 4mm; margin: 0 0 4mm; }
+  .toc li { margin-bottom: .6mm; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <p class="kicker">MKY Forwarding · Booking Assistant</p>
+  <h1>Technical Documentation</h1>
+  <p class="sub">Architecture, services, data model, conversation engine, document pipeline, deployment and operations.</p>
+  <table>
+    <tr><th>Version</th><td>16 September 2026 · commit <code>3e12bcc</code></td></tr>
+    <tr><th>Repository</th><td>github.com/shanto173/MKC-GLOBAL · branch <code>main</code> · application in <code>web/</code></td></tr>
+    <tr><th>Production</th><td>https://mkc-global.vercel.app (Vercel, region Frankfurt)</td></tr>
+    <tr><th>Database</th><td>Supabase project <code>kverwgcnvnferjewvvyr</code> (Postgres, AWS eu-central-1 Frankfurt)</td></tr>
+    <tr><th>Tests</th><td>237 automated tests, no network, no API keys — <code>npm test</code></td></tr>
+  </table>
+</section>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li>Overview and architecture</li>
+  <li>Services and technology stack</li>
+  <li>Repository layout</li>
+  <li>Deployment: GitHub → Vercel</li>
+  <li>Configuration: environment variables and runtime settings</li>
+  <li>Database: tables, functions, views, storage</li>
+  <li>The conversation engine (state machine)</li>
+  <li>The booking flow in detail</li>
+  <li>The document pipeline</li>
+  <li>Submission, notifications and the outbox</li>
+  <li>Tracking</li>
+  <li>Talk to an agent, hours and tickets</li>
+  <li>The AI's role and limits</li>
+  <li>The Operations console and admin API</li>
+  <li>Security</li>
+  <li>Testing and scripts</li>
+  <li>Performance notes</li>
+  <li>Known limitations and open decisions</li>
+  <li>Change log, 16 September 2026</li>
+</ol>
+
+<h2>1. Overview and architecture</h2>
+<p>The assistant is a Telegram bot (with the same engine behind a website chat widget) for a freight forwarder importing used commercial vehicles into Egypt. It takes booking requests in three steps, collects and reads the customs papers, tracks shipments from the company's own data, and routes anything else to a person. One rule governs the design:</p>
+<div class="note"><strong>The model may read; it may not decide.</strong> A language model reads a chassis number out of a sentence, reads a scanned invoice, and answers questions from the knowledge base. Whether a vehicle may be booked, what is missing, whether a request goes to Operations, and what the client is told are decided by code from rows in Postgres — and are tested without any model in the loop.</div>
+<pre>
+Telegram ──► api/telegram.js ──► lib/flow/machine.js ──► lib/flow/{booking,tracking,contact}.js
+   (webhook)     │                     │                          │
+                 │                     │ handled: false           ├──► lib/bookings.js    ─┐
+Website ──► api/chat.js               ▼                          ├──► lib/documents.js    ├─► Supabase Postgres
+                              lib/agent.js  (the model)         ├──► lib/mrn.js          │   + Storage
+                                       │                          └──► lib/operations.js  ─┘
+                                       └──► track_shipment · search_knowledge
+                                            list_my_bookings · create_support_ticket
+
+Outbound: Telegram Bot API · Resend (email) · staff Telegram group · Pumble webhook (optional)
+Operations console: public/ops/ ──► api/admin/*  (ADMIN_SECRET header)
+</pre>
+<p>A message meets the deterministic state machine first. The machine handles commands, tapped buttons, files, shared contacts, and text that answers a question it asked. Anything else — a free question — it declines, and the model answers from the knowledge base without touching the flow's state.</p>
+
+<h2>2. Services and technology stack</h2>
+<table>
+  <tr><th>Layer</th><th>What</th><th>Notes</th></tr>
+  <tr><td>Runtime</td><td>Node.js ≥ 20, ES modules, no web framework</td><td>Plain <code>fetch</code> everywhere; the Telegram, OpenAI and Resend APIs are called directly.</td></tr>
+  <tr><td>Hosting</td><td>Vercel Serverless Functions (Hobby plan)</td><td>Region <code>fra1</code> (Frankfurt), 60 s max duration, 1024 MB. Hobby allows 12 functions per deployment; the project is at exactly 12, which is why <code>api/admin/ops.js</code> multiplexes four handlers behind rewrites in <code>vercel.json</code>.</td></tr>
+  <tr><td>Database</td><td>Supabase Postgres (AWS eu-central-1)</td><td>Accessed with the service-role key from the server only; Row Level Security is enabled on every table with no policies, so the public anon key reads nothing.</td></tr>
+  <tr><td>File storage</td><td>Supabase Storage, bucket <code>booking-docs</code></td><td>Every uploaded document, keyed by chat / client / booking.</td></tr>
+  <tr><td>Messaging</td><td>Telegram Bot API, webhook mode</td><td>Webhook at <code>/api/telegram</code>, verified with <code>X-Telegram-Bot-Api-Secret-Token</code>; subscribed to messages and <code>callback_query</code>.</td></tr>
+  <tr><td>Language model</td><td>OpenAI — <code>gpt-4.1</code> (conversation), <code>gpt-4.1-mini</code> (extraction, document reading, vision)</td><td><code>LLM_PROVIDER=anthropic</code> switches the conversation model to Claude. Embeddings for the knowledge base are always OpenAI <code>text-embedding-3-small</code>.</td></tr>
+  <tr><td>PDF reading</td><td><code>pdfjs-dist</code> (text layer), <code>@napi-rs/canvas</code> (rendering scans for vision)</td><td>Loaded lazily, only when a file arrives.</td></tr>
+  <tr><td>PDF writing</td><td><code>pdfkit</code> + <code>bidi-js</code></td><td>Bilingual booking request / confirmation PDFs, Arabic shaped correctly. Loaded lazily.</td></tr>
+  <tr><td>Email</td><td>Resend</td><td>Client copy (when an email is on file) and the Operations inbox, PDF attached.</td></tr>
+  <tr><td>Background work</td><td><code>@vercel/functions</code> <code>waitUntil</code></td><td>Keeps a function alive after it has answered Telegram, so files are read in parallel.</td></tr>
+  <tr><td>Source control / CI</td><td>GitHub (<code>shanto173/MKC-GLOBAL</code>) → Vercel Git integration</td><td>Every push to <code>main</code> builds and deploys production.</td></tr>
+  <tr><td>Migrations</td><td>Supabase CLI, <code>supabase/migrations/*.sql</code></td><td>Idempotent; <code>npm run db:push</code>.</td></tr>
+</table>
+
+<h2>3. Repository layout</h2>
+<pre>
+web/
+  api/
+    telegram.js        Telegram webhook: verify, claim, acknowledge, run the flow, deliver
+    chat.js            JSON endpoint for the website widget (same state machine)
+    health.js          config + database self-check; reports the deployed commit
+    status.js          public status
+    admin/bookings.js  the Operations queue: review, confirm, reject, ask the client
+    admin/ops.js       tasks, MRN, outbox drain, read-test (one function, four handlers)
+    admin/shipments.js · customers.js · tickets.js · users.js · label.js · setup.js
+  lib/
+    flow/              THE STATE MACHINE
+      machine.js         one place where every transition is chosen
+      states.js          every state, in one list, grouped by step
+      store.js           conversation_sessions: state that survives a restart
+      booking.js         steps 1–3, from the name to the yes
+      tracking.js        lookup with an ownership rule
+      contact.js         talk to an agent: hours, urgency, tickets
+      keyboards.js       inline keyboards and callback payloads (≤ 64 bytes)
+      messages.js        every word said to a client, Arabic and English
+      paste.js           readers for pasted tables and labelled rows
+      understand.js      pattern reader: what a message is, and what it names
+      nlu.js             the model as a second reader (extracts, never decides)
+      ready.js           is the schema there? degrade instead of dying
+    bookings.js        rules: duplicates, required fields, drafts, submission
+    documents.js       record, store, read, classify, cross-check; batches
+    phone.js           one stored shape for a phone number
+    clients.js         Telegram identity, the number on file, ownership
+    settings.js        bot_settings: business values changed without a deploy
+    background.js      deferred work, flushed before the function returns
+    outbox.js          nothing important is sent from inside a handler
+    operations.js      the work queue + OperationsNotifier
+    notify.js · pdf.js · storage.js · read-file.js · extract.js · mrn.js
+    agent.js · tools.js · llm.js · session.js · audit.js · pinned.js
+    admin/             the console's handlers (console.js, tasks.js, mrn.js, read-test.js)
+  public/index.html    website chat widget
+  public/ops/          the Operations console (index.html, app.js, workflow.js)
+  supabase/migrations/ the whole database, idempotent, CLI-pushable
+  scripts/             seed, ingest, webhook setup, demo documents, smoke tests
+  tests/               237 tests over an in-memory Postgres double
+  docs/                SETUP, ARCHITECTURE, DEMO-DATA, HOW-WE-BUILT-THIS, ROTATE-CREDENTIALS
+</pre>
+
+<h2>4. Deployment: GitHub → Vercel</h2>
+<ol>
+  <li>Changes are committed on <code>main</code> and pushed to <code>origin</code> (GitHub, <code>shanto173/MKC-GLOBAL</code>).</li>
+  <li>Vercel's Git integration builds the <code>web/</code> project and deploys it to production. A build takes about a minute.</li>
+  <li><code>GET /api/health</code> reports the deployed commit, the configured services, and whether every table and function the flow needs exists — the way to confirm a deploy landed.</li>
+  <li>Database changes ship as files in <code>supabase/migrations/</code> and are applied separately with <code>npm run db:push</code> (Supabase CLI, linked to the project) or by pasting the SQL into the Supabase SQL editor. Migrations are written to be safe to re-run.</li>
+  <li>If code that needs a new table reaches production before its migration, <code>lib/flow/ready.js</code> detects the missing table and the previous engine answers instead of every message failing. The moment the migration is applied, the flow switches on with no redeploy.</li>
+  <li>The Telegram webhook is registered once per deployment URL: <code>npm run setup:webhook -- https://mkc-global.vercel.app</code> (or <code>/api/admin/setup</code>). It subscribes to <code>callback_query</code>, without which inline buttons are dead.</li>
+</ol>
+<div class="note">Environment variables live in Vercel → Project → Settings → Environment Variables and take effect on the next deployment. Business values that must change without a deployment live in the <code>bot_settings</code> table (section 5) and are picked up within a minute.</div>
+
+<h2>5. Configuration</h2>
+<h3>5.1 Environment variables (<code>.env</code> locally, Vercel in production)</h3>
+<table>
+  <tr><th>Variable</th><th>Purpose</th></tr>
+  <tr><td><code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code></td><td>Database and storage. The service-role key bypasses RLS and never leaves the server.</td></tr>
+  <tr><td><code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_WEBHOOK_SECRET</code></td><td>Bot identity; the secret Telegram echoes on every webhook call.</td></tr>
+  <tr><td><code>LLM_PROVIDER</code>, <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code>, <code>ANTHROPIC_API_KEY</code>, <code>ANTHROPIC_MODEL</code>, <code>EMBEDDING_MODEL</code></td><td>Which model answers questions and reads documents; embeddings for knowledge search.</td></tr>
+  <tr><td><code>COMPANY_NAME</code>, <code>COMPANY_EMAIL</code>, <code>COMPANY_PHONE</code>, <code>REFERENCE_PREFIX</code></td><td>Branding on PDFs and references (<code>MKY-BKG-…</code>, <code>MKY-TKT-…</code>).</td></tr>
+  <tr><td><code>OPERATIONS_PHONE</code>, <code>DIRECT_PHONE</code></td><td>The desk's number; the after-hours direct line. Both overridden by <code>bot_settings</code>. The <code>.env.example</code> placeholder is never read out.</td></tr>
+  <tr><td><code>ADMIN_SECRET</code></td><td>Protects <code>/api/admin/*</code>; travels in a header, never in a URL.</td></tr>
+  <tr><td><code>RESEND_API_KEY</code>, <code>MAIL_FROM</code>, <code>OPS_EMAIL</code></td><td>Booking emails.</td></tr>
+  <tr><td><code>STAFF_CHAT_ID</code></td><td>Telegram group that receives each new booking PDF.</td></tr>
+  <tr><td><code>BOOKING_ENGINE</code></td><td><code>state_machine</code> (default). <code>llm</code> restores the earlier model-driven booking as a rollback.</td></tr>
+  <tr><td><code>CRON_SECRET</code>, <code>PUMBLE_ENABLED</code>, <code>PUMBLE_WEBHOOK_URL</code>, <code>APP_BASE_URL</code>, <code>BOOKING_FORM_URL</code>, <code>BOT_PROMPT_VERSION</code></td><td>Outbox cron auth, optional chat notifications, CLI base URL, prompt traceability.</td></tr>
+</table>
+
+<h3>5.2 Runtime settings (<code>bot_settings</code> table, key → JSON value)</h3>
+<table>
+  <tr><th>Key</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>required_booking_documents</code></td><td><code>["invoice","brief","mrn"]</code></td><td>What a client must send when they hold the MRN.</td></tr>
+  <tr><td><code>required_booking_documents_mky_mrn</code></td><td><code>["invoice","brief"]</code></td><td>Same, when MKY obtains the MRN.</td></tr>
+  <tr><td><code>required_mrn_documents</code></td><td><code>[]</code></td><td><strong>Awaiting MKY.</strong> What MKY needs to apply for an MRN. While empty the bot collects a description and raises a task.</td></tr>
+  <tr><td><code>acid_required</code></td><td><code>false</code></td><td><strong>Awaiting MKY.</strong> Whether ACID is required at booking time.</td></tr>
+  <tr><td><code>allow_submit_while_mrn_pending</code></td><td><code>true</code></td><td>Whether a request may reach Operations before the MRN is issued.</td></tr>
+  <tr><td><code>allowed_file_types</code>, <code>max_upload_bytes</code></td><td>PDF, JPEG, PNG, WebP, HEIC · 20 MB</td><td>Upload validation, before the bytes are fetched.</td></tr>
+  <tr><td><code>draft_expiry_hours</code></td><td><code>72</code></td><td>An untouched draft is expired, not offered back.</td></tr>
+  <tr><td><code>operations_phone</code>, <code>operations_email</code>, <code>human_support_hours</code></td><td>null · null · "Every day, 09:00-19:00 Cairo time"</td><td>Shown to a client in hours.</td></tr>
+  <tr><td><code>direct_phone</code></td><td>currently a <strong>placeholder</strong>, +48 512 345 678</td><td>Given to an after-hours client who says it is urgent. Falls back to <code>DIRECT_PHONE</code>, then the desk's number; with none, nothing is read out.</td></tr>
+  <tr><td><code>support_hours_start</code>, <code>support_hours_end</code>, <code>support_timezone</code></td><td>9 · 19 · Africa/Cairo</td><td>When a person answers. Read on every request; changes apply within a minute.</td></tr>
+  <tr><td><code>allow_unowned_shipment_tracking</code></td><td><code>false</code></td><td>Demo only: lets ownerless seed shipments be tracked by anyone.</td></tr>
+  <tr><td><code>sla_new_request_hours</code>, <code>sla_review_hours</code>, <code>sla_mrn_hours</code></td><td>2 · 4 · 8 (placeholders)</td><td>When the console marks work overdue. To confirm with MKY.</td></tr>
+</table>
+
+<h2>6. Database</h2>
+<h3>6.1 Tables</h3>
+<table>
+  <tr><th>Table</th><th>Holds</th></tr>
+  <tr><td><code>clients</code></td><td>One row per person: Telegram user id, chat id, display name, <code>phone</code>, <code>email</code>, blocked flag.</td></tr>
+  <tr><td><code>bookings</code></td><td>Booking requests: reference, status (draft → pending_review → under_review → needs_client_action → confirmed | rejected | cancelled | expired), customer name and contact, chassis (<code>vin</code>, generated <code>vin_norm</code>), make/model, ports, MRN choice, assignment, review timestamps, ops notes, edit history, priority. A partial unique index forbids two live bookings for one chassis; a check constraint forbids a submitted booking without its basics.</td></tr>
+  <tr><td><code>booking_documents</code></td><td>Every uploaded file: type (invoice, brief, mrn, acid, eur1, other), chassis read from it, storage path, extracted fields, reading state (<code>extracted.pending</code> while being read), status (received → pending_verification → verified | rejected | replacement_requested), Telegram file ids, uploader.</td></tr>
+  <tr><td><code>vehicles</code></td><td>Units MKY already knows (make, model) by chassis.</td></tr>
+  <tr><td><code>shipments</code>, <code>shipment_events</code></td><td>Live shipments (status, vessel, ETA, ACID, B/L, container, route) and their event history; opened from a confirmed booking.</td></tr>
+  <tr><td><code>mrn_requests</code></td><td>MRN applications MKY makes on a client's behalf, with what the client supplied and what is missing.</td></tr>
+  <tr><td><code>operations_tasks</code></td><td>The desk's work queue: new booking, MRN request, client callback, client responded; idempotency key, priority, assignment.</td></tr>
+  <tr><td><code>support_tickets</code></td><td>Tickets from "Talk to an agent": department, contact, summary (prefixed URGENT when marked so), resolution.</td></tr>
+  <tr><td><code>notification_outbox</code></td><td>Every message that must reach a client, with an idempotency key, retry schedule and delivery state. Also records "this batch of files was answered" (event <code>document_reply</code>).</td></tr>
+  <tr><td><code>conversation_sessions</code></td><td>Where each chat is: current state, active flow, active booking, flow bookkeeping (<code>context</code>).</td></tr>
+  <tr><td><code>conversations</code></td><td>Transcript memory for the model's question answering.</td></tr>
+  <tr><td><code>processed_updates</code></td><td>Telegram update ids, claimed atomically; retries do no work twice.</td></tr>
+  <tr><td><code>audit_logs</code></td><td>Who did what to which record, redacted of secrets and document bodies.</td></tr>
+  <tr><td><code>bot_settings</code></td><td>Runtime settings (section 5.2).</td></tr>
+  <tr><td><code>documents</code></td><td>Knowledge base chunks with embeddings (pgvector) for question answering.</td></tr>
+  <tr><td><code>ops_users</code>, <code>internal_notes</code></td><td>Console users; internal notes on bookings.</td></tr>
+</table>
+<h3>6.2 Functions and views</h3>
+<table>
+  <tr><th>Object</th><th>Role</th></tr>
+  <tr><td><code>claim_telegram_update(update_id, chat_id)</code></td><td>First caller wins; a crashed worker's claim is reclaimable after two minutes.</td></tr>
+  <tr><td><code>submit_booking_request(booking_ref, chat_id, task_ref)</code></td><td>Ownership check, duplicate check, status change and Operations task in one transaction. A second caller is told <code>already: true</code>.</td></tr>
+  <tr><td><code>next_shipment_id(prefix)</code></td><td>Sequential shipment references when a booking is confirmed.</td></tr>
+  <tr><td><code>find_shipments(q)</code></td><td>Shipment search by reference, ACID, B/L, container or chassis.</td></tr>
+  <tr><td><code>match_documents</code>, <code>search_documents_fts</code></td><td>Vector search over the knowledge base, with a full-text fallback when no embedding key is configured.</td></tr>
+  <tr><td><code>touch_booking_status_changed</code>, <code>touch_ticket_status_changed</code></td><td>Triggers stamping status changes for SLA tracking.</td></tr>
+  <tr><td>views <code>booking_queue</code>, <code>client_request_queue</code></td><td>The console's main screens, assembled in Postgres and paged.</td></tr>
+</table>
+
+<h2 class="pb">7. The conversation engine</h2>
+<p><code>lib/flow/machine.js</code> is the one place a transition is chosen, always from (current state, event). Handlers return <code>{ messages, patch }</code> and send nothing themselves; the machine applies the patch to the session and hands the messages to the transport. That is what makes the whole conversation testable without Telegram.</p>
+<h3>7.1 Order of dispatch</h3>
+<ol>
+  <li><strong>Commands</strong> from any state: <code>/start</code>, <code>/menu</code>, <code>/book</code>, <code>/track</code>, <code>/cancel</code>, <code>/help</code>, <code>/reset</code>.</li>
+  <li><strong>Tapped buttons</strong> (callback payloads such as <code>bk:confirm</code>, <code>ct:urgent:yes</code>). A payload says which button; the machine decides whether that is a legal move from the actual state — stale cards are refused.</li>
+  <li><strong>A shared phone number</strong>: the answer to step 1 when that was asked; kept and the open question re-asked during a booking; otherwise the number for a ticket.</li>
+  <li><strong>A caption</strong> (details written on a file), read before the file itself.</li>
+  <li><strong>A file</strong>: attached to the draft in progress, else to the request already with the desk.</li>
+  <li><strong>Text</strong>: an answer if a question is open (<code>AWAITING_TEXT</code> states); a numbered choice standing in for a button; a phrase that starts a flow; otherwise a question for the model.</li>
+</ol>
+<h3>7.2 States</h3>
+<pre>
+MAIN_MENU
+Booking, step 1:   BOOK_DRAFT_RESUME · BOOK_CLIENT_NAME · BOOK_CLIENT_PHONE
+Booking, step 2:   BOOK_VIN · BOOK_MAKE · BOOK_POL · BOOK_DESTINATION · BOOK_MRN_CHOICE
+                   BOOK_DOCUMENTS · BOOK_DOCUMENT_CLASSIFY · BOOK_MRN_SUPPORTING_INFO
+Booking, step 3:   BOOK_FINAL_CONFIRMATION · BOOK_EDIT_MENU · BOOK_CANCEL_CONFIRM · BOOK_SUBMITTED
+                   BOOK_EDIT_VIN · BOOK_EDIT_MAKE · BOOK_EDIT_CLIENT_NAME · BOOK_EDIT_CLIENT_PHONE
+                   BOOK_EDIT_POL · BOOK_EDIT_DESTINATION
+Tracking:          TRACK_IDENTIFIER · TRACK_RESULTS
+Contact:           CONTACT_URGENCY · CONTACT_TICKET_DETAILS
+                   (older routes, reachable from old cards: CONTACT_MENU, CONTACT_BOOKING_IDENTIFIER,
+                    CONTACT_TRACKING_IDENTIFIER, CONTACT_DOCUMENT_MENU, CONTACT_DOCUMENT_REQUEST)
+</pre>
+<p>Session state lives in <code>conversation_sessions</code>, never in memory: two serverless invocations a second apart are different processes. A state written by an older deployment that the code no longer knows falls back to the menu. A turn that says nothing and changes nothing writes nothing back.</p>
+<h3>7.3 Both channels</h3>
+<p>Telegram draws inline keyboards. The website widget receives the same choices as <code>options</code> and draws its own buttons; either way a client may type the number of a choice, except while a question is open, when a number is the answer to it.</p>
+
+<h2>8. The booking flow in detail</h2>
+<pre>
+                 ┌───────────────────┐
+   /book  ──────►│ BOOK_CLIENT_NAME  │   step 1 · who is booking
+                 └─────────┬─────────┘
+                           ▼
+                 ┌───────────────────┐   Telegram's "Share my number" button,
+                 │ BOOK_CLIENT_PHONE │   a typed number, or "yes" to the one on
+                 └─────────┬─────────┘   file - one stored shape (lib/phone.js)
+                           ▼
+                 ┌──────────────┐
+                 │  BOOK_VIN    │         step 2 · the vehicle
+                 └──────┬───────┘
+                        │ lookup_vehicle verdict
+        ┌───────────────┼───────────────────┐
+   already_booked   known_not_booked      new
+        ▼               └─────────┬─────────┘
+  reference + route               ▼
+  STOP, no new request    BOOK_MAKE → BOOK_POL → BOOK_DESTINATION → BOOK_MRN_CHOICE
+                                  "I have one" ─┬─ "MKY issues it" (mrn_requests row + task)
+                                                ▼
+                                         BOOK_DOCUMENTS  (until nothing is missing)
+                                                ▼
+                                  BOOK_FINAL_CONFIRMATION ◄── Edit (VIN change re-checks)
+                                                ▼ Confirm
+                                          BOOK_SUBMITTED
+                              reference in the reply; PDF via the outbox
+</pre>
+<h3>8.1 Step 1 — who is booking</h3>
+<ul>
+  <li>Order of the basics (<code>BASIC_REQUIRED</code> in <code>lib/bookings.js</code>): <code>customer_name</code>, <code>customer_contact</code>, <code>vin</code>, <code>make</code>, <code>origin_port</code>, <code>destination_port</code>. <code>missingBasics()</code> drives which question is next; the contact counts only when it is a dialable number, never the chat's own routing address.</li>
+  <li>Phone numbers are normalised to one shape by <code>lib/phone.js</code>: Arabic-Indic digits converted, spaces and punctuation removed, <code>00</code> → <code>+</code>, 8–15 digits. A shared Telegram contact gets its <code>+</code> restored.</li>
+  <li>The number is stored on the booking (<code>customer_contact</code>) and on the client (<code>clients.phone</code>), so the next booking offers it back and the next ticket does not ask.</li>
+  <li>A message carrying both name and number ("Ariful and my number is +49 …") is read for both: the contact is removed along with the words around it, and what remains, if it fits the question, is the answer.</li>
+</ul>
+<h3>8.2 Step 2 — the vehicle</h3>
+<ul>
+  <li><code>lookupVehicle()</code> queries <code>vehicles</code>, live <code>bookings</code> and <code>shipments</code> by <code>vin_norm</code> and returns <code>new</code>, <code>known_not_booked</code> or <code>already_booked</code>. The check runs wherever a chassis appears — the chassis question, a pasted block at the name step, a sentence at the make step, a caption on a file — through one function, <code>settleVin()</code>. A chassis is never written down unchecked.</li>
+  <li>Duplicate prevention is enforced three times: the flow refuses; <code>submit_booking_request()</code> re-checks inside the transaction; the partial unique index <code>bookings_live_vin_unique</code> makes it impossible at the database level.</li>
+  <li>The destination must match one of the five Egyptian ports (aliases in Arabic and English; "Damietta port" is not Port Said). Makes are canonicalised and split from models; Arabic makes and cities are transliterated for the paperwork; a client's company name is left as written.</li>
+</ul>
+<h3>8.3 Reading what people actually type</h3>
+<p>Two readers, in order. <code>lib/flow/paste.js</code> and <code>lib/flow/understand.js</code> hold fixed patterns: labelled rows and pasted tables in any copy shape (colons, pipes, backticks, row numbers glued on), a chassis anywhere in a sentence, "from X to Y", a make and model mid-sentence, "client …", phone numbers and emails, questions, refusals, requests to be elsewhere. Only when the patterns leave something missing and the message is long enough to be saying more does <code>lib/flow/nlu.js</code> ask the model to extract candidate fields — and every candidate goes through the same validation as a typed value. A wrong model answer costs at most one clarifying question, never a wrong port on a declaration.</p>
+<h3>8.4 Drafts</h3>
+<ul>
+  <li>One draft per chat. A Book tap with a meaningful draft open offers Continue / Start over; a blank draft is reused silently; a draft untouched for <code>draft_expiry_hours</code> is marked expired.</li>
+  <li>Start over and Cancel drop every draft in the chat, so an older abandoned attempt cannot resurface as "an unfinished request".</li>
+  <li>Every answer is written to the draft as it arrives; a restart, a redeploy or a second worker continues the same booking.</li>
+</ul>
+<h3>8.5 Step 3 — the card and the yes</h3>
+<p>The card is built from the row, never composed by a model. Confirm re-checks the basics and the documents, then calls <code>submit_booking_request()</code>. The reply carries the booking reference; the PDF copy is queued in the outbox with its own idempotency key and delivered right after (section 10). The reference stays on the session so a second tap on the same card says "already with Operations" instead of apologising for a fault.</p>
+
+<h2 class="pb">9. The document pipeline</h2>
+<pre>
+ Telegram file update
+   │  validate type/size (settings) → beginDocument(): row inserted, extracted.pending = true
+   │  answer Telegram 200 immediately; the rest runs under waitUntil
+   ├─ caption? → runFlow({kind:'caption'}) reads it onto the draft (patterns, then model)
+   ├─ downloadFile → completeDocument():
+   │     storeDocument (Storage) → readDocument (pdf.js text, or vision on a scan/photo)
+   │     → extractDocument (type, chassis, numbers) → row updated, pending = false
+   │     → attachToOpenBooking() by chassis when the row was not already attached
+   ├─ media album? wait 1.5 s for siblings to record themselves
+   ├─ any sibling still reading? → say nothing (the last to finish speaks for all)
+   ├─ claimReply(chat, batch ids): unique row in notification_outbox — one speaker per batch
+   └─ runFlow({kind:'document', batch})
+         → "Received: …" + "Noted from your message: …" + the next question
+</pre>
+<ul>
+  <li><strong>Why answer Telegram first.</strong> Telegram delivers a chat's updates one at a time and waits for each answer before sending the next. Reading a file before answering made three files sent together read one after another, each getting its own reply. Recording the file and answering at once lets the three arrive within a second and be read in parallel.</li>
+  <li><strong>One reply per batch.</strong> Readers that finish together all see "no sibling still reading", so the reply is claimed through the unique index on <code>notification_outbox.idempotency_key</code>; only the winner speaks, and the reply lists every file in the batch and every detail the caption supplied.</li>
+  <li><strong>After a file</strong> the flow asks whatever is missing first — a basic, the MRN choice, more papers — and shows the card when nothing is. A client who sends an MRN is not asked whether they have one.</li>
+  <li><strong>Papers for a request already with the desk</strong> (submitted, under review, waiting on the client, confirmed) are filed against it and acknowledged with its reference. Any inbound message from a client the desk is waiting on flips the request back to <em>under review</em> and raises a "client responded" task.</li>
+  <li><strong>Wrong vehicle.</strong> A document whose chassis differs from the booking's is neither received nor missing: it is reported once per wrong chassis, before anything else.</li>
+  <li><strong>Received is not verified.</strong> The bot may say received. Only Operations moves a document to verified, rejected or replacement requested.</li>
+</ul>
+
+<h2>10. Submission, notifications and the outbox</h2>
+<pre>
+ something happens ──► notification_outbox row ──► drain ──► Telegram / email
+ (one transaction)      (idempotency_key)           ├─ inline, right after the trigger
+                                                    └─ /api/cron/outbox by hand or by cron
+</pre>
+<ul>
+  <li>Retries at 1, 5, 15, 60, 240 and 720 minutes, then <code>dead</code>. A client who blocked the bot is marked dead at once. <code>npm run outbox -- --list</code> shows the queue; <code>npm run outbox</code> sends it.</li>
+  <li>On Confirm: the request PDF to the client (outbox), the Operations email with the PDF (Resend), the staff Telegram group ping, an Operations task, and optionally a Pumble message. None of these can affect whether the booking succeeded.</li>
+  <li>On the desk's decisions: <code>booking_confirmed</code> (+ confirmation PDF and shipment reference), <code>booking_rejected</code> with the reason, <code>missing_information_requested</code>, <code>mrn_issued</code>, free-form <code>operations_message</code>.</li>
+  <li>A pinned status card (one per chat, edited in place) follows open bookings and shipments and is removed when nothing is in flight.</li>
+</ul>
+
+<h2>11. Tracking</h2>
+<p><code>lib/flow/tracking.js</code> extracts every candidate identifier from the message (bare, labelled, inside a sentence, an <code>MKY-…</code> reference) and matches each exactly against <code>shipments</code> (id, booking reference, ACID, B/L, container, <code>vin_norm</code>). A shipment is visible when the chat created it or the client behind the chat owns the booking; not-found and not-yours return the same answer. Ownerless seed rows are visible only with <code>allow_unowned_shipment_tracking</code>. Refresh re-queries by the reference carried in the button.</p>
+
+<h2>12. Talk to an agent, hours and tickets</h2>
+<ul>
+  <li><code>supportHours()</code> (<code>lib/settings.js</code>) reads <code>support_hours_start</code>/<code>_end</code>/<code>_timezone</code> and decides open or closed on an injectable clock, so the after-hours path is tested at fixed times.</li>
+  <li><strong>In hours:</strong> a <code>client_callback</code> task is logged at once; the desk's details are shown; the client is asked what they need. A number on file (<code>clients.phone</code>, else the last booking) is used, not asked for.</li>
+  <li><strong>After hours:</strong> the closing message and "Is it urgent?" (state <code>CONTACT_URGENCY</code>). Yes → the direct line if configured, else "flagged as urgent"; the ticket summary is prefixed <code>URGENT:</code> and the task is high priority; the closing message repeats the number. No → the question, and when the desk is back. A typed answer is understood, and marked urgent when it says "urgent" or "emergency".</li>
+  <li>A ticket needs a problem and a way to reach the client; they arrive in either order, and a client who declines to give a number is reachable through the chat. Tickets land in <code>support_tickets</code> and the console's Client Requests.</li>
+</ul>
+
+<h2>13. The AI's role and limits</h2>
+<table>
+  <tr><th>Where the model is used</th><th>Guard</th></tr>
+  <tr><td>Answering free questions from the knowledge base (<code>lib/agent.js</code>, tools <code>track_shipment</code>, <code>search_knowledge</code>, <code>list_my_bookings</code>, <code>create_support_ticket</code>)</td><td>It has no booking tools: <code>create_booking</code> and friends are filtered out of its tool list while the state machine owns booking. A tool never offered cannot be called.</td></tr>
+  <tr><td>Extracting fields from a sentence the patterns could not read (<code>lib/flow/nlu.js</code>)</td><td>Runs only when something is still missing; six-second timeout; every field re-validated (chassis shape, one of five ports, length limits).</td></tr>
+  <tr><td>Reading documents: text layer via pdf.js, scans and photos via vision (<code>lib/read-file.js</code>, <code>lib/extract.js</code>)</td><td>The reader's confident type wins over a hint; an uncertain file is classified by the client, never guessed.</td></tr>
+  <tr><td>Knowledge base ingestion (<code>scripts/ingest.mjs</code>)</td><td>Embeddings over MKY's own PDF/Excel; full-text fallback without an embedding key.</td></tr>
+</table>
+
+<h2>14. The Operations console and admin API</h2>
+<p>The console at <code>/ops/</code> (and the earlier <code>/ops.html</code>) signs in with a name from <code>ops_users</code> and <code>ADMIN_SECRET</code>, sent as a header. Screens: Dashboard, Booking Queue (whose turn, next action, readiness ticklist, documents, messages, internal notes), Document Review, MRN Requests, Client Requests, Confirmed Bookings, Shipments, My Tasks. Actions: take / put back / done on tasks; verify, reject with reason, replacement request on documents; ask the client (parks the request as waiting for client); confirm (opens the shipment, tells the client with a PDF); reject with reason; record an MRN; set vessel / ETA and tell the client; resolve or reopen tickets; print a booking label PDF.</p>
+<table>
+  <tr><th>Route</th><th>Purpose</th></tr>
+  <tr><td><code>POST /api/telegram</code></td><td>Telegram webhook.</td></tr>
+  <tr><td><code>POST /api/chat</code></td><td>Website widget: <code>{ sessionId, message | action }</code> → <code>{ reply, options, state }</code>. Public; rate-limit before advertising.</td></tr>
+  <tr><td><code>GET /api/health</code>, <code>GET /api/status</code></td><td>Self-check with deployed commit; public status.</td></tr>
+  <tr><td><code>/api/admin/bookings</code>, <code>shipments</code>, <code>customers</code>, <code>tickets</code>, <code>users</code>, <code>label</code>, <code>setup</code></td><td>The console's data and actions; webhook registration.</td></tr>
+  <tr><td><code>/api/admin/ops?resource=tasks|mrn|read-test|outbox</code></td><td>Four handlers in one function; <code>/api/admin/tasks</code>, <code>/mrn</code>, <code>/read-test</code>, <code>/api/cron/outbox</code> are rewrites to it.</td></tr>
+</table>
+
+<h2>15. Security</h2>
+<ul>
+  <li>The service-role key is server-only; RLS is on with no policies, so a leaked anon key reads nothing.</li>
+  <li>The webhook verifies Telegram's secret token; every update is claimed atomically; every callback payload is untrusted and checked against the real state.</li>
+  <li>Ownership rules on bookings and shipments; not-found and not-yours are indistinguishable.</li>
+  <li>The audit log redacts tokens, secrets, keys, file contents and anything over 500 characters.</li>
+  <li>The bot never reads out an unconfigured or placeholder phone number, and never invents a customs requirement.</li>
+  <li><code>docs/ROTATE-CREDENTIALS.md</code> and <code>npm run rotate</code> cover rotating the bot token and keys.</li>
+</ul>
+
+<h2>16. Testing and scripts</h2>
+<p><code>npm test</code> runs 237 tests with <code>node --test</code> against <code>tests/helpers/fake-db.mjs</code>, an in-memory PostgREST double that is deliberately strict about the two things the concurrency guards are built from: unique violations raise <code>23505</code>, and a conditional update that matches nothing returns nothing. The suites: <code>flow.test.mjs</code> (the whole conversation, both languages, pastes, captions, batches, drafts, hours), <code>operations.test.mjs</code>, <code>extract.test.mjs</code>, <code>console.test.mjs</code>, <code>pinned.test.mjs</code>.</p>
+<table>
+  <tr><th>Command</th><th>Does</th></tr>
+  <tr><td><code>npm run db:push</code> · <code>db:link</code></td><td>Apply migrations / link the Supabase project.</td></tr>
+  <tr><td><code>npm run setup:webhook -- &lt;url&gt;</code></td><td>Register the Telegram webhook (with <code>callback_query</code>).</td></tr>
+  <tr><td><code>npm run seed</code> · <code>ingest</code> · <code>gen:data</code></td><td>Load shipments from Excel; build the knowledge base; regenerate demo data.</td></tr>
+  <tr><td><code>npm run testdocs -- &lt;CHASSIS&gt; "&lt;CLIENT&gt;" &lt;MAKE&gt; "&lt;MODEL&gt;" &lt;CITY&gt; &lt;PORT&gt; &lt;PREFIX&gt;</code></td><td>Generate a consistent kit of demo PDFs (invoice, CMR, MRN, ACID, wrong-chassis invoice).</td></tr>
+  <tr><td><code>npm run outbox [-- --list]</code></td><td>Send or list queued notifications.</td></tr>
+  <tr><td><code>npm run smoke</code> · <code>chatid</code> · <code>test:pdf</code> · <code>guide</code></td><td>Talk to the assistant from the terminal; find the staff group id; render a sample PDF; build the client guide PDF.</td></tr>
+</table>
+
+<h2>17. Performance notes</h2>
+<ul>
+  <li>The function runs in Frankfurt next to the database; from the default Washington region every database call crossed the Atlantic and a tap made eight of them.</li>
+  <li>Nothing that does not change the reply — the button acknowledgement, the typing indicator, the audit row, the pinned card — is waited for before the reply goes out. <code>lib/background.js</code> holds that work and the transport flushes it before returning, because a promise still in flight when a serverless function answers may never complete.</li>
+  <li>The client upsert and the "client responded" check run alongside the update claim; the draft sweep on the Book tap is gone; the assistant and the PDF libraries load only when needed.</li>
+  <li>Settings and the schema probe are cached per warm instance for a minute. The first request after a few idle minutes still pays Vercel's cold start.</li>
+</ul>
+
+<h2>18. Known limitations and open decisions</h2>
+<ul>
+  <li><strong>Decisions awaited from MKY:</strong> <code>required_mrn_documents</code>, <code>acid_required</code>, the real direct number, desk days off, SLA hours, whether free questions should go to an agent rather than the AI.</li>
+  <li>Hobby plan: cold starts; no cron more frequent than daily (queued messages go out on the next client message or desk action); twelve functions.</li>
+  <li><code>/api/chat</code> is public and spends model credits; add a captcha, login or rate limiting before advertising it.</li>
+  <li>Two files that finish reading within the same few milliseconds race for the reply claim; the loser is silent, so at worst one reply — never two.</li>
+  <li>Migration <code>20260916120000_three_step_booking.sql</code> seeds the hours and direct-number settings; the same rows were written to production directly and the migration is safe to apply later.</li>
+</ul>
+
+<h2>19. Change log — 16 September 2026</h2>
+<table>
+  <tr><th>Commit</th><th>Change</th></tr>
+  <tr><td><code>d06ca97</code></td><td>The booking in three steps (name and number first), the chassis check wherever the chassis appears, "Talk to an agent" with after-hours message, the confirmation no longer sent twice, first webhook concurrency work.</td></tr>
+  <tr><td><code>dc0a7ba</code></td><td>Function moved to Frankfurt; background work registry; caption reading; one reply for several files; step-2 invitation to send everything at once.</td></tr>
+  <tr><td><code>3dfb674</code></td><td>Name and number in one message; "Ariful is my name" stored as the name; Arabic-aware word boundaries.</td></tr>
+  <tr><td><code>0caeea8</code></td><td>Files answered before they are read (<code>waitUntil</code>), read in parallel; pattern readers for "X to Y", makes and clients mid-sentence; the model reads the rest when something is missing.</td></tr>
+  <tr><td><code>74d708b</code></td><td>One reply per batch through a claimed slot; dangling words trimmed around a contact.</td></tr>
+  <tr><td><code>62a5628</code></td><td>"Reading it now" removed; what the message said read back with the files.</td></tr>
+  <tr><td><code>56469d8</code></td><td>Start over and Cancel clear every leftover draft; blank drafts reused; draft expiry applied.</td></tr>
+  <tr><td><code>ba2e458</code></td><td>Papers for a request already with the desk acknowledged with its reference.</td></tr>
+  <tr><td><code>3e12bcc</code></td><td>After hours: "Is it urgent?" before the direct line; urgent tickets marked; prompts reworded.</td></tr>
+</table>
+
+</body>
+</html>
