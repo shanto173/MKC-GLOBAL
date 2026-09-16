@@ -242,7 +242,30 @@ export function splitMakeModel(value) {
  */
 
 /** Openers people put in front of an answer, stripped repeatedly. */
-const LEAD_IN = /^\s*(?:here\s+(?:is|are)|this\s+is|that\s+is|it\s*'?s|its|please|pls|ok(?:ay)?|yes|so|and|the|my|our|we|i|am|is|are|use|put|write|send(?:ing)?|sure|تمام|ماشي|طبعا|هو|هي)\b[\s,:;.-]*/i;
+// The boundary at the end is a lookahead for a letter in any script, not \b:
+// JavaScript's \b only knows Latin letters, so it never matches beside Arabic
+// text and "تمام عارف" kept its "تمام".
+const LEAD_IN = /^\s*(?:here\s+(?:is|are)|this\s+is|that\s+is|it\s*'?s|its|i\s*'?\s*m|please|pls|ok(?:ay)?|yes|so|and|the|my|our|we|i|am|is|are|use|put|write|send(?:ing)?|sure|تمام|ماشي|طبعا|هو|هي|أنا|انا|معاك|معاكم)(?![\p{L}\p{N}])[\s,:;.-]*/iu;
+
+/**
+ * The field named AFTER the value - "Ariful is my name", "Mercedes is the
+ * make", "عارف اسمي" - and the small words a person adds to a name: "Ariful
+ * here". Stripped from the end, the way LEAD_IN strips from the front.
+ *
+ * The field word alone is not enough to strip: "Cairo Trading Company" ends in
+ * a word for the client, and it is the client's name. It has to be introduced
+ * - "is my", "is the", "my" - to be a label rather than part of the value.
+ */
+function trailingLabel(word) {
+  return new RegExp(
+    '\\s+(?:(?:is|are|\'s)\\s+(?:my|our|the)?\\s*|(?:my|our)\\s+|(?:هو|ده|دي)\\s+)(?:' + word.source + ')\\s*[.!،]*$',
+    'i',
+  );
+}
+
+const TRAILING_TALK = {
+  customer_name: /\s+(?:here|speaking|talking)\s*[.!]*$|\s+(?:اسمي|هنا)\s*$/i,
+};
 
 /**
  * The word for the field itself, e.g. "chassis number is …".
@@ -343,10 +366,15 @@ function tidy(text, field) {
     const before = s;
     s = s.replace(LEAD_IN, '');
     if (word) {
-      // "make is X", "make: X", "make = X", "make X"
-      s = s.replace(new RegExp(`^${word.source}\s*(?:is|are|=|:)?[\s,:;.-]*`, 'i'), '');
+      // "make is X", "make: X", "make = X", "make X". Built from a string, not
+      // a template literal: `\s` inside a template is not an escape and
+      // silently becomes a bare "s".
+      s = s.replace(new RegExp('^' + word.source + '\\s*(?:is|are|=|:)?[\\s,:;.-]*', 'i'), '');
+      // "X is my make", "X is the client name"
+      s = s.replace(trailingLabel(word), '');
     }
-    s = s.replace(/^[\s,:;.\-–—]+/, '');
+    if (TRAILING_TALK[field]) s = s.replace(TRAILING_TALK[field], '');
+    s = s.replace(/^[\s,:;.\-–—]+/, '').replace(/[\s,:;.\-–—]+$/, '');
     if (s === before) break;
   }
 

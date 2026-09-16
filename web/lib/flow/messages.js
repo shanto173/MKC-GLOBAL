@@ -94,13 +94,13 @@ export const M = {
   // Step 2 opens with the choice MKY wants the client to have: everything in
   // one message with the papers attached, or one question at a time. One
   // message, ending in the first question.
-  detailsCompleteAskVin: (name) => both(
-    `✅ تمام${name ? ` يا ${name}` : ''}.\n\n` +
+  detailsCompleteAskVin: (name, phone = null) => both(
+    `✅ تمام${name ? ` يا ${name}` : ''}${phone ? `، وسجلت رقمك ${phone}` : ''}.\n\n` +
     '2️⃣ الخطوة التانية من 3 - العربية وأوراقها.\n\n' +
     'تقدر تبعت كل حاجة في رسالة واحدة: رقم الشاسيه والماركة وميناء الشحن وميناء الوصول - ' +
     'وارفق المستندات (الفاتورة، مستند النقل، الـ MRN) مع نفس الرسالة. أو واحدة واحدة، نبدأ من هنا:\n\n' +
     ASK_VIN_AR,
-    `✅ Thank you${name ? `, ${name}` : ''}.\n\n` +
+    `✅ Thank you${name ? `, ${name}` : ''}${phone ? ` — I have ${phone} as your number` : ''}.\n\n` +
     'Step 2 of 3 — the vehicle and its papers.\n\n' +
     'You can send it all in one message: the chassis number, make, loading port and destination — ' +
     'and attach the documents (invoice, transport document, MRN) to the same message. ' +

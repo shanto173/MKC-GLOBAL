@@ -22,10 +22,31 @@
  */
 
 import { matchPort, looksLikeVin } from '../bookings.js';
+import { westernDigits } from '../phone.js';
 import { findVin, extractField } from './paste.js';
 
 const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 const PHONE = /(?:\+|00)?\d[\d\s().-]{7,}\d/;
+
+/**
+ * The words people put around a number or an email - "and my number is",
+ * "call me on", "ورقمي". Removed along with the contact itself, what is left
+ * of "Ariful and my number is +49 176 67221612" is "Ariful": the answer to
+ * the question that was asked.
+ */
+const CONTACT_TALK = [
+  /\b(?:you\s+can\s+)?(?:call|reach|contact|text|message|whatsapp|ring|phone)\s+(?:me|us)\s*(?:on|at|via|through|by)?\b/gi,
+  /\b(?:my|our|the)?\s*(?:(?:phone|mobile|cell|contact|tel|telephone|whatsapp)\s*(?:number|no\.?|nr\.?|#)?|number|email|e-mail|mail)\s*(?:address)?\s*(?:is|are|:|=|-)?/gi,
+  /(?:ورقمي|رقمي|رقم الموبايل|الموبايل|رقم التليفون|التليفون|رقم الهاتف|الهاتف|رقم الواتس|الواتس|إيميلي|ايميلي|الإيميل|الايميل)\s*(?:هو|:)?/g,
+];
+
+const DANGLING = /^[\s,;:.\-–—]*(?:and|و)?[\s,;:.\-–—]*|[\s,;:.\-–—]*(?:and|on|at|و)?[\s,;:.\-–—]*$/gi;
+
+function withoutContactTalk(text) {
+  let s = String(text ?? '');
+  for (const pattern of CONTACT_TALK) s = s.replace(pattern, ' ');
+  return s.replace(DANGLING, '').replace(/\s+/g, ' ').trim();
+}
 
 /** Fields whose value has a shape we can verify. The rest are free text. */
 const STRICT = new Set(['vin', 'destination_port']);
@@ -98,10 +119,25 @@ export function classify(field, text) {
   const elsewhere = valueForAnotherField(field, raw);
   if (elsewhere) return { kind: 'other_field', ...elsewhere };
 
-  // 5. Contact details. Never a chassis number, and worth keeping.
-  const email = raw.match(EMAIL)?.[0];
-  const phone = raw.match(PHONE)?.[0]?.trim();
-  if (email || phone) return { kind: 'contact', value: email || phone, detail: email ? 'email' : 'phone' };
+  // 5. Contact details. Never a chassis number, and worth keeping - along
+  //    with whatever else the message said. "Ariful and my number is …" at
+  //    the name question is a name AND a number, and taking only the number
+  //    was how the client was asked for the name they had just given.
+  //    Digits are read in either system, or "ورقمي ٠١٠٠…" was a name.
+  const western = westernDigits(raw);
+  const email = western.match(EMAIL)?.[0];
+  const phone = western.match(PHONE)?.[0]?.trim();
+  if (email || phone) {
+    let rest = western;
+    if (email) rest = rest.replace(email, ' ');
+    if (phone) rest = rest.replace(phone, ' ');
+    return {
+      kind: 'contact',
+      value: email || phone,
+      detail: email ? 'email' : 'phone',
+      rest: withoutContactTalk(rest),
+    };
+  }
 
   // 6. They have not got it.
   if (REFUSAL.test(raw)) return { kind: 'refusal' };
@@ -121,6 +157,24 @@ export function classify(field, text) {
   }
 
   return { kind: 'unknown' };
+}
+
+/**
+ * The answer to `field`, if it is what is left of a message once the contact
+ * details have been taken out of it - or null when nothing usable is left.
+ *
+ * Same bar as a typed answer: it has to fit the field, and a free-text field
+ * still refuses a sentence. A name with digits in it is a leftover, not a name.
+ */
+export function answerIn(field, rest) {
+  const s = String(rest ?? '').trim();
+  if (!s || QUESTION.test(s)) return null;
+
+  const candidate = extractField(field, s);
+  if (!fits(field, candidate)) return null;
+  if (!STRICT.has(field) && looksLikeProse(candidate)) return null;
+  if (field === 'customer_name' && /[\d@]/.test(candidate)) return null;
+  return candidate;
 }
 
 /**

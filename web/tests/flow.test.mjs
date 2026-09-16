@@ -196,6 +196,102 @@ test('step 1 asks for the name, then the number, then opens step 2 with the chas
   assert.equal(b.customer_contact, PHONE_STORED, 'one stored shape, whatever was typed');
 });
 
+test('the name and the number in one message are both taken', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  // The exact message that lost its name in the field.
+  const r = await h.text('Ariful and my number is +49 176 67221612');
+
+  const b = h.booking();
+  assert.equal(b.customer_name, 'Ariful');
+  assert.equal(b.customer_contact, '+4917667221612');
+  // One message: the thanks with the number read back, and step 2.
+  assert.equal(r.messages.length, 1);
+  assert.match(said(r), /Thank you, Ariful — I have \+4917667221612 as your number/);
+  assert.match(said(r), /Step 2 of 3/);
+  assert.doesNotMatch(said(r), /What I need right now is the client name/);
+  assert.equal(r.state, S.BOOK_VIN);
+});
+
+test('name and number together, however they are put', async () => {
+  for (const [typed, name, phone] of [
+    ['my name is Nile Motors and my number is 01005551234', 'Nile Motors', '01005551234'],
+    ['Nile Motors, +20 100 555 1234', 'Nile Motors', '+201005551234'],
+    ['+20 100 555 1234 Nile Motors', 'Nile Motors', '+201005551234'],
+    ['Nile Motors. You can reach me on 0100 555 1234', 'Nile Motors', '01005551234'],
+    ['اسمي شركة النيل ورقمي ٠١٠٠٥٥٥١٢٣٤', 'شركة النيل', '01005551234'],
+  ]) {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    const r = await h.text(typed);
+    assert.equal(h.booking().customer_name, name, typed);
+    assert.equal(h.booking().customer_contact, phone, typed);
+    assert.equal(r.state, S.BOOK_VIN, typed);
+  }
+});
+
+test('regression: "Ariful is my name" stores the name, not the sentence', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('Ariful is my name');
+  assert.equal(h.booking().customer_name, 'Ariful');
+  assert.match(said(r), /mobile number/);
+});
+
+test('the name is read out of the ways people say it', async () => {
+  const { extractField } = await import('../lib/flow/paste.js');
+  for (const [typed, name] of [
+    ['Ariful is my name', 'Ariful'],
+    ['Nile Motors is the client', 'Nile Motors'],
+    ['Ariful here', 'Ariful'],
+    ["I'm Ariful", 'Ariful'],
+    ['I am Ariful', 'Ariful'],
+    ['this is Ariful', 'Ariful'],
+    ['my name is Ariful.', 'Ariful'],
+    ['أنا عارف', 'عارف'],
+    ['عارف اسمي', 'عارف'],
+    ['اسمي عارف', 'عارف'],
+    // A word for the client at the end of a company's name is part of the name.
+    ['Cairo Trading Company', 'Cairo Trading Company'],
+    ['Nile Cargo Egypt', 'Nile Cargo Egypt'],
+    ['Alexandria Trading Co', 'Alexandria Trading Co'],
+  ]) {
+    assert.equal(extractField('customer_name', typed), name, typed);
+  }
+  assert.equal(extractField('make', 'Mercedes is the make'), 'Mercedes');
+  assert.equal(extractField('make', 'Volvo FH 460'), 'Volvo FH 460');
+});
+
+test('a number alone at the name question is kept, and the name still asked', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('call me on +20 100 555 1234');
+  assert.equal(h.booking().customer_contact, PHONE_STORED);
+  assert.equal(h.booking().customer_name, undefined, '"call me on" is not a name');
+  assert.match(said(r), /client name/);
+  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+});
+
+test('a make and a new number in one message are both taken', async () => {
+  const h = harness();
+  await identify(h);
+  await h.text('W1T96340310484233');
+
+  const r = await h.text('MAN and my number is +20 122 000 9999');
+  assert.equal(h.booking().make, 'MAN');
+  assert.equal(h.booking().customer_contact, '+201220009999');
+  assert.match(said(r), /\+201220009999 is your number/);
+  assert.match(said(r), /port of loading/i);
+  assert.equal(r.state, S.BOOK_POL);
+});
+
 test('the number shared through Telegram\'s button answers the phone question', async () => {
   const h = harness();
   await h.command('/start');

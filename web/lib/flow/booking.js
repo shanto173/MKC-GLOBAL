@@ -29,7 +29,7 @@ import {
 import { bookingDocumentState } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
-import { classify, fieldsIn } from './understand.js';
+import { classify, fieldsIn, answerIn } from './understand.js';
 import { understand, nluAvailable } from './nlu.js';
 import { openMrnRequest, mrnRequestFor, addSuppliedInformation } from '../mrn.js';
 import { operationsNotifier } from '../operations.js';
@@ -418,6 +418,11 @@ async function handleUnexpected(session, field, text, ctx) {
         if (noted.kind === 'phone') return { answer: noted.value };
         return { messages: [phonePrompt(ctx, M.emailNotedNeedPhone(noted.value))] };
       }
+      // "Ariful and my number is +49 …" at the name question: the number is
+      // kept, and the name is the answer - both from one message, which is
+      // how MKY describes step 1 to clients.
+      const also = answerIn(field, verdict.rest);
+      if (also) return { answer: also, noted };
       return {
         messages: [say(M.contactNoted(noted.value, NEED[field][0], NEED[field][1]), kb.homeOnly())],
       };
@@ -593,7 +598,7 @@ async function noteContact(session, value, ctx) {
  * the case where several are missing at once - after an edit, or after a client
  * pasted a half-filled form - because a wall of questions is what people ignore.
  */
-export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
+export async function askNextBasic(booking, ctx, { listMissing = false, notedPhone = null } = {}) {
   const missing = missingBasics(booking);
 
   if (!missing.length) {
@@ -625,8 +630,9 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
     customer_contact: () => phonePrompt(ctx, M.askPhone(suggestion)),
     // Step 2 opens the moment the person is known and the vehicle is not. One
     // message: where they are, that everything may come at once with the
-    // papers attached, and the chassis question.
-    vin: () => say(M.detailsCompleteAskVin(booking.customer_name ?? null), kb.homeOnly()),
+    // papers attached, and the chassis question. A number given in the same
+    // breath as the name is read back here rather than in a message of its own.
+    vin: () => say(M.detailsCompleteAskVin(booking.customer_name ?? null, notedPhone), kb.homeOnly()),
     make: () => say(M.askMake(), kb.homeOnly()),
     origin_port: () => say(M.askPol(), kb.homeOnly()),
     destination_port: () => say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()),
@@ -637,7 +643,11 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
   await updateDraft(booking.booking_ref, { current_step: states[next] }, { chatId: ctx.chatId })
     .catch(() => null);
 
-  return reply([...preface, prompts[next]()], { current_state: states[next] });
+  // A number noted alongside some other answer, when the next question is not
+  // the one that reads it back.
+  const lead = notedPhone && next !== 'vin' ? [say(M.phoneNoted(notedPhone))] : [];
+
+  return reply([...lead, ...preface, prompts[next]()], { current_state: states[next] });
 }
 
 /**
@@ -844,12 +854,14 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   // request to go elsewhere. Without this "what makes do you accept?" becomes
   // the manufacturer.
   let resolvedValue = resolved;
+  let notedPhone = null;
   const verdict = classify(field, value);
   if (verdict.kind !== 'answer') {
     const understood = await handleUnexpected(session, field, value, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
     if (understood?.messages) return reply(understood.messages, understood.patch ?? {});
     if (understood?.answer) resolvedValue = understood.answer;
+    if (understood?.noted?.kind === 'phone') notedPhone = understood.noted.value;
   }
 
   const fields = { [field]: resolvedValue };
@@ -865,7 +877,7 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   logEvent('booking_information_updated', { booking_ref: session.active_booking_ref, field });
 
   if (editing) return backToConfirmation(session, ctx, { lead: M.editSaved() });
-  return askNextBasic(saved.draft, ctx);
+  return askNextBasic(saved.draft, ctx, { notedPhone });
 }
 
 /**
