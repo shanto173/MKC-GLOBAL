@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MKY Forwarding — The Booking Assistant on WhatsApp</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: #17212b; font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.45; }
+  h1 { font-size: 24pt; color: #0f2a44; margin: 0 0 4mm; line-height: 1.15; }
+  h2 { font-size: 15pt; color: #0f2a44; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid #25a35a; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #0f2a44; margin: 5mm 0 2mm; page-break-after: avoid; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f1f4f7; padding: 0 1mm; border-radius: 1mm; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 7.9pt; line-height: 1.3; background: #f6f8fa; border: 1px solid #dde4ea; border-radius: 2mm; padding: 3mm 4mm; white-space: pre; overflow: hidden; page-break-inside: avoid; margin: 0 0 4mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 4mm; font-size: 9.5pt; }
+  th, td { text-align: left; padding: 1.6mm 2.5mm; border-bottom: 1px solid #dde4ea; vertical-align: top; }
+  th { background: #eef7f1; color: #0f2a44; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; }
+  tr { page-break-inside: avoid; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover h1 { font-size: 32pt; }
+  .cover .sub { font-size: 14pt; color: #2f3e4e; margin-bottom: 10mm; }
+  .cover table { width: auto; font-size: 10.5pt; }
+  .cover th { background: none; text-transform: none; letter-spacing: 0; font-size: 10.5pt; }
+  .kicker { font-size: 10pt; letter-spacing: .12em; text-transform: uppercase; color: #25a35a; font-weight: 600; margin-bottom: 3mm; }
+  .note { background: #fff7e8; border-left: 2mm solid #d9822b; padding: 2.5mm 4mm; margin: 0 0 4mm; }
+  .good { background: #eef7f1; border-left: 2mm solid #25a35a; padding: 2.5mm 4mm; margin: 0 0 4mm; }
+  .pb { page-break-before: always; }
+  .same { color: #1b7a44; font-weight: 600; }
+  .diff { color: #a35a0f; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <p class="kicker">MKY Forwarding · Booking Assistant</p>
+  <h1>The same assistant, on WhatsApp</h1>
+  <p class="sub">What stays the same, what changes, what MKY has to set up, how long it takes, what it costs to run, and how the client's data is handled.</p>
+  <table>
+    <tr><th>Prepared</th><td>16 September 2026</td></tr>
+    <tr><th>Basis</th><td>The Telegram assistant as deployed today (commit <code>d33c93e</code>) and the WhatsApp Business Platform (Cloud API) as published by Meta</td></tr>
+    <tr><th>Audience</th><td>MKY management for the decisions and costs; the engineering notes are at the end</td></tr>
+  </table>
+</section>
+
+<h2>Contents</h2>
+<ol>
+  <li>The short version</li>
+  <li>The client's workflow on WhatsApp — what stays, what changes</li>
+  <li>What MKY has to set up, and how long each part takes</li>
+  <li>WhatsApp's rules that shape the design</li>
+  <li>Where the system runs and where the data lives</li>
+  <li>Running costs</li>
+  <li>Privacy and data protection</li>
+  <li>Plan and timeline</li>
+  <li>Engineering notes: what changes in the code</li>
+</ol>
+
+<h2>1. The short version</h2>
+<p>Everything the assistant does today — the three-step booking, the document reading, the tracking, the agent hand-off, the Operations console — lives behind one conversation engine that does not care which messaging app the client is using. Telegram is one "transport" plugged into it. WhatsApp is a second transport plugged into the same engine, the same database and the same console. Both can run side by side; the console already shows which channel a request came from.</p>
+<div class="good"><strong>What carries over unchanged:</strong> the three steps, the chassis check, the readers for pasted details and captions, the document pipeline, one reply for several files, the summary card, the booking reference and PDF, the desk's workflow, tracking, the after-hours rule with the urgent question, every safety rule, and all 237 tests.</div>
+<div class="note"><strong>What WhatsApp adds:</strong> a Meta business account and a verified business, a dedicated phone number, a 24-hour window after which the assistant may only send pre-approved template messages, buttons limited to three per message (longer choices become a list), no way to pin a status card, and a per-message price for messages MKY starts. Setting up the accounts is the long pole: verification usually takes two to ten business days.</div>
+
+<h2>2. The client's workflow on WhatsApp</h2>
+<table>
+  <tr><th style="width:24%">Moment</th><th style="width:38%">On Telegram today</th><th>On WhatsApp</th></tr>
+  <tr><td>Starting</td><td><code>/start</code> or the menu buttons</td><td><span class="diff">Slightly different.</span> There are no slash commands. The client sends anything — "Hi", "book", "عايز أحجز" — and gets the three-choice menu as three reply buttons.</td></tr>
+  <tr><td>Main menu</td><td>Three inline buttons</td><td><span class="same">Same.</span> WhatsApp allows exactly three reply buttons per message: Book my shipment, Track my shipment, Talk to an agent.</td></tr>
+  <tr><td>Step 1 — name and number</td><td>Name, then the "Share my number" button or a typed number</td><td><span class="same">Simpler.</span> WhatsApp tells us the client's number: it is their WhatsApp number. The assistant asks the name and then "Shall we use +20 … or another number?" — one tap. A number typed in the same message as the name is read too.</td></tr>
+  <tr><td>Step 2 — the vehicle</td><td>Chassis check, make, ports, MRN choice</td><td><span class="same">Same.</span> The MRN choice is two buttons plus Menu.</td></tr>
+  <tr><td>Step 2 — the papers</td><td>Files, or everything in one message with files attached; one reply for several files</td><td><span class="same">Same.</span> PDFs and photos arrive as media messages with a caption; several sent together arrive as separate messages within a second and are handled as one batch exactly as today. WhatsApp allows documents up to 100 MB.</td></tr>
+  <tr><td>Step 3 — the card and the yes</td><td>Confirm / Edit / Cancel buttons; the edit menu has seven choices</td><td><span class="diff">Slightly different.</span> Confirm / Edit / Cancel fit in three buttons. The seven-item edit menu becomes a WhatsApp <em>list</em> (a "Choose" button that opens the options).</td></tr>
+  <tr><td>The reference and the PDF</td><td>In the reply, PDF right after</td><td><span class="same">Same.</span> The PDF is sent as a document message.</td></tr>
+  <tr><td>The pinned status card</td><td>A card pinned at the top of the chat, edited as the shipment moves</td><td><span class="diff">Not available.</span> WhatsApp does not let a business pin or edit messages. Instead the assistant sends a fresh status message when something changes, and "Track my shipment" remains one tap away.</td></tr>
+  <tr><td>Operations asks for something / confirms the booking</td><td>The message arrives whenever the desk acts</td><td><span class="diff">Rule-bound.</span> If the client wrote within the last 24 hours, the message is free-form as today. If not, it must be one of MKY's <em>approved templates</em> (see section 4) — for example "Your booking {ref} is confirmed", with the PDF attached, and a "Reply" button that reopens the conversation.</td></tr>
+  <tr><td>Track my shipment</td><td>Chassis or reference; Refresh button</td><td><span class="same">Same.</span></td></tr>
+  <tr><td>Talk to an agent</td><td>In hours: connected; after hours: "Is it urgent?" then the direct number</td><td><span class="same">Same.</span> Two buttons plus Menu. The direct number can also be sent as a tappable contact card.</td></tr>
+  <tr><td>Language</td><td>Arabic and English in every message</td><td><span class="same">Same.</span></td></tr>
+</table>
+
+<h2>3. What MKY has to set up, and how long it takes</h2>
+<p>These are Meta's requirements for any business that wants software answering on WhatsApp. They are MKY's accounts, held in MKY's name; the engineering side only needs the keys that come out of them.</p>
+<table>
+  <tr><th style="width:26%">Item</th><th>What it is and what is needed</th><th style="width:18%">Typical time</th></tr>
+  <tr><td>Meta Business Portfolio</td><td>MKY's company account at business.facebook.com. Created by a company representative with a Facebook login. Holds the WhatsApp account and the app.</td><td>Same day</td></tr>
+  <tr><td>WhatsApp Business Account (WABA)</td><td>Created inside the portfolio through the WhatsApp Business Platform onboarding. This is not the WhatsApp Business <em>app</em> on a phone; it is the API account.</td><td>Same day</td></tr>
+  <tr><td>A phone number for the assistant</td><td>A number not currently registered on WhatsApp or the WhatsApp Business app. A mobile or a landline; it must be able to receive one SMS or one voice call for the registration code. A number already on a personal WhatsApp can be migrated, but that removes it from the phone app.</td><td>Same day, once the number exists</td></tr>
+  <tr><td>Display name</td><td>The name clients see — "MKY Forwarding". Must match the business; Meta reviews it.</td><td>Usually 1–2 business days</td></tr>
+  <tr><td><strong>Business verification</strong></td><td>Meta checks that MKY is a real registered business: legal name, registration or tax document, address, and a company website or email on the company's domain. Until this is done the account may message at most 250 unique clients in any 24 hours and templates cannot be used freely; after it, the limit starts at 1,000 per day and grows automatically with good quality. <strong>This is the long pole.</strong></td><td>Usually 2–10 business days; can stretch to three weeks if Meta asks for more documents</td></tr>
+  <tr><td>Meta app with the WhatsApp product</td><td>Created in the developer console, in the same portfolio. Provides the permanent access token (via a "system user"), the app secret used to verify webhook calls, and the webhook configuration. Because the app and the WhatsApp account belong to the same business, Meta's App Review is not required for this use.</td><td>Half a day (engineering)</td></tr>
+  <tr><td>Message templates</td><td>The pre-approved messages MKY may send after the 24-hour window (section 4). Written once in Arabic and English, submitted through the business manager, reviewed by Meta.</td><td>Minutes to 48 hours per template</td></tr>
+  <tr><td>Privacy policy page</td><td>A public web page saying what the assistant stores and why. Meta requires one on the app; it is also simply the right thing to have (section 7).</td><td>A day to write and publish</td></tr>
+  <tr><td>Payment method on the portfolio</td><td>A card for the per-message charges on business-initiated messages (section 6).</td><td>Same day</td></tr>
+  <tr><td>Optional: green tick (Official Business Account)</td><td>The verified badge next to the name. Applied for after business verification; not needed for the assistant to work.</td><td>Days to weeks; can be declined</td></tr>
+</table>
+<div class="note">An alternative to doing this directly with Meta is a <strong>Business Solution Provider</strong> such as Twilio, 360dialog or Infobip. They walk the business through the same verification, host the number, and add a monthly or per-message fee on top of Meta's prices. It saves some setup effort and adds cost and a dependency; the engineering is almost identical either way. Our recommendation is Meta's own Cloud API, because there is no extra middleman and no extra fee.</div>
+
+<h2 class="pb">4. WhatsApp's rules that shape the design</h2>
+<h3>4.1 The 24-hour customer service window</h3>
+<p>From the moment a client sends a message, the business may reply freely for 24 hours. Every step of a booking, a tracking request, a question — all of that happens inside the window, because the client is the one writing. It is free of charge.</p>
+<p>Outside the window the business may only send <strong>template messages</strong>: texts approved in advance by Meta, with placeholders for the reference, the vessel and so on, in a category (utility, marketing, authentication) that sets the price. The assistant's messages that can fall outside the window are the ones the desk triggers later:</p>
+<table>
+  <tr><th>Event today</th><th>Template on WhatsApp (utility category)</th></tr>
+  <tr><td>Booking confirmed by Operations, with the PDF and shipment reference</td><td>"Your booking {1} is confirmed. Shipment {2}. Your PDF copy is attached." — document header</td></tr>
+  <tr><td>Operations asks for more information</td><td>"We need a little more to continue your booking {1}: {2}. Reply here to send it."</td></tr>
+  <tr><td>Booking rejected, with the reason</td><td>"We were not able to confirm request {1}. Reason: {2}. Reply here to reach the team."</td></tr>
+  <tr><td>MRN issued</td><td>"MRN {1} has been issued for your booking {2}."</td></tr>
+  <tr><td>Shipment update the desk chooses to send (vessel, ETA, arrival)</td><td>"Update on shipment {1}: {2}."</td></tr>
+  <tr><td>A message an agent types to the client</td><td>"A message from our team about {1}: {2}."</td></tr>
+</table>
+<p>The client tapping "Reply" on any of these reopens a 24-hour window, and the conversation continues as normal. The outbox that already exists — every message queued with a key, retried until delivered, never sent twice — decides per message whether it is inside the window (send as-is) or outside (send the matching template).</p>
+<h3>4.2 Buttons and lists</h3>
+<ul>
+  <li>A message may carry at most <strong>three reply buttons</strong>, each up to 20 characters. Most of the assistant's choices fit: the main menu, the MRN choice, Confirm / Edit / Cancel, Yes urgent / No it can wait, Continue / Start over.</li>
+  <li>Longer choices use a <strong>list message</strong>: one "Choose" button that opens up to ten rows. The edit menu (seven items) and "which document is this?" (up to six) become lists.</li>
+  <li>Buttons cannot be removed from a message after it is sent, so a stale button on an old message stays visible. The engine already refuses a stale tap and says why — that behaviour matters more on WhatsApp.</li>
+  <li>Typed numbers ("2" for the second choice) keep working as they do on the website.</li>
+</ul>
+<h3>4.3 Media</h3>
+<p>PDFs, images and documents arrive with a media id; the assistant fetches the file from Meta with its token within Meta's retention period (about 30 days) and stores it in MKY's own storage, as today. Captions travel with the file and are read as the details of the booking. Several files sent at once arrive as separate messages; the batch handling built for Telegram — record each file, read them in parallel, one reply — applies unchanged.</p>
+<h3>4.4 Identity</h3>
+<p>The client's WhatsApp number is their identity; there is no username. It becomes the client record's phone, which is why step 1 is one question shorter. A client who wants the booking registered under a different number can type it.</p>
+<h3>4.5 Quality and limits</h3>
+<p>Meta rates the number's quality from clients' reactions (blocks, reports). Only business-initiated template messages count against the daily limit, and the limit grows on its own from 1,000 unique clients a day after verification. The assistant sends templates only in response to something that happened on the client's own booking, which is the pattern Meta treats well.</p>
+
+<h2>5. Where the system runs and where the data lives</h2>
+<p>Nothing moves. The WhatsApp transport runs on the same hosting, uses the same database and storage, and is operated from the same console.</p>
+<table>
+  <tr><th>Part</th><th>Where</th><th>Notes</th></tr>
+  <tr><td>Application (the webhook Meta calls, the engine, the console)</td><td>Vercel, Frankfurt region</td><td>One more entry point, <code>/api/whatsapp</code>. Meta's servers call it; it must answer within seconds, which the current design already does by answering first and finishing in the background.</td></tr>
+  <tr><td>Database and file storage</td><td>Supabase Postgres and Storage, AWS Frankfurt (EU)</td><td>Same tables. A WhatsApp id column on the client record; the channel is recorded on every booking, document and ticket as it is now.</td></tr>
+  <tr><td>Messages in transit</td><td>Meta's WhatsApp Cloud API</td><td>Encrypted between the client's phone and Meta; Meta hands them to the webhook over HTTPS, signed with the app secret so the assistant can prove they came from Meta.</td></tr>
+  <tr><td>Document reading and question answering</td><td>OpenAI (as today)</td><td>Only the text or image of a document and the client's messages are sent for reading; nothing is used to train models under the API terms.</td></tr>
+  <tr><td>Email and staff notifications</td><td>Resend; the staff Telegram group; optional Pumble</td><td>Unchanged.</td></tr>
+  <tr><td>Source code and releases</td><td>GitHub → Vercel</td><td>Unchanged: a push to <code>main</code> deploys.</td></tr>
+</table>
+
+<h2 class="pb">6. Running costs</h2>
+<p>Indicative figures in US dollars, from the providers' published price lists at the time of writing. Meta's per-message rates vary by the client's country and change from time to time; the rate card at business.whatsapp.com/products/platform-pricing is the authority before any quote.</p>
+<table>
+  <tr><th style="width:24%">Item</th><th style="width:30%">Price</th><th>Notes</th></tr>
+  <tr><td>WhatsApp — conversations the client starts</td><td><strong>Free</strong></td><td>Every booking, tracking request and question the client initiates, and all replies within 24 hours. This is nearly all of the assistant's traffic.</td></tr>
+  <tr><td>WhatsApp — messages MKY starts (templates, outside the window)</td><td>Per message, by category and country. Utility to Egypt: on the order of one to two cents; marketing to Egypt: roughly ten cents. Utility messages sent while the window is open are free.</td><td>The assistant only sends utility templates (confirmations, requests for information, updates). At a few such messages per booking this is cents per booking.</td></tr>
+  <tr><td>WhatsApp — the API itself, the phone number's registration, the verification</td><td>No charge from Meta</td><td>The number itself is whatever MKY's operator charges for a line.</td></tr>
+  <tr><td>Business Solution Provider (only if that route is chosen)</td><td>Typically €50 to $100 per month per number, or about half a cent per message on top of Meta's rates</td><td>Twilio, 360dialog, Infobip. Not needed with the Cloud API directly.</td></tr>
+  <tr><td>Telegram</td><td>Free</td><td>Kept running alongside.</td></tr>
+  <tr><td>Hosting — Vercel</td><td>Hobby: free. <strong>Pro: $20 per month</strong> per team member</td><td>The project is at the Hobby plan's limit of twelve server functions today. Adding the WhatsApp entry point means either folding two existing routes together (possible) or moving to Pro, which also removes the cold-start delay on the first tap after an idle period and allows scheduled retries for undelivered messages. Recommendation for production: Pro.</td></tr>
+  <tr><td>Database and storage — Supabase</td><td>Free tier available. <strong>Pro: $25 per month</strong></td><td>The free tier pauses a project after a week without traffic and caps storage at 1 GB. Production with real clients belongs on Pro (8 GB database, 100 GB storage, daily backups).</td></tr>
+  <tr><td>Model usage — OpenAI</td><td>Pay per use. <code>gpt-4.1-mini</code> reads documents and extracts details for well under a cent per page of text; a scanned page read by vision costs a few cents. Free questions answered by <code>gpt-4.1</code> cost a cent or two each.</td><td>A typical booking with three PDFs costs in the region of five to fifteen cents in model usage. A hundred bookings a month is a few dollars.</td></tr>
+  <tr><td>Email — Resend</td><td>Free up to 3,000 emails per month</td><td>Two emails per booking.</td></tr>
+  <tr><td>Domain, privacy policy page</td><td>MKY's existing website</td><td>The policy is a page on it.</td></tr>
+</table>
+<div class="good"><strong>Order of magnitude for production, both channels:</strong> about $45 per month in fixed hosting (Vercel Pro and Supabase Pro), plus usage that stays in the low tens of dollars a month at a few hundred bookings — dominated by model usage, with WhatsApp template messages a few dollars of that.</div>
+
+<h2>7. Privacy and data protection</h2>
+<ul>
+  <li><strong>What is stored, and where.</strong> The client's name, WhatsApp number, the vehicle and route, the documents they send, the conversation needed to answer questions, and the audit trail of what happened — in MKY's own Postgres database and file storage in Frankfurt (EU). Nothing about a booking is stored anywhere else.</li>
+  <li><strong>What Meta sees.</strong> Meta carries the messages and media between the client and the assistant, under the WhatsApp Business terms, and keeps media available to the business for a limited period. Meta does not receive the booking data the assistant derives.</li>
+  <li><strong>What OpenAI sees.</strong> The text or images of documents and the client's messages, for reading and answering, under API terms that exclude training on that data. Model output is validated by code before anything is stored.</li>
+  <li><strong>Who can read what.</strong> A client sees only their own bookings and shipments; a forwarded reference reveals nothing. The database refuses public access entirely; the console needs a name and the admin secret. Every action by a client or an operator is logged without document contents or secrets.</li>
+  <li><strong>The privacy policy page.</strong> Meta requires one for the app; it should say the above in plain words: what is collected, why (to make and manage a shipment booking), where it is held, how long, and how to ask for it to be removed. Deleting a client's data is a matter of deleting their client row, bookings and files.</li>
+  <li><strong>Retention.</strong> How long to keep conversations and documents after a shipment is delivered is a decision for MKY; the system can apply whatever period is chosen.</li>
+  <li><strong>Egyptian law.</strong> Egypt's Personal Data Protection Law (No. 151 of 2020) sets duties similar to Europe's for data about Egyptian residents; storing the data in the EU and having a policy and a deletion path covers the practical requirements. Formal registration duties under the law should be confirmed with MKY's legal adviser.</li>
+</ul>
+
+<h2>8. Plan and timeline</h2>
+<table>
+  <tr><th style="width:8%">Week</th><th style="width:44%">MKY</th><th>Engineering</th></tr>
+  <tr><td>1</td><td>Create the business portfolio and WhatsApp account, choose and register the phone number, submit business verification and the display name, add a payment method. Publish the privacy policy page. Decide the retention period.</td><td>Build the WhatsApp transport against Meta's test number (which works before verification): webhook, buttons and lists, media, the number-on-file step, session keys. Write and submit the six templates in both languages.</td></tr>
+  <tr><td>2</td><td>Answer any verification queries from Meta. Review the templates' wording.</td><td>Template sending from the outbox with the 24-hour rule; status messages replacing the pinned card; tests for the WhatsApp transport; console showing the channel. Move hosting to Pro if that route is chosen.</td></tr>
+  <tr><td>3</td><td>Verification expected to be through. Pilot with two or three real clients on the new number, Telegram still running.</td><td>Point the verified number at production. Watch delivery, quality rating and costs. Fix what the pilot shows.</td></tr>
+  <tr><td>4</td><td>Go live: number on the website and business cards.</td><td>Hand-over notes; both channels monitored from the same console.</td></tr>
+</table>
+<div class="note">The only step with real uncertainty is Meta's verification, which MKY controls by having the registration document, a company address that matches it, and an email on the company's domain ready on day one. Everything on the engineering side can be built and tested on Meta's test number in parallel.</div>
+
+<h2 class="pb">9. Engineering notes: what changes in the code</h2>
+<p>For the engineers. The engine, the flows, the readers, the document pipeline, the outbox, the console and the tests are untouched. The work is one new transport and a few channel-aware seams.</p>
+<h3>9.1 New: <code>api/whatsapp.js</code> and <code>lib/whatsapp.js</code></h3>
+<ul>
+  <li><strong>Webhook verification.</strong> <code>GET /api/whatsapp</code> answers Meta's <code>hub.challenge</code> when <code>hub.verify_token</code> matches <code>WHATSAPP_VERIFY_TOKEN</code>.</li>
+  <li><strong>Inbound.</strong> <code>POST /api/whatsapp</code>: verify <code>X-Hub-Signature-256</code> (HMAC-SHA256 of the raw body with the app secret); claim each message id in <code>processed_updates</code> (Meta retries when it gets no 200, exactly as Telegram does); map each message to the engine's input kinds — text, an interactive reply (<code>button_reply.id</code> / <code>list_reply.id</code> → the same callback payloads the keyboards emit today), a document or image (media id, filename, mime, caption), a shared contact; ignore statuses and reactions. Answer 200 at once; read files in the background under <code>waitUntil</code>, as the Telegram transport does now.</li>
+  <li><strong>Outbound.</strong> <code>sendText</code>, <code>sendButtons</code> (≤ 3), <code>sendList</code> (≤ 10 rows), <code>sendDocument</code> (upload, then send by media id), <code>sendContact</code> (the direct line as a vCard), <code>markRead</code> and the typing indicator, <code>sendTemplate</code> (name, language, components). One <code>fetch</code> wrapper with the token, mirroring <code>lib/telegram.js</code>.</li>
+  <li><strong>Keyboards → interactive messages.</strong> A small adapter turns the inline rows from <code>lib/flow/keyboards.js</code> into reply buttons when there are at most three, and into a list otherwise; the ids are the existing callback strings (well under WhatsApp's 256-byte limit). The reply keyboard used for "Share my number" is not needed: the client's <code>wa_id</code> is their number.</li>
+  <li><strong>Sessions and identity.</strong> Session key <code>whatsapp:&lt;wa_id&gt;</code>; <code>clients</code> gains <code>whatsapp_id</code> (one small migration); the client is upserted from the profile name and number on every message. <code>ctx.channel = 'whatsapp'</code> flows into bookings, documents, tickets and tasks as today.</li>
+  <li><strong>Step 1 on WhatsApp.</strong> <code>askNextBasic</code> offers the known number with a "Use this number" button instead of the share keyboard; typing another number works as it does now.</li>
+</ul>
+<h3>9.2 The 24-hour window in the outbox</h3>
+<ul>
+  <li>Record <code>last_client_message_at</code> per session on every inbound message.</li>
+  <li>The drain, for a <code>whatsapp</code> row: inside the window → render as today; outside → send the template that corresponds to the event type, with the PDF as a document header where there is one, and a quick-reply button. Template names and languages are settings, so the desk can swap wording after re-approval without a deploy.</li>
+  <li>Six templates (section 4.1), each in <code>ar</code> and <code>en</code>, category utility.</li>
+</ul>
+<h3>9.3 Things that do not exist on WhatsApp</h3>
+<ul>
+  <li><strong>Pinned card:</strong> <code>refreshPin</code> is Telegram-only already and stays so; for WhatsApp, the same events that edit the card send a short status message instead (inside the window) or the update template (outside).</li>
+  <li><strong>Editing sent messages / clearing buttons:</strong> not possible; the engine's refusal of stale taps covers it.</li>
+  <li><strong>Commands:</strong> "menu", "start", "cancel" and their Arabic forms are already understood as text; <code>/reset</code> becomes "reset".</li>
+</ul>
+<h3>9.4 Configuration</h3>
+<pre>
+WHATSAPP_PHONE_NUMBER_ID=      the id of the registered number (from the app's WhatsApp settings)
+WHATSAPP_BUSINESS_ACCOUNT_ID=  the WABA id
+WHATSAPP_ACCESS_TOKEN=         permanent system-user token with whatsapp_business_messaging
+WHATSAPP_APP_SECRET=           to verify X-Hub-Signature-256
+WHATSAPP_VERIFY_TOKEN=         any long random string, entered in the webhook configuration
+bot_settings: whatsapp_templates (map of event → {name, languages}), whatsapp_window_hours (24)
+</pre>
+<h3>9.5 Hosting</h3>
+<p>The Hobby plan allows twelve server functions and the project uses twelve. Either fold <code>api/status.js</code> into <code>api/health.js</code> to make room, or move to Vercel Pro — recommended for production for the reasons in section 6.</p>
+<h3>9.6 Testing</h3>
+<p>The engine tests need no change. The transport gets its own tests with recorded Meta webhook payloads (text, button reply, list reply, document with caption, three documents in a burst, a contact) driven through the same in-memory database, and a signature-verification test. End-to-end checks run against Meta's free test number before the real one is verified.</p>
+
+</body>
+</html>
