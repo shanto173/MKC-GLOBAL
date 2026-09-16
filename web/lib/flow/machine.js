@@ -27,7 +27,7 @@ import { parseCallback } from './keyboards.js';
 import * as booking from './booking.js';
 import * as tracking from './tracking.js';
 import * as contact from './contact.js';
-import { bookingByRef, findDraft } from '../bookings.js';
+import { bookingByRef, findDraft, openBookingFor } from '../bookings.js';
 import { logEvent } from '../audit.js';
 
 const say = (text, inline = null) => ({ text, ...(inline ? { inline } : {}) });
@@ -196,11 +196,21 @@ async function dispatch(session, input, ctx) {
       if (draft) target = { ...session, active_booking_ref: draft.booking_ref };
     }
 
-    // Nothing it could belong to. Say so rather than filing it against a
-    // booking the client was not thinking about - unless this is one of
-    // several files whose reply another of them will give.
+    // No draft - but a request already with the desk, which is where papers
+    // sent after submission go: the replacement MRN Operations asked for, a
+    // paper that arrived late. The transport has filed it; the client hears
+    // that it is filed, not "I did not follow that".
     if (!target) {
       if (input.speak === false) return { handled: true, messages: [], patch: {} };
+      const submitted = await openBookingFor(ctx.chatId);
+      if (submitted) {
+        return {
+          handled: true,
+          ...booking.acknowledgeForSubmitted(submitted, { ingested: input.document, batch: input.batch ?? [] }),
+        };
+      }
+      // Nothing it could belong to. Say so rather than filing it against a
+      // booking the client was not thinking about.
       return { handled: true, ...reply(say(M.notUnderstood(), kb.mainMenu())) };
     }
 

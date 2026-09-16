@@ -1729,6 +1729,26 @@ test('regression: a document sent from the menu lands on the open request', asyn
   assert.equal(r.state, S.BOOK_DOCUMENTS);
 });
 
+test('regression: a paper sent for a request already with the desk is acknowledged, not refused', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  assert.equal(h.booking().status, 'pending_review');
+
+  // Operations asked for a replacement MRN; the client sends it with "here".
+  const r = await h.file(h.upload('mrn', { vin: 'W1T96340310484233', bookingRef: ref }), { caption: 'here' });
+
+  assert.doesNotMatch(said(r), /did not follow/);
+  assert.match(said(r), new RegExp(`Received MRN for booking ${ref}`));
+  assert.match(said(r), /Operations Team will check it/);
+  assert.equal(h.booking().status, 'pending_review', 'nothing about the request itself changed');
+
+  // One of several, whose reply another file gives: silent.
+  const quiet = await h.file(h.upload('invoice', { vin: 'W1T96340310484233', bookingRef: ref }), { speak: false });
+  assert.deepEqual(quiet.messages, []);
+});
+
 test('regression: a document with no request to belong to is not filed against one', async () => {
   const h = harness();
   await h.command('/start');

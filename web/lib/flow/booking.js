@@ -1175,6 +1175,26 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
   return continueFrom(booking, ctx, { leads });
 }
 
+/**
+ * A file for a request that is already with the desk.
+ *
+ * There is no step to continue: the transport has filed it against the
+ * booking, noteClientResponse() has brought the request back to the desk if
+ * it was waiting on the client, and the desk sees it in the console. What the
+ * client needs is to hear that - not "I did not follow that", which is what a
+ * flow that only knew about drafts had to say.
+ */
+export function acknowledgeForSubmitted(booking, { ingested, batch = [] }) {
+  const arrived = batch.length ? batch : [ingested?.document].filter(Boolean);
+  const types = [...new Set(arrived.map((d) => d.doc_type).filter((t) => t && t !== 'other'))];
+  const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
+
+  const labelsAr = [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])];
+  const labelsEn = [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])];
+
+  return reply(say(M.documentsForBooking(booking.booking_ref, labelsAr, labelsEn), kb.afterSubmitted()));
+}
+
 async function askWhatItIs(session, booking, ctx, { document, remaining = [], leads = [] }) {
   const state = await bookingDocumentState({
     bookingRef: booking.booking_ref, chatId: ctx.chatId,

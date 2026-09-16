@@ -232,6 +232,12 @@ What I need right now is ${needEn}.`,
     (notedEn.length ? `\n📝 Noted from your message: ${notedEn.join(' · ')}.` : ''),
   ),
 
+  // Papers for a request already with the desk: filed, and the desk told.
+  documentsForBooking: (ref, labelsAr, labelsEn) => both(
+    `✅ وصلنا ${labelsAr.join('، ')} واتضافت للحجز ${ref}.\nفريق العمليات هيراجعها ويكلمك لو محتاج حاجة تانية.`,
+    `✅ Received ${labelsEn.join(', ')} for booking ${ref}.\nOur Operations Team will check it and get back to you if anything else is needed.`,
+  ),
+
   notedFromMessage: (notedAr, notedEn) => both(
     `📝 سجلنا من رسالتك: ${notedAr.join(' · ')}.`,
     `📝 Noted from your message: ${notedEn.join(' · ')}.`,

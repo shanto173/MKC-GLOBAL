@@ -173,6 +173,27 @@ export async function bookingByRef(ref) {
 }
 
 /**
+ * The newest request this chat has that is already with the desk - submitted,
+ * being reviewed, waiting on the client, or confirmed. Papers sent after
+ * submission belong to it.
+ */
+export async function openBookingFor(chatId) {
+  const { data, error } = await db()
+    .from('bookings')
+    .select('*')
+    .eq('chat_id', String(chatId))
+    .in('status', LIVE_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('open booking lookup failed:', error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
  * Starts a request. One draft per conversation: an older one is dropped, so a
  * client cannot end up with two half-finished requests neither of which they
  * can see.
