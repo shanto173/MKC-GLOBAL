@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MKY Forwarding — WhatsApp Transport: Technical Plan</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; color: #17212b; font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.45; }
+  h1 { font-size: 24pt; color: #0f2a44; margin: 0 0 4mm; line-height: 1.15; }
+  h2 { font-size: 15pt; color: #0f2a44; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid #25a35a; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #0f2a44; margin: 5mm 0 2mm; page-break-after: avoid; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f1f4f7; padding: 0 1mm; border-radius: 1mm; overflow-wrap: anywhere; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 7.9pt; line-height: 1.3; background: #f6f8fa; border: 1px solid #dde4ea; border-radius: 2mm; padding: 3mm 4mm; white-space: pre; overflow: hidden; page-break-inside: avoid; margin: 0 0 4mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 4mm; font-size: 9.5pt; }
+  th, td { text-align: left; padding: 1.6mm 2.5mm; border-bottom: 1px solid #dde4ea; vertical-align: top; }
+  th { background: #eef7f1; color: #0f2a44; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; }
+  td.num { text-align: right; white-space: nowrap; }
+  tr { page-break-inside: avoid; }
+  .total td { font-weight: 700; border-top: 2px solid #0f2a44; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover h1 { font-size: 32pt; }
+  .cover .sub { font-size: 14pt; color: #2f3e4e; margin-bottom: 10mm; }
+  .cover table { width: auto; font-size: 10.5pt; }
+  .cover th { background: none; text-transform: none; letter-spacing: 0; font-size: 10.5pt; }
+  .kicker { font-size: 10pt; letter-spacing: .12em; text-transform: uppercase; color: #25a35a; font-weight: 600; margin-bottom: 3mm; }
+  .note { background: #fff7e8; border-left: 2mm solid #d9822b; padding: 2.5mm 4mm; margin: 0 0 4mm; }
+  .good { background: #eef7f1; border-left: 2mm solid #25a35a; padding: 2.5mm 4mm; margin: 0 0 4mm; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <p class="kicker">MKY Forwarding · Booking Assistant</p>
+  <h1>WhatsApp Transport<br>Technical Plan</h1>
+  <p class="sub">Adding WhatsApp as a second channel to the existing engine: Meta platform requirements, the transport design, the 24-hour window, hosting options, and a full cost breakdown.</p>
+  <table>
+    <tr><th>Prepared</th><td>16 September 2026</td></tr>
+    <tr><th>Basis</th><td>The assistant as deployed (commit <code>35b97e4</code>); Meta WhatsApp Business Platform, Cloud API</td></tr>
+    <tr><th>Companion</th><td><em>MKY-Booking-Assistant-Technical.pdf</em> describes the existing system this plan extends</td></tr>
+  </table>
+</section>
+
+<h2>Contents</h2>
+<ol>
+  <li>Scope and approach</li>
+  <li>Meta platform requirements and timelines</li>
+  <li>WhatsApp Cloud API behaviour that shapes the transport</li>
+  <li>Transport design: <code>api/whatsapp.js</code> and <code>lib/whatsapp.js</code></li>
+  <li>Mapping the engine's messages to WhatsApp</li>
+  <li>The 24-hour window and templates in the outbox</li>
+  <li>Identity, sessions and the data model</li>
+  <li>Hosting: Vercel and the alternatives</li>
+  <li>Cost breakdown</li>
+  <li>Privacy and data handling</li>
+  <li>Testing</li>
+  <li>Work plan and effort</li>
+</ol>
+
+<h2>1. Scope and approach</h2>
+<p>The engine (<code>lib/flow/*</code>), the booking rules, the readers, the document pipeline, the outbox, the console and the 237 tests are channel-independent: they consume inputs of the kinds <code>command</code>, <code>callback</code>, <code>text</code>, <code>contact</code>, <code>caption</code> and <code>document</code>, and produce messages carrying text plus inline keyboard rows. Telegram is one transport (<code>api/telegram.js</code>) that turns Telegram updates into those inputs and those messages into Telegram calls. WhatsApp is a second transport doing the same for Meta's Cloud API. Both run at once; every booking, document and ticket already records its <code>channel</code>.</p>
+<div class="good">Nothing in the engine changes. The work is one webhook, one API client, one keyboard adapter, template sending in the outbox drain, one small migration, and the transport's tests.</div>
+
+<h2>2. Meta platform requirements and timelines</h2>
+<table>
+  <tr><th style="width:26%">Requirement</th><th>Detail</th><th style="width:18%">Time</th></tr>
+  <tr><td>Meta Business Portfolio</td><td>MKY's business account; owner is a company representative with a Facebook login. Everything else hangs off it.</td><td>Same day</td></tr>
+  <tr><td>WhatsApp Business Account (WABA)</td><td>Created via the WhatsApp Business Platform onboarding in the portfolio. Holds the phone number(s), templates, quality rating and messaging limits.</td><td>Same day</td></tr>
+  <tr><td>Phone number</td><td>Not registered on WhatsApp / WhatsApp Business app. Verified by SMS or voice call. A number in the phone app can be migrated (it leaves the app). Landlines are fine.</td><td>Same day</td></tr>
+  <tr><td>Meta app, WhatsApp product</td><td>Developer app in the same portfolio. Yields the phone number id, WABA id, app secret, and a permanent access token issued to a <em>system user</em> with <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>. App Review is not required when the app messages only the portfolio's own WABA.</td><td>Half a day</td></tr>
+  <tr><td>Display name review</td><td>Must reflect the business; reviewed by Meta.</td><td>1–2 business days</td></tr>
+  <tr><td><strong>Business verification</strong></td><td>Legal name, registration/tax document, matching address, company-domain email or website. Unverified: 250 unique business-initiated recipients per rolling 24 h and no template use beyond that. Verified: tier starts at 1,000/day and scales to 10K, 100K, unlimited with quality.</td><td><strong>2–10 business days; up to ~3 weeks</strong></td></tr>
+  <tr><td>Templates</td><td>Utility category, per language. Reviewed by Meta; edits require re-review.</td><td>Minutes to 48 h</td></tr>
+  <tr><td>Privacy policy URL</td><td>Required on the app. Content in section 10.</td><td>A day</td></tr>
+  <tr><td>Test number</td><td>Meta provides a free test phone number that can message up to five verified recipients before verification. Development and end-to-end tests run against it.</td><td>Immediately</td></tr>
+  <tr><td>Optional: Official Business Account</td><td>The green tick. Applied for after verification; not needed for messaging.</td><td>Days to weeks</td></tr>
+</table>
+<h3>Direct vs Business Solution Provider</h3>
+<p>The Cloud API is used directly (no fee beyond per-message prices) or through a BSP — Twilio, 360dialog, Infobip — that fronts the same API with its own SDK and billing (about $0.005 per message, or ~€49–100 per number per month). The transport below targets the Cloud API; a BSP changes only the base URL, authentication and the inbound payload envelope. Recommendation: direct.</p>
+
+<h2 class="pb">3. Cloud API behaviour that shapes the transport</h2>
+<table>
+  <tr><th style="width:26%">Behaviour</th><th>Consequence for the design</th></tr>
+  <tr><td>Webhook delivery and retries</td><td>Meta POSTs to the webhook and retries (with backoff, for hours) when it does not get a 2xx quickly. Same shape as Telegram: claim the message id, answer 200 at once, do the slow part in the background. <code>processed_updates</code> and <code>waitUntil</code> apply unchanged.</td></tr>
+  <tr><td>Signature</td><td>Every POST carries <code>X-Hub-Signature-256</code> = HMAC-SHA256(raw body, app secret). Verified on the raw body before parsing. The GET verification handshake echoes <code>hub.challenge</code> when <code>hub.verify_token</code> matches.</td></tr>
+  <tr><td>Message kinds inbound</td><td><code>text</code>, <code>interactive</code> (button_reply / list_reply with the id we set), <code>document</code>, <code>image</code>, <code>contacts</code>, <code>location</code>, <code>reaction</code>, plus <code>statuses</code> (sent/delivered/read) for our outbound messages. Statuses and reactions are acknowledged and ignored; delivered/read could later feed the outbox's delivery state.</td></tr>
+  <tr><td>Interactive limits</td><td>Reply buttons: max 3 per message, title ≤ 20 characters, id ≤ 256 bytes. List: one button opening ≤ 10 rows in sections, row title ≤ 24 characters. No inline URL buttons except CTA-URL messages. Sent messages cannot be edited or have buttons removed.</td></tr>
+  <tr><td>Media</td><td>Inbound media arrives as an id; fetch its URL with the token, then download (URL is short-lived; media retained ~30 days). Documents ≤ 100 MB, images ≤ 5 MB. Outbound: upload to get a media id, or send by URL. Captions on inbound media are delivered with the message.</td></tr>
+  <tr><td>No albums</td><td>Several files sent at once arrive as separate messages within a second, with no group id. The batch logic (record first, read in parallel, last to finish speaks, claimed reply) works as is; the album grace wait becomes a short fixed wait on every document.</td></tr>
+  <tr><td>24-hour customer service window</td><td>Free-form messages only within 24 h of the client's last message; outside it, only approved templates (section 6). Template messages are billed per message by category and recipient country; utility templates inside the window are free.</td></tr>
+  <tr><td>Identity</td><td>The sender is identified by <code>wa_id</code> (the phone number in E.164 without the plus) and a profile name. No username, no chat id distinct from the number.</td></tr>
+  <tr><td>Typing indicator and read receipts</td><td>Supported via the messages endpoint (mark as read, typing indicator) — used in place of Telegram's <code>sendChatAction</code>.</td></tr>
+  <tr><td>No pinning, no commands</td><td>The pinned status card has no equivalent; slash commands are plain text.</td></tr>
+</table>
+
+<h2>4. Transport design</h2>
+<h3>4.1 <code>api/whatsapp.js</code></h3>
+<pre>
+GET  /api/whatsapp?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…   → 200 hub.challenge
+POST /api/whatsapp
+  1. read the raw body; verify X-Hub-Signature-256 with WHATSAPP_APP_SECRET; else 401
+  2. for each entry.changes[].value:
+       for each messages[]:      claimUpdate(message.id, wa_id)  → readInput → dispatch
+       statuses[] / errors[]:    log, and update outbox delivery state (later)
+  3. answer 200 immediately; documents continue under waitUntil (as api/telegram.js does)
+</pre>
+<pre>
+{ "entry": [{ "changes": [{ "value": {
+    "metadata": { "phone_number_id": "…" },
+    "contacts": [{ "wa_id": "201005551234", "profile": { "name": "Ariful" } }],
+    "messages": [
+      { "id": "wamid.…", "from": "201005551234", "type": "text",
+        "text": { "body": "Nile Motors and my number is +20 100 555 1234" } },
+      { "id": "wamid.…", "from": "201005551234", "type": "interactive",
+        "interactive": { "type": "button_reply", "button_reply": { "id": "bk:confirm", "title": "Confirm" } } },
+      { "id": "wamid.…", "from": "201005551234", "type": "document",
+        "document": { "id": "MEDIA_ID", "filename": "kitJ-invoice.pdf", "mime_type": "application/pdf",
+                      "caption": "Rotterdam to Damietta. DAF XF 480 FT, chassis XLRTEH4350G741552" } }
+    ] } }] }] }
+</pre>
+<h3>4.2 <code>readInput</code> mapping</h3>
+<table>
+  <tr><th>Inbound</th><th>Engine input</th></tr>
+  <tr><td><code>text</code> "menu", "start", "cancel", "reset" (and Arabic forms)</td><td><code>{ kind: 'command', command: '/menu' | '/start' | '/cancel' | '/reset' }</code></td></tr>
+  <tr><td>other <code>text</code></td><td><code>{ kind: 'text', text }</code></td></tr>
+  <tr><td><code>interactive.button_reply.id</code> / <code>list_reply.id</code></td><td><code>{ kind: 'callback', callback: parseCallback(id) }</code> — the ids are the existing payloads (<code>menu:book</code>, <code>bk:mrn:existing</code>, <code>ct:urgent:yes</code> …)</td></tr>
+  <tr><td><code>contacts[0].phones[0].wa_id</code></td><td><code>{ kind: 'contact', phone }</code></td></tr>
+  <tr><td><code>document</code> / <code>image</code></td><td>validate → <code>beginDocument</code> → 200 → background: <code>{ kind: 'caption' }</code> if a caption, download by media id, <code>completeDocument</code>, batch decision, <code>{ kind: 'document', speak, batch }</code></td></tr>
+  <tr><td><code>statuses</code>, <code>reaction</code>, <code>location</code>, unsupported</td><td>ignored (200)</td></tr>
+</table>
+<h3>4.3 <code>lib/whatsapp.js</code></h3>
+<pre>
+call(path, payload)              POST https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/{path}, Bearer token
+sendText(to, body)               messages: { type: 'text', text: { body, preview_url: false } }
+sendButtons(to, body, buttons)   interactive.type = 'button', ≤ 3 × { id, title(≤20) }
+sendList(to, body, rows)         interactive.type = 'list', button 'Choose', ≤ 10 rows { id, title(≤24) }
+sendDocument(to, buffer, name, caption)   POST /media (multipart) → id; messages { type: 'document', document: { id, filename, caption } }
+sendContact(to, name, phone)     messages { type: 'contacts' } — the direct line as a tappable card
+sendTemplate(to, name, lang, components)  messages { type: 'template' }
+markRead(messageId) · typing(messageId)   messages { status: 'read', typing_indicator: { type: 'text' } }
+mediaUrl(id) → download(url)     GET /{id} → { url } ; GET url with the token → bytes
+</pre>
+<p>Like <code>lib/telegram.js</code>: plain <code>fetch</code>, no SDK, every call logs a non-2xx and returns the body; nothing here throws into the flow.</p>
+
+<h2 class="pb">5. Mapping the engine's messages to WhatsApp</h2>
+<p>Handlers return messages as <code>{ text, inline?: rows, keyboard?, oneTime? }</code>. An adapter in the transport renders them:</p>
+<table>
+  <tr><th>Engine message</th><th>WhatsApp rendering</th></tr>
+  <tr><td>Text, no buttons</td><td><code>sendText</code>. Bilingual bodies are fine; WhatsApp renders Arabic right-to-left per line.</td></tr>
+  <tr><td>Inline rows with ≤ 3 buttons</td><td><code>sendButtons</code>. Titles are the label with the emoji, truncated to 20 characters; because the label carries both languages, the adapter uses a short per-language title table keyed by callback payload (e.g. <code>menu:book</code> → "📦 احجز / Book").</td></tr>
+  <tr><td>Inline rows with 4–10 buttons (edit menu, document classify)</td><td><code>sendList</code> with row titles from the same table; the list button reads "اختار / Choose".</td></tr>
+  <tr><td>More than 10 (does not occur today)</td><td>Split across two list messages.</td></tr>
+  <tr><td>Reply keyboard "Share my number"</td><td>Not sent. <code>askNextBasic</code> for the phone step on WhatsApp offers <code>[Use +20…] [Another number]</code> buttons; "Another number" → the client types it.</td></tr>
+  <tr><td>Documents (the PDF copy)</td><td><code>sendDocument</code>, caption as today.</td></tr>
+  <tr><td>Direct line after hours</td><td>The text, plus <code>sendContact</code> so it is one tap to call.</td></tr>
+  <tr><td>Typing</td><td><code>markRead</code> + typing indicator on the inbound message id, in place of <code>sendTyping</code>.</td></tr>
+  <tr><td><code>clearButtons</code></td><td>No-op; the engine already refuses stale taps with a clear message.</td></tr>
+</table>
+<p>Truncation is asserted at build time the way <code>cb()</code> asserts Telegram's 64-byte payload limit today: a title over 20 characters throws in development rather than being silently rejected in production.</p>
+
+<h2>6. The 24-hour window and templates in the outbox</h2>
+<ul>
+  <li><code>conversation_sessions</code> gains <code>last_client_message_at</code>, stamped on every inbound message. <code>windowOpen(session) = now − last_client_message_at &lt; whatsapp_window_hours</code> (setting, default 24).</li>
+  <li>The outbox drain, for a row with <code>channel = 'whatsapp'</code>: inside the window → render as today and send text/document; outside → look up the template for <code>event_type</code> in <code>bot_settings.whatsapp_templates</code> and <code>sendTemplate</code> with the payload's fields as components. The PDF events use a template with a document header.</li>
+  <li>Template set (utility, <code>ar</code> and <code>en</code>): <code>booking_confirmed</code> (document header: the confirmation PDF; body: reference, shipment id), <code>missing_information_requested</code> (reference, what), <code>booking_rejected</code> (reference, reason), <code>mrn_issued</code> (mrn, reference), <code>shipment_update</code> (shipment, text), <code>operations_message</code> (reference, text). Each with one quick-reply button "Reply / رد" so the client's tap reopens the window.</li>
+  <li>Language choice per client: the language of their last message (Arabic script → <code>ar</code>), stored on the client record; falls back to <code>en</code>.</li>
+  <li>Failures Meta reports through <code>statuses[].errors</code> (e.g. 131047 re-engagement, 131026 not a WhatsApp user) map to the outbox's permanent-failure list, as Telegram's "bot was blocked" does today.</li>
+</ul>
+
+<h2>7. Identity, sessions and the data model</h2>
+<ul>
+  <li>Session key <code>whatsapp:&lt;wa_id&gt;</code>; <code>ctx = { channel: 'whatsapp', chatId: wa_id, clientId, userName: profile.name }</code>.</li>
+  <li>Migration: <code>clients.whatsapp_id text unique</code>; <code>conversation_sessions.last_client_message_at timestamptz</code>; <code>bot_settings</code> rows <code>whatsapp_templates</code>, <code>whatsapp_window_hours</code>. Bookings, documents, tickets and tasks already carry <code>channel</code> and <code>chat_id</code>.</li>
+  <li><code>upsertWhatsAppClient({ waId, profileName })</code> mirrors <code>upsertTelegramClient</code>; <code>phoneOnFile()</code> returns the WhatsApp number first, so step 1 offers it and "Talk to an agent" never asks.</li>
+  <li>A person who uses both channels is two client rows unless linked by number; <code>phoneOnFile()</code> already matches by phone, so a Telegram client who gave the same number is recognised.</li>
+  <li>The pinned card (<code>lib/pinned.js</code>) stays Telegram-only; on WhatsApp the same events send a status text inside the window or the <code>shipment_update</code> template outside it.</li>
+</ul>
+
+<h2 class="pb">8. Hosting: Vercel and the alternatives</h2>
+<p>The application is plain Node.js with no framework and no Vercel-specific API beyond <code>waitUntil</code>, so it can run on any host that serves HTTPS and runs Node 20. The database and storage stay on Supabase in every option; only the code moves.</p>
+<table>
+  <tr><th style="width:20%">Option</th><th style="width:13%">Per month</th><th>Fit</th><th style="width:30%">What changes technically</th></tr>
+  <tr><td>Vercel Hobby (today)</td><td class="num">$0</td><td>Not for production: the plan's terms are for personal, non-commercial use; 12-function cap (reached); cold starts after idle; daily cron at most.</td><td>To add <code>/api/whatsapp</code> at all, fold <code>api/status.js</code> into <code>api/health.js</code>.</td></tr>
+  <tr><td><strong>Vercel Pro</strong></td><td class="num">$20 / member</td><td>Least change. Function cap lifted, Fluid compute, cron every minute for the outbox, longer durations, Frankfurt region as now.</td><td>None.</td></tr>
+  <tr><td>Fly.io</td><td class="num">≈ $3–8</td><td>Always-on small VM in Frankfurt (<code>fra</code>), auto-restart, built-in TLS. No cold starts.</td><td>A 40-line <code>server.js</code> routing <code>/api/*</code> to the existing handlers (they are <code>(req, res)</code> functions); a Dockerfile; <code>waitUntil</code> becomes a no-op (the process lives on); outbox retries by a <code>setInterval</code> or Fly's scheduled machines.</td></tr>
+  <tr><td>Railway</td><td class="num">≈ $5–10</td><td>Same shape as Fly.io, simpler dashboard; EU region (Amsterdam).</td><td>As Fly.io; deploy from the GitHub repository directly.</td></tr>
+  <tr><td>Render</td><td class="num">$7 (Starter)</td><td>Always-on web service; Frankfurt region available.</td><td>As Fly.io.</td></tr>
+  <tr><td>Hetzner VPS (Germany)</td><td class="num">≈ €4–8</td><td>Cheapest and fully controlled. Requires someone to run it: OS updates, Node updates, process manager, TLS (Caddy), monitoring, backups of nothing (data is on Supabase).</td><td>As Fly.io plus Docker Compose or PM2 and Caddy; deploy by <code>git pull</code> or a GitHub Action over SSH.</td></tr>
+  <tr><td>Cloudflare Workers / Supabase Edge Functions</td><td class="num">$0–5</td><td><strong>Not suitable</strong> without rework: <code>pdfjs-dist</code> with <code>@napi-rs/canvas</code>, and <code>pdfkit</code>, need Node's native modules, which these runtimes do not provide.</td><td>Would require moving document reading and PDF generation elsewhere.</td></tr>
+</table>
+<div class="note"><strong>Recommendation.</strong> Vercel Pro for the least disruption and the same operational model as today. Fly.io or Railway if a lower fixed cost matters and a few days of migration are acceptable; the code needs only a small server wrapper. A Hetzner VPS only if MKY already has someone who administers servers.</div>
+
+<h2>9. Cost breakdown</h2>
+<h3>9.1 One-time</h3>
+<table>
+  <tr><th>Item</th><th style="width:22%">Cost</th><th>Notes</th></tr>
+  <tr><td>Meta accounts, verification, number registration</td><td class="num">$0</td><td>Meta charges nothing.</td></tr>
+  <tr><td>Phone number</td><td class="num">operator's rate</td><td>A SIM or landline; one-time and monthly per the operator.</td></tr>
+  <tr><td>Engineering: the WhatsApp transport, templates, tests, pilot</td><td class="num">≈ 2 weeks of work</td><td>Section 12. Priced at the agreed rate.</td></tr>
+  <tr><td>Migration to another host (only if chosen)</td><td class="num">≈ 2–4 days of work</td><td>Section 8.</td></tr>
+</table>
+<h3>9.2 Fixed, per month</h3>
+<table>
+  <tr><th>Item</th><th style="width:16%">Per month</th><th>Notes</th></tr>
+  <tr><td>Hosting: Vercel Pro (or an always-on service, $5–10; or Hobby $0 for testing only)</td><td class="num">$20</td><td>Section 8.</td></tr>
+  <tr><td>Supabase Pro</td><td class="num">$25</td><td>8 GB database, 100 GB storage, 250 GB egress, daily backups, no pausing. The free tier pauses after 7 idle days and caps storage at 1 GB; usable for testing only.</td></tr>
+  <tr><td>WhatsApp Cloud API</td><td class="num">$0</td><td>No platform fee.</td></tr>
+  <tr><td>BSP fee (only via a provider)</td><td class="num">$50–100</td><td>Twilio has no monthly fee but charges ≈ $0.005 per message; 360dialog ≈ €49 per number.</td></tr>
+  <tr><td>Resend</td><td class="num">$0</td><td>3,000 emails / month free; $20 beyond.</td></tr>
+  <tr><td>Telegram</td><td class="num">$0</td><td></td></tr>
+  <tr class="total"><td>Fixed total, direct with Meta, Vercel Pro + Supabase Pro</td><td class="num">$45</td><td>Plus the phone line.</td></tr>
+</table>
+<h3>9.3 Per use</h3>
+<table>
+  <tr><th>Item</th><th style="width:22%">Price</th><th>Notes</th></tr>
+  <tr><td>WhatsApp service conversations (client-initiated, and replies within 24 h)</td><td class="num">free</td><td>All bookings, tracking and questions.</td></tr>
+  <tr><td>WhatsApp utility template, recipient in Egypt</td><td class="num">≈ $0.01–0.02</td><td>Free when sent inside an open window. Indicative; the rate card at business.whatsapp.com/products/platform-pricing governs.</td></tr>
+  <tr><td>WhatsApp marketing template, Egypt</td><td class="num">≈ $0.10</td><td>Not used by the assistant; listed for completeness.</td></tr>
+  <tr><td>OpenAI <code>gpt-4.1-mini</code> (extraction, reading, NLU)</td><td class="num">$0.40 / M input, $1.60 / M output tokens</td><td>A text-layer PDF page ≈ 1–2K tokens; a scanned page via vision ≈ 1–3K tokens plus the image. Three text PDFs ≈ 1–2 cents; three scans ≈ 5–10 cents.</td></tr>
+  <tr><td>OpenAI <code>gpt-4.1</code> (questions)</td><td class="num">$2 / M input, $8 / M output</td><td>≈ 1–2 cents per answered question with the tool sheet.</td></tr>
+  <tr><td>OpenAI embeddings (knowledge base)</td><td class="num">negligible</td><td>Ingestion only.</td></tr>
+  <tr><td>Supabase storage egress beyond the plan</td><td class="num">$0.09 / GB</td><td>PDFs are small; not a factor at this scale.</td></tr>
+</table>
+<h3>9.4 Scenarios (both channels, direct with Meta)</h3>
+<table>
+  <tr><th>Bookings / month</th><th class="num">Fixed</th><th class="num">Templates (3 / booking)</th><th class="num">Model usage</th><th class="num">Total</th></tr>
+  <tr><td>100</td><td class="num">$45</td><td class="num">≈ $5</td><td class="num">≈ $10</td><td class="num"><strong>≈ $60</strong></td></tr>
+  <tr><td>300</td><td class="num">$45</td><td class="num">≈ $15</td><td class="num">≈ $30</td><td class="num"><strong>≈ $90</strong></td></tr>
+  <tr><td>1,000</td><td class="num">$45</td><td class="num">≈ $45</td><td class="num">≈ $100</td><td class="num"><strong>≈ $190</strong></td></tr>
+</table>
+<p>Assumptions: three utility templates per booking, half of them inside the window; one or two free questions per booking; a mix of text and scanned PDFs. Telegram traffic adds only model usage. At 1,000 bookings a month the Vercel Pro included function invocations and Supabase Pro limits are not approached.</p>
+
+<h2 class="pb">10. Privacy and data handling</h2>
+<ul>
+  <li><strong>Stored by MKY</strong> (Supabase, AWS eu-central-1): client name and number, vehicle and route, documents and what was read from them, the conversation transcript used for question answering, tickets, the audit trail. Row Level Security on; server-only key.</li>
+  <li><strong>Meta:</strong> messages and media in transit and for a limited retention; message metadata (delivery, read). Meta's WhatsApp Business terms and data processing terms apply; Meta does not receive the derived booking data.</li>
+  <li><strong>OpenAI:</strong> document text/images and message text, under API data-usage terms (no training on API data); outputs validated by code before storage.</li>
+  <li><strong>Privacy policy page</strong> (required by Meta): what is collected; purpose (booking and shipment handling); storage location and retention; sub-processors (Meta, Supabase, Vercel or the chosen host, OpenAI, Resend); how to request deletion. Deletion = client row, bookings, documents (storage objects), tickets, sessions, transcript.</li>
+  <li><strong>Retention:</strong> a setting per table (e.g. transcripts 90 days after the last message; documents 12 months after delivery) applied by a scheduled job — a decision for MKY.</li>
+  <li><strong>Egypt PDPL (Law 151/2020):</strong> EU storage, a policy, a deletion path and purpose limitation cover the practical duties; controller registration should be confirmed by MKY's counsel.</li>
+</ul>
+
+<h2>11. Testing</h2>
+<ul>
+  <li>The engine suite (237 tests) is unchanged.</li>
+  <li><code>tests/whatsapp.test.mjs</code>: signature verification (valid, tampered, missing); the GET handshake; recorded payloads for text, button reply, list reply, contact, a document with caption, three documents in a burst (one reply), a status update (ignored); the keyboard adapter's button/list decision and title limits; the outbox's window decision and template rendering, with a fake Graph API recording calls.</li>
+  <li>End-to-end against Meta's test number before verification; then the pilot on the real number.</li>
+</ul>
+
+<h2>12. Work plan and effort</h2>
+<table>
+  <tr><th style="width:8%">Week</th><th>Engineering</th><th style="width:38%">MKY</th></tr>
+  <tr><td>1</td><td>Transport: webhook, signature, readInput, API client, keyboard adapter, phone step, sessions, migration. Templates written and submitted.</td><td>Accounts, number, verification, display name, payment method, privacy page, hosting decision.</td></tr>
+  <tr><td>2</td><td>Outbox window logic and template sending; status messages in place of the pinned card; transport tests; hosting change if chosen.</td><td>Respond to Meta; approve template wording.</td></tr>
+  <tr><td>3</td><td>Cut over the verified number; pilot monitoring; fixes.</td><td>Pilot with two or three clients.</td></tr>
+  <tr><td>4</td><td>Hand-over; monitoring of quality rating and costs.</td><td>Go live.</td></tr>
+</table>
+<p>Engineering effort: about two working weeks for the transport, templates and tests; two to four days more for a host migration. The calendar is set by Meta's verification, which runs in parallel.</p>
+
+</body>
+</html>

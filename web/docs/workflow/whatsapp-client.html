@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MKY Forwarding — The Booking Assistant on WhatsApp</title>
+<style>
+  @page { size: 297mm 167mm; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #17212b; font-family: "Segoe UI", Arial, Helvetica, sans-serif; }
+  .slide { width: 297mm; height: 167mm; padding: 15mm 18mm 14mm 18mm; page-break-after: always; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .slide:last-child { page-break-after: auto; }
+  .kicker { font-size: 11pt; letter-spacing: .12em; text-transform: uppercase; color: #25a35a; font-weight: 600; margin: 0 0 3mm; }
+  h1 { font-size: 28pt; line-height: 1.15; margin: 0 0 5mm; color: #0f2a44; font-weight: 700; }
+  h2 { font-size: 14pt; margin: 0 0 2.5mm; color: #0f2a44; }
+  p, li { font-size: 12.5pt; line-height: 1.42; margin: 0 0 2.5mm; }
+  ul { margin: 0; padding-left: 6mm; }
+  li { margin-bottom: 1.8mm; }
+  .lead { font-size: 15pt; color: #2f3e4e; max-width: 240mm; }
+  .grid { display: grid; gap: 6mm; flex: 1; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .card { background: #f4f7f9; border-radius: 4mm; padding: 5mm 6mm; border-top: 3mm solid #25a35a; }
+  .card.amber { border-top-color: #d9822b; }
+  .card.navy { border-top-color: #0f2a44; }
+  .card p, .card li { font-size: 11.5pt; }
+  .foot { position: absolute; bottom: 8mm; left: 18mm; right: 18mm; display: flex; justify-content: space-between; font-size: 9pt; color: #8a97a3; }
+  .cover { background: #0f2a44; color: #fff; justify-content: center; }
+  .cover h1 { color: #fff; font-size: 38pt; }
+  .cover .kicker { color: #7fd6a8; }
+  .cover p { color: #d5dee6; font-size: 15pt; }
+  table { border-collapse: collapse; width: 100%; font-size: 11pt; }
+  th, td { text-align: left; padding: 2.2mm 3mm; border-bottom: 1px solid #d9e1e8; vertical-align: top; }
+  th { color: #0f2a44; font-size: 10pt; text-transform: uppercase; letter-spacing: .06em; }
+  td.num { text-align: right; white-space: nowrap; }
+  .pill { display: inline-block; padding: .8mm 2.6mm; border-radius: 3mm; font-size: 10pt; font-weight: 600; margin-right: 1.5mm; }
+  .same { background: #e2f3ea; color: #1b7a44; }
+  .diff { background: #fff1de; color: #8a4d0a; }
+  .stop { background: #fde8e8; color: #a32b2b; }
+  .chat { background: #eef3f7; border-radius: 3mm; padding: 3.5mm 4.5mm; font-size: 11pt; line-height: 1.4; margin: 0 0 3mm; white-space: pre-line; border-left: 2mm solid #25a35a; }
+  .q { font-size: 12pt; }
+  .small { font-size: 10pt; color: #5a6a79; }
+  .total td { font-weight: 700; border-top: 2px solid #0f2a44; }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="slide cover">
+  <p class="kicker">MKY Forwarding</p>
+  <h1>The Booking Assistant<br>on WhatsApp</h1>
+  <p>What stays the same, what changes for the client, what MKY has to set up, how long it takes, and what it costs to run.</p>
+  <p style="margin-top:12mm;font-size:12pt;color:#9fb3c4">For discussion with the MKY team · Prepared 16 September 2026</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <p class="kicker">The short version</p>
+  <h1>Same assistant, second door</h1>
+  <p class="lead">Everything built for Telegram — the three-step booking, the document reading, tracking, the agent hand-off, the Operations console — sits behind one engine that does not care which app the client uses. WhatsApp is a second door into the same system. Both can run side by side.</p>
+  <div class="grid g3" style="margin-top:5mm">
+    <div class="card"><h2>What carries over</h2><p>Every step, every rule, every screen at the desk, and all of the testing. The client's data stays in the same place.</p></div>
+    <div class="card amber"><h2>What WhatsApp adds</h2><p>A Meta business account and a verified business, a dedicated phone number, a 24-hour rule for messages MKY starts, buttons limited to three per message, and a small per-message price.</p></div>
+    <div class="card navy"><h2>The long pole</h2><p>Meta's business verification: usually two to ten business days. The software work runs in parallel and is not the bottleneck.</p></div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>2</span></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <p class="kicker">For the client</p>
+  <h1>What stays the same</h1>
+  <div class="grid g2">
+    <ul>
+      <li><strong>The three steps:</strong> your details → the vehicle and its papers → your booking, with "Step 1 of 3" and so on.</li>
+      <li><strong>The chassis check</strong> that stops a unit being booked twice.</li>
+      <li><strong>Everything in one message</strong> with the papers attached — one answer after all the files are read.</li>
+      <li><strong>Documents read automatically,</strong> chassis cross-checked, a wrong paper flagged, an unclear one asked about.</li>
+    </ul>
+    <ul>
+      <li><strong>The summary card,</strong> the booking reference and the PDF copy.</li>
+      <li><strong>Track my shipment</strong> — status, vessel, arrival date from MKY's records; only your own shipments.</li>
+      <li><strong>Talk to an agent,</strong> in hours and after hours, with the urgent question and the direct number.</li>
+      <li><strong>Arabic and English</strong> in every message, and every safety rule: nothing invented, nothing shown that is not yours.</li>
+    </ul>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>3</span></div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <p class="kicker">For the client</p>
+  <h1>What changes</h1>
+  <table>
+    <tr><th style="width:22%">Moment</th><th style="width:34%">Telegram today</th><th>WhatsApp</th></tr>
+    <tr><td>Starting</td><td>"/start" or the menu</td><td><span class="pill diff">Slightly different</span> No commands. The client sends anything — "Hi", "book", "عايز أحجز" — and gets the three choices as buttons.</td></tr>
+    <tr><td>Step 1, the number</td><td>Share-my-number button or typed</td><td><span class="pill same">Simpler</span> WhatsApp already tells us the client's number. One tap to confirm it, or type another.</td></tr>
+    <tr><td>Long menus</td><td>Up to seven buttons on one card</td><td><span class="pill diff">Slightly different</span> Three buttons per message. Longer choices, like the edit menu, open as a list.</td></tr>
+    <tr><td>Pinned status card</td><td>At the top of the chat, updated as the shipment moves</td><td><span class="pill stop">Not available</span> WhatsApp does not allow pinning. The assistant sends a status message when something changes instead; tracking is one tap away.</td></tr>
+    <tr><td>Messages MKY sends later — confirmation, a request for papers</td><td>Sent whenever the desk acts</td><td><span class="pill diff">The 24-hour rule</span> Free-form within 24 hours of the client's last message; after that, one of MKY's pre-approved templates (next page).</td></tr>
+  </table>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>4</span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <p class="kicker">WhatsApp's rules</p>
+  <h1>The 24-hour rule, in plain words</h1>
+  <div class="grid g2">
+    <div>
+      <p>From the moment a client writes, MKY may reply freely for 24 hours. Every booking, every tracking request, every question happens inside that window — and it is <strong>free</strong>.</p>
+      <p>After 24 hours of silence, MKY may only send messages that Meta approved in advance — <strong>templates</strong> with blanks for the reference and the details. They are charged per message. The client tapping "Reply" reopens the window.</p>
+      <p>The assistant needs six templates, in Arabic and English:</p>
+      <ul>
+        <li>Booking confirmed, with the PDF</li>
+        <li>More information needed</li>
+        <li>Booking not confirmed, with the reason</li>
+        <li>MRN issued</li>
+        <li>Shipment update</li>
+        <li>A message from the team</li>
+      </ul>
+    </div>
+    <div>
+      <div class="chat">✅ Your booking MKY-BKG-260916-0AFH is confirmed. Shipment MKY-26041. Your PDF copy is attached.
+[ Reply ]</div>
+      <div class="chat">⚠️ We need a little more to continue your booking MKY-BKG-260916-0AFH: a clearer copy of the invoice. Reply here to send it.
+[ Reply ]</div>
+      <p class="small">Templates are reviewed by Meta, usually within hours. The wording can be changed later by submitting a new version.</p>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>5</span></div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <p class="kicker">Setting up</p>
+  <h1>What MKY has to set up</h1>
+  <table>
+    <tr><th style="width:26%">Item</th><th>What it is</th><th style="width:20%">Typical time</th></tr>
+    <tr><td>Meta Business Portfolio</td><td>MKY's company account at business.facebook.com, created by a company representative.</td><td>Same day</td></tr>
+    <tr><td>WhatsApp Business Account</td><td>The API account inside the portfolio — not the WhatsApp Business app on a phone.</td><td>Same day</td></tr>
+    <tr><td>A phone number for the assistant</td><td>A number not already on WhatsApp; mobile or landline; must receive one SMS or call.</td><td>Same day</td></tr>
+    <tr><td>Display name</td><td>"MKY Forwarding", reviewed by Meta.</td><td>1–2 business days</td></tr>
+    <tr><td><strong>Business verification</strong></td><td>Registration or tax document, matching address, an email on the company's domain. Until done: at most 250 clients a day.</td><td><strong>2–10 business days</strong>, up to three weeks</td></tr>
+    <tr><td>Six message templates</td><td>Submitted in Arabic and English, reviewed by Meta.</td><td>Minutes to 48 hours</td></tr>
+    <tr><td>Privacy policy page</td><td>A page on MKY's website; Meta requires it.</td><td>A day</td></tr>
+    <tr><td>Payment method</td><td>A card on the portfolio for the per-message charges.</td><td>Same day</td></tr>
+  </table>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>6</span></div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <p class="kicker">Setting up</p>
+  <h1>Two ways to connect</h1>
+  <div class="grid g2">
+    <div class="card"><h2>Directly with Meta (recommended)</h2>
+      <ul>
+        <li>MKY holds the accounts and the number in its own name.</li>
+        <li>No middleman and no monthly fee; only Meta's per-message prices.</li>
+        <li>MKY does the verification itself, with our help on the technical parts.</li>
+      </ul>
+    </div>
+    <div class="card amber"><h2>Through a provider (Twilio, 360dialog, Infobip)</h2>
+      <ul>
+        <li>The provider walks MKY through the same verification and can host the number.</li>
+        <li>Adds a monthly fee (roughly $50–100 per number) or about half a cent per message on top of Meta's prices.</li>
+        <li>Slightly less setup effort; one more company in the chain.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="small" style="margin-top:4mm">The software is almost identical either way; the choice is about who holds the account and the extra fee.</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>7</span></div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <p class="kicker">Costs</p>
+  <h1>Cost breakdown — fixed, per month</h1>
+  <table>
+    <tr><th style="width:30%">Item</th><th style="width:22%">Per month</th><th>Notes</th></tr>
+    <tr><td>Hosting the assistant (Vercel Pro)</td><td class="num">$20</td><td>Today's hosting is on Vercel's free plan, which is meant for personal projects, is at its size limit, and puts the assistant to sleep between messages. Production belongs on the paid plan — or on one of the alternatives on page 10.</td></tr>
+    <tr><td>Database and file storage (Supabase Pro)</td><td class="num">$25</td><td>The free tier pauses after a week without traffic and caps storage at 1 GB. Pro: 8 GB database, 100 GB files, daily backups.</td></tr>
+    <tr><td>WhatsApp account, API, verification</td><td class="num">$0</td><td>Meta charges nothing for the account or the connection.</td></tr>
+    <tr><td>The phone line</td><td class="num">operator's rate</td><td>A SIM or landline from MKY's operator.</td></tr>
+    <tr><td>Provider fee (only if a provider is chosen)</td><td class="num">$50–100</td><td>Not needed when connecting directly with Meta.</td></tr>
+    <tr><td>Telegram</td><td class="num">$0</td><td>Kept running alongside.</td></tr>
+    <tr><td>Email (Resend)</td><td class="num">$0</td><td>Free up to 3,000 emails a month; two per booking.</td></tr>
+    <tr class="total"><td>Fixed total, direct with Meta</td><td class="num">about $45</td><td>Plus the phone line.</td></tr>
+  </table>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>8</span></div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <p class="kicker">Costs</p>
+  <h1>Cost breakdown — per use, and three scenarios</h1>
+  <div class="grid g2">
+    <div>
+      <table>
+        <tr><th>Item</th><th>Price</th></tr>
+        <tr><td>Conversations the client starts, and all replies within 24 hours</td><td class="num">free</td></tr>
+        <tr><td>Template messages MKY starts (utility, to Egypt)</td><td class="num">≈ 1–2 cents each</td></tr>
+        <tr><td>Reading documents and details (AI)</td><td class="num">≈ 5–15 cents per booking</td></tr>
+        <tr><td>Answering a free question (AI)</td><td class="num">≈ 1–2 cents each</td></tr>
+        <tr><td>Marketing broadcasts, if ever wanted</td><td class="num">≈ 10 cents each</td></tr>
+      </table>
+      <p class="small">Meta's rates vary by the client's country and change from time to time; the rate card on business.whatsapp.com is the authority before quoting.</p>
+    </div>
+    <div>
+      <table>
+        <tr><th>Bookings per month</th><th>Fixed</th><th>Usage</th><th>Total</th></tr>
+        <tr><td>100</td><td class="num">$45</td><td class="num">≈ $15</td><td class="num"><strong>≈ $60</strong></td></tr>
+        <tr><td>300</td><td class="num">$45</td><td class="num">≈ $45</td><td class="num"><strong>≈ $90</strong></td></tr>
+        <tr><td>1,000</td><td class="num">$45</td><td class="num">≈ $150</td><td class="num"><strong>≈ $195</strong></td></tr>
+      </table>
+      <p class="small">Usage assumes three template messages and one or two questions per booking, and three PDFs read. Scans and photos cost a few cents more to read than text PDFs.</p>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>9</span></div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <p class="kicker">Costs</p>
+  <h1>Where to host it — the options</h1>
+  <table>
+    <tr><th style="width:24%">Option</th><th style="width:14%">Per month</th><th>What it means for MKY</th></tr>
+    <tr><td>Stay on Vercel's free plan</td><td class="num">$0</td><td>Not for production: the free plan is for personal use, the assistant sleeps between messages (the first tap after a pause is slow), and it is already at its size limit. Fine for testing only.</td></tr>
+    <tr><td><strong>Vercel Pro</strong></td><td class="num">$20</td><td>Least change: same setup as today, no size limit, faster, keeps retrying undelivered messages on a schedule. Frankfurt, next to the database.</td></tr>
+    <tr><td>A small always-on service (Railway, Fly.io, Render)</td><td class="num">$5–10</td><td>Cheaper and never sleeps. A few days of engineering to move; Frankfurt available on Fly.io. Good middle ground.</td></tr>
+    <tr><td>A rented server in Germany (Hetzner)</td><td class="num">$5–8</td><td>Cheapest and fully under MKY's control, but somebody has to look after the server: updates, backups, restarts. Sensible only if MKY already has that person.</td></tr>
+  </table>
+  <p class="small" style="margin-top:3mm">The database and file storage stay on Supabase in every option; only the assistant's code moves. Our recommendation: Vercel Pro for the least disruption, or Fly.io/Railway if the monthly cost matters more than the moving effort.</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>10</span></div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <p class="kicker">Trust</p>
+  <h1>Where the data lives, and who sees what</h1>
+  <div class="grid g2">
+    <div>
+      <ul>
+        <li><strong>MKY's own database and file storage</strong> in Frankfurt (EU) hold the client's name and number, the vehicle and route, the documents, and the record of what happened. Nothing about a booking is kept anywhere else.</li>
+        <li><strong>Meta</strong> carries the messages between the client and the assistant, encrypted, and keeps media available to MKY for a limited time. It does not receive the booking data.</li>
+        <li><strong>The AI provider</strong> sees the text or image of a document while reading it, under terms that forbid training on it.</li>
+      </ul>
+    </div>
+    <div>
+      <ul>
+        <li><strong>A client sees only their own</strong> bookings and shipments. Every action is logged, without document contents.</li>
+        <li><strong>A privacy page</strong> on MKY's website says what is collected, why, where, for how long, and how to ask for it to be removed — Meta requires it, and it answers the questions clients ask.</li>
+        <li><strong>Egypt's data protection law</strong> (No. 151 of 2020) is covered in practice by keeping data in the EU with a policy and a deletion path; formal registration should be confirmed with MKY's legal adviser.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>11</span></div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <p class="kicker">Plan</p>
+  <h1>Four weeks, if the paperwork is ready on day one</h1>
+  <table>
+    <tr><th style="width:10%">Week</th><th style="width:45%">MKY</th><th>Engineering</th></tr>
+    <tr><td>1</td><td>Create the accounts, register the number, submit verification and the display name, add a card, publish the privacy page, choose the hosting.</td><td>Build the WhatsApp connection against Meta's free test number; write and submit the six templates.</td></tr>
+    <tr><td>2</td><td>Answer any questions from Meta; review the templates' wording.</td><td>The 24-hour rule in the message queue; status messages in place of the pinned card; tests; move the hosting.</td></tr>
+    <tr><td>3</td><td>Verification through. Pilot with two or three real clients; Telegram still running.</td><td>Point the verified number at production; watch delivery and costs; fix what the pilot shows.</td></tr>
+    <tr><td>4</td><td>Go live: the number on the website and business cards.</td><td>Hand-over; both channels watched from the same console.</td></tr>
+  </table>
+  <p class="small" style="margin-top:3mm">What MKY controls: having the registration document, a matching address and a company-domain email ready before submitting. That is what keeps verification at days rather than weeks.</p>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>12</span></div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <p class="kicker">For discussion</p>
+  <h1>Decisions needed from MKY</h1>
+  <div class="grid g2">
+    <div>
+      <p class="q"><strong>1.</strong> Which phone number becomes the assistant's? A new line, or an existing one that leaves the WhatsApp app?</p>
+      <p class="q"><strong>2.</strong> Connect directly with Meta, or through a provider?</p>
+      <p class="q"><strong>3.</strong> Hosting: Vercel Pro, an always-on service, or an own server?</p>
+      <p class="q"><strong>4.</strong> Who at MKY owns the Meta business account and receives the verification emails?</p>
+    </div>
+    <div>
+      <p class="q"><strong>5.</strong> The wording of the six templates, in both languages.</p>
+      <p class="q"><strong>6.</strong> How long to keep conversations and documents after delivery.</p>
+      <p class="q"><strong>7.</strong> Keep Telegram running alongside, or retire it once WhatsApp is live?</p>
+      <p class="q"><strong>8.</strong> Apply for the green tick (official business badge) after verification?</p>
+    </div>
+  </div>
+  <div class="foot"><span>MKY Forwarding · Booking Assistant on WhatsApp</span><span>13</span></div>
+</section>
+
+</body>
+</html>

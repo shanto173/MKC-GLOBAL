@@ -28,7 +28,8 @@ const CANDIDATES = [
 const DOCS = [
   ['docs/workflow/client-workflow.html', 'docs/workflow/MKY-Booking-Assistant-Workflow.pdf'],
   ['docs/workflow/technical-documentation.html', 'docs/workflow/MKY-Booking-Assistant-Technical.pdf'],
-  ['docs/workflow/whatsapp-workflow.html', 'docs/workflow/MKY-Booking-Assistant-WhatsApp.pdf'],
+  ['docs/workflow/whatsapp-client.html', 'docs/workflow/MKY-WhatsApp-Workflow.pdf'],
+  ['docs/workflow/whatsapp-technical.html', 'docs/workflow/MKY-WhatsApp-Technical.pdf'],
 ];
 
 const browser = CANDIDATES.find((p) => fs.existsSync(p));
