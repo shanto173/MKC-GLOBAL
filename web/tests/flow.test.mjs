@@ -1472,6 +1472,65 @@ test('an unfinished request is offered back, never silently resumed or dropped',
   assert.equal(h.bookings().filter((b) => b.status === 'draft').length, 1);
 });
 
+test('regression: "start over" and cancel clear every leftover draft, not only the newest', async () => {
+  // Two abandoned attempts from earlier sit in the chat. Cancelling only the
+  // newest brought the older one back as "an unfinished booking request".
+  const stale = (ref, daysAgo, extra = {}) => ({
+    booking_ref: ref, status: 'draft', chat_id: CHAT, client_id: 1,
+    customer_name: 'Old Attempt', vin: null,
+    created_at: new Date(Date.now() - daysAgo * 3_600_000).toISOString(),
+    ...extra,
+  });
+  const h = harness({ bookings: [stale('MKY-BKG-260914-OLD1', 20), stale('MKY-BKG-260916-OLD2', 2)] });
+
+  await h.command('/start');
+  const offered = await h.tap('menu:book');
+  assert.match(said(offered), /MKY-BKG-260916-OLD2/, 'the newest is offered');
+
+  const fresh = await h.tap('bk:draft:restart');
+  assert.match(said(fresh), /client name/);
+  const drafts = h.bookings().filter((b) => b.status === 'draft');
+  assert.equal(drafts.length, 1, 'one live draft, the new one');
+  assert.ok(h.bookings().every((b) => !b.booking_ref.includes('OLD') || b.status === 'cancelled'), 'both old ones cancelled');
+
+  // Cancelling the new one leaves nothing behind either.
+  await h.text('Nile Motors');
+  await h.command('/cancel');
+  await h.tap('bk:cancel:yes');
+  assert.equal(h.bookings().filter((b) => b.status === 'draft').length, 0);
+  const again = await h.tap('menu:book');
+  assert.doesNotMatch(said(again), /unfinished booking request/);
+  assert.match(said(again), /client name/);
+});
+
+test('a leftover draft with nothing on it is simply reused, not offered back', async () => {
+  const h = harness({
+    bookings: [{ booking_ref: 'MKY-BKG-260916-NONE', status: 'draft', chat_id: CHAT, client_id: 1 }],
+  });
+  await h.command('/start');
+  const r = await h.tap('menu:book');
+  assert.doesNotMatch(said(r), /unfinished booking request/);
+  assert.match(said(r), /client name/);
+  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+  assert.equal(h.bookings().length, 1, 'no second row');
+  await h.text('Nile Motors');
+  assert.equal(h.booking().booking_ref, 'MKY-BKG-260916-NONE');
+});
+
+test('a draft nobody has touched for longer than the expiry is not offered back', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260901-STALE', status: 'draft', chat_id: CHAT, client_id: 1,
+      customer_name: 'Long Ago', created_at: new Date(Date.now() - 15 * 86_400_000).toISOString(),
+    }],
+  });
+  await h.command('/start');
+  const r = await h.tap('menu:book');
+  assert.doesNotMatch(said(r), /unfinished booking request/);
+  assert.match(said(r), /client name/);
+  assert.equal(h.bookings().find((b) => b.booking_ref === 'MKY-BKG-260901-STALE').status, 'expired');
+});
+
 test('"start over" drops the old draft and starts one request, not two', async () => {
   const h = harness();
   await bookUpTo(h, { documents: false });

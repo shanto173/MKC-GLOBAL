@@ -24,7 +24,8 @@ import { M, FIELD_LABELS, DOC_LABELS, both } from './messages.js';
 import * as kb from './keyboards.js';
 import {
   findDraft, createDraft, updateDraft, bookingByRef, missingBasics,
-  lookupVehicle, submitDraft, cancelDraft, looksLikeVin, normalizeVin, matchPort,
+  lookupVehicle, submitDraft, cancelDraft, cancelAllDrafts, draftIsBlank,
+  looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
@@ -85,6 +86,15 @@ function phonePrompt(ctx, text) {
 export async function startBooking(session, ctx) {
   const { draft, error } = await findDraft(ctx.chatId);
   if (error) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+
+  // A draft with nothing on it - a Book tap that went nowhere - is not worth
+  // an "unfinished request" question. It is simply the request, from the top.
+  if (draft && draftIsBlank(draft)) {
+    return reply(
+      say(M.bookingStartAskName(ctx.userName ?? null), kb.homeOnly()),
+      { active_flow: FLOWS.BOOKING, current_state: S.BOOK_CLIENT_NAME, active_booking_ref: draft.booking_ref, context: {} },
+    );
+  }
 
   if (draft) {
     return reply(
@@ -1503,6 +1513,10 @@ export async function handleCancelDecision(session, decision, ctx) {
   const result = await cancelDraft(ref, ctx.chatId);
   const text = result.ok ? M.cancelled(ref) : M.nothingToCancel();
 
+  // And any older unfinished request behind it, or the next Book tap offers
+  // that one back as if it were the client's own idea.
+  await cancelAllDrafts(ctx.chatId);
+
   return reply(say(text, kb.mainMenu()), {
     active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
   });
@@ -1510,7 +1524,9 @@ export async function handleCancelDecision(session, decision, ctx) {
 
 export async function resumeDraft(session, decision, ctx) {
   if (decision === 'restart') {
-    if (session.active_booking_ref) await cancelDraft(session.active_booking_ref, ctx.chatId);
+    // Starting over means over: every unfinished request in the chat goes,
+    // not only the one that was offered.
+    await cancelAllDrafts(ctx.chatId);
     return newDraft(session, ctx);
   }
 

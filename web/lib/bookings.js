@@ -15,6 +15,7 @@ import { config, DESTINATION_PORTS } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { makeTaskRef } from './operations.js';
 import { looksLikePhone } from './phone.js';
+import { setting } from './settings.js';
 
 /**
  * What a request needs before it can be booked, in the order it is asked for.
@@ -104,7 +105,13 @@ export function matchPort(value) {
 // Drafts
 // ---------------------------------------------------------------------------
 
-/** The unfinished request this chat is in the middle of, if any. */
+/**
+ * The unfinished request this chat is in the middle of, if any.
+ *
+ * A draft nobody has touched for longer than `draft_expiry_hours` is not
+ * offered back: a client who starts a booking weeks after abandoning one is
+ * starting a booking, not resuming one. It is marked expired on the way past.
+ */
 export async function findDraft(chatId) {
   const { data, error } = await db()
     .from('bookings')
@@ -118,7 +125,46 @@ export async function findDraft(chatId) {
     console.error('draft lookup failed:', error.message);
     return { draft: null, error: error.message };
   }
-  return { draft: data ?? null, error: null };
+  if (!data) return { draft: null, error: null };
+
+  const hours = Number(await setting('draft_expiry_hours'));
+  const touched = new Date(data.updated_at ?? data.created_at ?? 0).getTime();
+  if (Number.isFinite(hours) && hours > 0 && touched && Date.now() - touched > hours * 3_600_000) {
+    await db().from('bookings').update({ status: 'expired', current_step: null })
+      .eq('booking_ref', data.booking_ref).eq('status', 'draft');
+    logEvent('booking_draft_expired', { booking_ref: data.booking_ref, chat_id: String(chatId) });
+    return { draft: null, error: null };
+  }
+
+  return { draft: data, error: null };
+}
+
+/**
+ * Drops every unfinished request in a chat, not only the one the client can
+ * see. Drafts pile up quietly - a test run here, an abandoned attempt there -
+ * and cancelling only the newest surfaced the next one as "an unfinished
+ * booking request" the client had never heard of.
+ *
+ * @returns {Promise<string[]>} the references cancelled
+ */
+export async function cancelAllDrafts(chatId) {
+  const { data, error } = await db()
+    .from('bookings')
+    .update({ status: 'cancelled', current_step: null })
+    .eq('chat_id', String(chatId))
+    .eq('status', 'draft')
+    .select('booking_ref');
+  if (error) {
+    console.error('cancelling drafts failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map((b) => b.booking_ref);
+}
+
+/** Has the client actually put anything on this request yet? */
+export function draftIsBlank(draft) {
+  return !['vin', 'make', 'customer_name', 'origin_port', 'destination_port', 'mrn_choice']
+    .some((f) => String(draft?.[f] ?? '').trim());
 }
 
 export async function bookingByRef(ref) {
