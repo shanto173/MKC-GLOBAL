@@ -295,7 +295,9 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
 
   // "chassis X from Klaipeda going to Alexandria" names three things. Asking
   // for the other two afterwards is what makes a bot tiring to use.
-  if (!editing) await bankTheRest(session, text, ctx, { except: 'vin' }).catch(() => null);
+  const rest = editing
+    ? { saved: [] }
+    : await bankTheRest(session, text, ctx, { except: 'vin' }).catch(() => ({ saved: [] }));
 
   const opening = editing
     ? M.editSaved()
@@ -308,10 +310,55 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
   }
 
   // Re-read, so whatever the sentence supplied alongside the chassis is not
-  // asked for again a moment later.
+  // asked for again a moment later - and is read back, so the client can see
+  // it landed.
   const draft = (await bookingByRef(settled.draft.booking_ref)) ?? settled.draft;
+  const noted = notedDetails(draft, rest.saved ?? []);
   const next = await askNextBasic(draft, ctx, { listMissing: true });
-  return reply([say(opening), ...next.messages], next.patch);
+  return reply([
+    say(opening),
+    ...(noted.en.length ? [say(M.notedFromMessage(noted.ar, noted.en))] : []),
+    ...next.messages,
+  ], next.patch);
+}
+
+/**
+ * The details a message supplied, read back from the row so the client sees
+ * what actually landed: "client Giza Freight Lines · chassis X · make DAF XF
+ * 480 FT · route Rotterdam → Damietta Port".
+ *
+ * @param {object} booking the row as it now stands
+ * @param {string[]} fields what the message supplied, as bankFound reports it
+ * @returns {{ar: string[], en: string[]}}
+ */
+function notedDetails(booking, fields) {
+  const set = new Set(fields ?? []);
+  const ar = [];
+  const en = [];
+  if (!booking) return { ar, en };
+
+  if (set.has('customer_name') && booking.customer_name) {
+    ar.push(`العميل ${booking.customer_name}`);
+    en.push(`client ${booking.customer_name}`);
+  }
+  if (set.has('contact') && looksLikePhone(booking.customer_contact)) {
+    ar.push(`الموبايل ${booking.customer_contact}`);
+    en.push(`number ${booking.customer_contact}`);
+  }
+  if (set.has('vin') && booking.vin) {
+    ar.push(`الشاسيه ${booking.vin}`);
+    en.push(`chassis ${booking.vin}`);
+  }
+  if ((set.has('make') || set.has('model')) && booking.make) {
+    const vehicle = [booking.make, booking.model].filter(Boolean).join(' ');
+    ar.push(`الماركة ${vehicle}`);
+    en.push(`make ${vehicle}`);
+  }
+  if ((set.has('origin_port') || set.has('destination_port')) && (booking.origin_port || booking.destination_port)) {
+    ar.push(`خط الشحن ${booking.origin_port ?? '—'} ← ${booking.destination_port ?? '—'}`);
+    en.push(`route ${booking.origin_port ?? '—'} → ${booking.destination_port ?? '—'}`);
+  }
+  return { ar, en };
 }
 
 // ---------------------------------------------------------------------------
@@ -691,7 +738,9 @@ export async function askNextBasic(booking, ctx, { listMissing = false, notedPho
  * and the caption is where "all" goes. A chassis in it faces the duplicate
  * check like any other; if the unit is already booked, that is the reply.
  *
- * @returns {Promise<{ended: boolean, reply?: object}|null>}
+ * @returns {Promise<{ended: boolean, reply?: object, saved?: string[]}|null>}
+ *   `saved` names the fields the caption supplied, so the reply that follows
+ *   the files can read them back
  */
 export async function absorbCaption(session, text, ctx) {
   const value = String(text ?? '').trim();
@@ -703,6 +752,7 @@ export async function absorbCaption(session, text, ctx) {
 
   if (looksLikePaste(value)) {
     const { patch, vin } = await applyPastedFields(session, value, ctx);
+    const saved = Object.keys(patch).map((f) => (f === 'customer_contact' ? 'contact' : f));
     if (Object.keys(patch).length) {
       await updateDraft(ref, patch, { chatId: ctx.chatId }).catch(() => null);
       logEvent('booking_information_pasted', { booking_ref: ref, fields: Object.keys(patch), via: 'caption' });
@@ -710,13 +760,14 @@ export async function absorbCaption(session, text, ctx) {
     if (vin && looksLikeVin(vin)) {
       const settled = await settleVin(session, vin, ctx);
       if (!settled.ok && settled.ended) return { ended: true, reply: settled.reply };
+      if (settled.ok) saved.push('vin');
     }
-    return { ended: false };
+    return { ended: false, saved };
   }
 
   const banked = await bankTheRest(session, value, ctx);
   if (banked.ended) return { ended: true, reply: banked.ended };
-  return { ended: false };
+  return { ended: false, saved: banked.saved ?? [] };
 }
 
 /**
@@ -1074,7 +1125,7 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
  * "received: invoice, brief, MRN" and one next question - not three answers,
  * each with a shorter list of what is missing.
  */
-export async function handleDocumentArrived(session, { ingested, batch = [] }, ctx) {
+export async function handleDocumentArrived(session, { ingested, batch = [], noted = [] }, ctx) {
   const booking = await bookingByRef(session.active_booking_ref);
   if (!booking) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
@@ -1083,8 +1134,11 @@ export async function handleDocumentArrived(session, { ingested, batch = [] }, c
   const known = arrived.filter((d) => d.doc_type && d.doc_type !== 'other');
   const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
 
+  // What the message with the files said, read back alongside them.
+  const details = notedDetails(booking, noted);
+
   const leads = [];
-  if (arrived.length === 1 && known.length === 1) {
+  if (arrived.length === 1 && known.length === 1 && !details.en.length) {
     const type = known[0].doc_type;
     leads.push(say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type)));
   } else if (known.length) {
@@ -1092,7 +1146,11 @@ export async function handleDocumentArrived(session, { ingested, batch = [] }, c
     leads.push(say(M.documentsReceived(
       types.map((t) => DOC_LABELS[t]?.[0] ?? t),
       types.map((t) => DOC_LABELS[t]?.[1] ?? t),
+      details.ar,
+      details.en,
     )));
+  } else if (details.en.length) {
+    leads.push(say(M.notedFromMessage(details.ar, details.en)));
   }
   for (const d of known) logEvent('document_received', { booking_ref: booking.booking_ref, doc_type: d.doc_type });
 

@@ -223,15 +223,18 @@ What I need right now is ${needEn}.`,
   ),
 
   // Several files sent together are acknowledged together, once they have all
-  // been read - not one at a time with a shrinking list after each.
-  documentsReceived: (labelsAr, labelsEn) => both(
-    `✅ وصلنا: ${labelsAr.join('، ')}.`,
-    `✅ Received: ${labelsEn.join(', ')}.`,
+  // been read - not one at a time with a shrinking list after each. What the
+  // message with them said is acknowledged in the same breath.
+  documentsReceived: (labelsAr, labelsEn, notedAr = [], notedEn = []) => both(
+    `✅ وصلنا: ${labelsAr.join('، ')}.` +
+    (notedAr.length ? `\n📝 وسجلنا من رسالتك: ${notedAr.join(' · ')}.` : ''),
+    `✅ Received: ${labelsEn.join(', ')}.` +
+    (notedEn.length ? `\n📝 Noted from your message: ${notedEn.join(' · ')}.` : ''),
   ),
 
-  documentReading: (fileName) => both(
-    `استلمت ${fileName}، بقرأه دلوقتي…`,
-    `Got ${fileName} — reading it now…`,
+  notedFromMessage: (notedAr, notedEn) => both(
+    `📝 سجلنا من رسالتك: ${notedAr.join(' · ')}.`,
+    `📝 Noted from your message: ${notedEn.join(' · ')}.`,
   ),
 
   documentUnknownType: (fileName = null) => both(

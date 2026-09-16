@@ -168,11 +168,18 @@ async function dispatch(session, input, ctx) {
 
     const absorbed = await booking.absorbCaption(target, input.text, ctx);
     if (absorbed?.ended) return { handled: true, ...absorbed.reply };
-    return {
-      handled: true,
-      messages: [],
-      patch: target === session ? {} : { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref },
-    };
+
+    const patch = target === session ? {} : { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref };
+    // What the caption supplied is remembered on the session, so whichever
+    // file of the batch speaks can read it back with the files.
+    const saved = absorbed?.saved ?? [];
+    if (saved.length) {
+      patch.context = {
+        ...(target.context ?? {}),
+        caption_noted: [...new Set([...(target.context?.caption_noted ?? []), ...saved])],
+      };
+    }
+    return { handled: true, messages: [], patch };
   }
 
   // 5. A file.
@@ -204,17 +211,24 @@ async function dispatch(session, input, ctx) {
 
     // Details written on the file are read first, by every one of a batch -
     // the caption travels with one file, and the one that speaks may not be it.
+    let noted = [...(target.context?.caption_noted ?? [])];
     if (input.caption) {
       const absorbed = await booking.absorbCaption(target, input.caption, ctx);
       if (absorbed?.ended) return { handled: true, ...absorbed.reply };
+      noted = [...new Set([...noted, ...(absorbed?.saved ?? [])])];
     }
 
     // Several files sent together: only the last to finish being read
     // answers, for all of them. The others have done their part.
     if (input.speak === false) return { handled: true, messages: [], patch: claim };
 
-    const handled = await booking.handleDocumentArrived(target, { ingested: input.document, batch: input.batch ?? [] }, ctx);
-    return { handled: true, messages: handled.messages, patch: { ...handled.patch, ...claim } };
+    const handled = await booking.handleDocumentArrived(
+      target, { ingested: input.document, batch: input.batch ?? [], noted }, ctx,
+    );
+    // Read back once, with the files; not again with the next one.
+    const context = { ...(handled.patch?.context ?? target.context ?? {}) };
+    delete context.caption_noted;
+    return { handled: true, messages: handled.messages, patch: { ...handled.patch, ...claim, context } };
   }
 
   // 6. Text. Only an answer when something was asked.

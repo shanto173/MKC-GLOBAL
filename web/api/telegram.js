@@ -409,11 +409,8 @@ async function finishDocument(input, ctx, update, notedPromise) {
   const { chatId } = ctx;
 
   try {
-    // "Reading it now" once per batch, not once per file: the first to arrive
-    // says it, and a file whose siblings are already being read stays quiet.
-    const alreadyReading = (await recentUploads(chatId))
-      .some((d) => d.id !== begun.document.id && stillReading(d));
-    if (!alreadyReading) defer(sendMessage(chatId, M.documentReading(file.fileName)));
+    // No "reading it now" message: the typing indicator is the feedback while
+    // the file is read, and the first thing the client reads is the answer.
     defer(sendTyping(chatId));
 
     await notedPromise;

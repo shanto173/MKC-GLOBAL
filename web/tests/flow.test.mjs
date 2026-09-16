@@ -710,7 +710,8 @@ test('the details written on a file are read, and the file counted, in one go', 
   assert.equal(b.make, 'MAN');
   assert.equal(b.origin_port, 'Hamburg');
   assert.equal(b.destination_port, 'Port Said');
-  assert.match(said(r), /Invoice received/);
+  assert.match(said(r), /Received: Invoice/);
+  assert.match(said(r), /Noted from your message: chassis W1T96340310484233 · make MAN TGX · route Hamburg → Port Said/);
   // Nothing basic is missing any more, so the next question is the MRN one.
   assert.match(said(r), /Do you already have an MRN/);
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
@@ -739,10 +740,14 @@ test('the caption is read ahead of the file, and the file then only counts', asy
   const docs = ['brief', 'invoice', 'mrn'].map((t) => h.upload(t, { vin: 'XLRTEH4350G741552' }));
   const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
   assert.match(said(r), /Received: Brief, Invoice, MRN/);
+  // And what the caption said, read back in the same message - whichever of
+  // the three files ended up speaking.
+  assert.match(said(r), /Noted from your message: client Giza Freight Lines · chassis XLRTEH4350G741552 · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
   assert.doesNotMatch(said(r), /Make \/ Brand/, 'it was in the caption');
   assert.doesNotMatch(said(r), /send it all in one message/, 'the step-2 opening is not repeated');
   assert.match(said(r), /We have everything we need/);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
+  assert.equal(h.db._tables.conversation_sessions[0].context.caption_noted, undefined, 'read back once, then forgotten');
 });
 
 test('the same sentence typed at the chassis question fills every field it names', async () => {
@@ -756,6 +761,8 @@ test('the same sentence typed at the chassis question fills every field it names
   assert.equal(b.origin_port, 'Rotterdam');
   assert.equal(b.destination_port, 'Damietta Port');
   assert.equal(b.customer_name, 'Giza Freight Lines');
+  assert.match(said(r), /This unit is new/);
+  assert.match(said(r), /Noted from your message: client Giza Freight Lines · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
   assert.match(said(r), /Do you already have an MRN/);
 });
 
