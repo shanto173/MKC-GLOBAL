@@ -203,6 +203,48 @@ export function stillReading(doc) {
 }
 
 /**
+ * The right to reply for a batch of files - won by exactly one of the readers
+ * that finish together.
+ *
+ * "The last to finish speaks" is not enough on its own: three small PDFs read
+ * in parallel finish within milliseconds of each other, each looks up, sees no
+ * sibling still reading, and all three answer. So the reply is claimed, with
+ * the unique index on notification_outbox.idempotency_key as the referee: one
+ * row per set of files acknowledged, recorded as already sent so the drain
+ * never picks it up. The second claimant for the same set is told no.
+ *
+ * A file that arrives later, once these are done, is a new set and gets its
+ * own reply.
+ *
+ * @returns {Promise<boolean>} true for the one caller that may speak
+ */
+export async function claimReply(chatId, documentIds) {
+  const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (!ids.length) return true;
+
+  const chat = String(chatId);
+  const { error } = await db().from('notification_outbox').insert({
+    chat_id: chat,
+    telegram_chat_id: Number.isSafeInteger(Number(chat)) ? Number(chat) : null,
+    channel: 'telegram',
+    event_type: 'document_reply',
+    entity_type: 'booking_document',
+    entity_id: String(ids[ids.length - 1]),
+    payload: { document_ids: ids },
+    status: 'sent',
+    sent_at: new Date().toISOString(),
+    available_at: new Date().toISOString(),
+    idempotency_key: `document_reply:${chat}:${ids.join('-')}`.slice(0, 200),
+  });
+
+  if (!error) return true;
+  if (error.code === '23505') return false;
+  // A failure to record the claim is not a reason to say nothing.
+  console.error('document reply claim failed:', error.message);
+  return true;
+}
+
+/**
  * Files from this chat that arrived in the last couple of minutes, oldest
  * first - the ones that could be part of the same batch as a file arriving
  * now. The window bounds the damage a row stuck "still reading" can do.

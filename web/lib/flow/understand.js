@@ -40,12 +40,15 @@ const CONTACT_TALK = [
   /(?:ورقمي|رقمي|رقم الموبايل|الموبايل|رقم التليفون|التليفون|رقم الهاتف|الهاتف|رقم الواتس|الواتس|إيميلي|ايميلي|الإيميل|الايميل)\s*(?:هو|:)?/g,
 ];
 
-const DANGLING = /^[\s,;:.\-–—]*(?:and|و)?[\s,;:.\-–—]*|[\s,;:.\-–—]*(?:and|on|at|و)?[\s,;:.\-–—]*$/gi;
+// What is left hanging at either end once the contact is gone: "and", "this
+// is", "here". "Ariful, this is my number …" leaves "Ariful this is" behind.
+const LEADING_DANGLE = /^[\s,;:.\-–—]*(?:(?:and|so|ok|okay|و)\b[\s,;:.\-–—]*)*/i;
+const TRAILING_DANGLE = /(?:[\s,;:.\-–—]*\b(?:and|on|at|is|are|this|these|that|here|it|its|it's|و|ده|دي|هو|هي)\b)*[\s,;:.\-–—]*$/i;
 
 function withoutContactTalk(text) {
   let s = String(text ?? '');
   for (const pattern of CONTACT_TALK) s = s.replace(pattern, ' ');
-  return s.replace(DANGLING, '').replace(/\s+/g, ' ').trim();
+  return s.replace(/\s+/g, ' ').replace(LEADING_DANGLE, '').replace(TRAILING_DANGLE, '').trim();
 }
 
 /** Fields whose value has a shape we can verify. The rest are free text. */

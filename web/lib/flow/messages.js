@@ -539,7 +539,7 @@ export const FIELD_LABELS = {
 /** Bilingual labels for document types. */
 export const DOC_LABELS = {
   invoice: ['الفاتورة التجارية', 'Invoice'],
-  brief: ['مستند النقل / Brief', 'Brief'],
+  brief: ['مستند النقل', 'Brief'],
   mrn: ['رقم MRN', 'MRN'],
   acid: ['رقم ACID (نافذة)', 'ACID'],
   eur1: ['شهادة المنشأ EUR.1', 'EUR.1'],

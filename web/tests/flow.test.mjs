@@ -835,6 +835,36 @@ test('three papers sent together get one answer, once all of them are read', asy
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
+test('readers that finish together race for one reply, and exactly one wins', async () => {
+  const h = harness();
+  const { claimReply } = await import('../lib/documents.js');
+
+  // Three siblings, all done at once, all looking at the same three files.
+  const first = await claimReply(CHAT, [11, 12, 13]);
+  const second = await claimReply(CHAT, [13, 11, 12]);
+  const third = await claimReply(CHAT, [12, 13, 11]);
+  assert.deepEqual([first, second, third], [true, false, false]);
+
+  // A fourth file, arriving after those were answered, is a new set.
+  assert.equal(await claimReply(CHAT, [11, 12, 13, 14]), true);
+  // Another chat's files are its own business.
+  assert.equal(await claimReply(OTHER_CHAT, [11, 12, 13]), true);
+
+  // Recorded as already sent, so the outbox drain never tries to deliver it.
+  const rows = h.outbox().filter((o) => o.event_type === 'document_reply');
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((o) => o.status === 'sent'));
+});
+
+test('"Ariful, this is my number …" leaves the name, not "Ariful this is"', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('Ariful, this is my number +49 176 67221612');
+  assert.equal(h.booking().customer_name, 'Ariful');
+  assert.equal(h.booking().customer_contact, '+4917667221612');
+});
+
 test('a file that could not be read, among several, is asked about in turn', async () => {
   const h = harness();
   await bookUpTo(h, { documents: false });

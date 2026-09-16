@@ -47,7 +47,7 @@ import { clearSession } from '../lib/flow/store.js';
 import { upsertTelegramClient } from '../lib/clients.js';
 import { noteClientResponse } from '../lib/bookings.js';
 import {
-  beginDocument, completeDocument, abandonDocument, recentUploads, stillReading,
+  beginDocument, completeDocument, abandonDocument, recentUploads, stillReading, claimReply,
 } from '../lib/documents.js';
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
@@ -469,10 +469,15 @@ async function finishDocument(input, ctx, update, notedPromise) {
 
     const recent = await recentUploads(chatId);
     const mine = ingested.document;
-    const speak = !ended && !recent.some((d) => d.id !== mine.id && stillReading(d));
     const arrivedAt = new Date(mine.uploaded_at ?? Date.now()).getTime();
     const batch = recent.filter((d) =>
       !stillReading(d) && Math.abs(new Date(d.uploaded_at).getTime() - arrivedAt) <= BATCH_WINDOW_MS);
+
+    // Speak only when no sibling is still being read - and, since siblings
+    // that finish together all pass that test, only after winning the claim
+    // for this set of files. One reply per batch, whoever gets there.
+    let speak = !ended && !recent.some((d) => d.id !== mine.id && stillReading(d));
+    if (speak) speak = await claimReply(chatId, batch.map((d) => d.id));
 
     const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx);
     await deliver(flow, input, ctx, update, null);
