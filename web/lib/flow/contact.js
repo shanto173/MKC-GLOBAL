@@ -1,11 +1,21 @@
 /**
- * "Contact our team" - the four routes the roadmap defines.
+ * "Talk to an agent" - and the older, narrower contact routes behind it.
+ *
+ * The rule MKY gave: any other question or help goes to an agent right away.
+ * So the main menu's third button comes straight here, logs the request for
+ * the desk, and asks only for what is not already known - a client who gave a
+ * number in step 1 of a booking is not asked for it again. After 7 PM the bot
+ * says the desk is closed, when it opens, and gives the direct number for
+ * anything that cannot wait.
  *
  * Two rules run through all of it. A client is never asked to guess what our
- * desks are called: they pick from a list. And the Operations contact details
- * are read from configuration; when nobody has configured them the bot says it
- * cannot give a number rather than inventing one, which is the single worst
- * thing it could do.
+ * desks are called: the route decides. And every number read out comes from
+ * configuration; when nobody has configured one the bot says it cannot give a
+ * number rather than inventing one, which is the single worst thing it could do.
+ *
+ * The booking / tracking / documents routes below are no longer offered from
+ * the menu - Track and a sent document cover them - but a button on an older
+ * card still works.
  */
 
 import { db } from '../supabase.js';
@@ -13,10 +23,11 @@ import { S, FLOWS } from './states.js';
 import { M, both, DOC_LABELS } from './messages.js';
 import * as kb from './keyboards.js';
 import { config, DEPARTMENTS } from '../config.js';
-import { operationsContact } from '../settings.js';
+import { operationsContact, supportHours } from '../settings.js';
 import { operationsNotifier, createTask } from '../operations.js';
 import { findBookingForClient } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
+import { phoneOnFile } from '../clients.js';
 import { lookupForClient, shipmentCard, bookingCard } from './tracking.js';
 import { audit, logEvent } from '../audit.js';
 
@@ -195,14 +206,38 @@ export async function handleDocumentsChoice(session, choice, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 4 - Talk to Operations
+// 4 - Talk to an agent
 // ---------------------------------------------------------------------------
 
-export async function talkToOperations(session, ctx) {
-  const contact = await operationsContact();
+/**
+ * Straight to a person.
+ *
+ * In hours: the desk's details, and the question. After hours: when the desk
+ * is back and the direct number, and still the question - the request is
+ * logged either way, so the first agent in the morning has it. A number already
+ * on file for this client is used rather than asked for, which is what makes
+ * this one tap and a sentence.
+ */
+export async function talkToAgent(session, ctx) {
+  const [contact, hours, held] = await Promise.all([
+    operationsContact(),
+    supportHours({ now: ctx.now }),
+    phoneOnFile(ctx).catch(() => null),
+  ]);
 
-  const messages = [say(M.contactOperations())];
-  messages.push(say(contact.configured ? M.operationsContact(contact) : M.operationsContactUnknown()));
+  const messages = [];
+  if (hours.open) {
+    messages.push(say(M.contactOperations()));
+    messages.push(say(contact.configured ? M.operationsContact(contact) : M.operationsContactUnknown()));
+  } else {
+    messages.push(say(M.agentAfterHours({
+      start: hours.start,
+      end: hours.end,
+      // Before opening time it is "today from 9"; after closing it is tomorrow.
+      tomorrow: hours.hour >= hours.end,
+      directPhone: contact.directPhone,
+    })));
+  }
 
   // A request to speak to a person is logged whether or not we could hand over
   // a number, so the desk can call back either way.
@@ -212,20 +247,37 @@ export async function talkToOperations(session, ctx) {
     chatId: ctx.chatId,
     channel: ctx.channel,
     priority: 'high',
-    payload: { requested_at: new Date().toISOString(), contact_shown: contact.configured },
-    notes: contact.configured ? null : 'No operations phone configured - the client was not given a number.',
+    payload: {
+      requested_at: new Date().toISOString(),
+      contact_shown: hours.open ? contact.configured : Boolean(contact.directPhone),
+      after_hours: !hours.open,
+      phone_on_file: held,
+    },
+    notes: [
+      hours.open ? null : `Asked for an agent outside hours (${hours.start}:00-${hours.end}:00 ${hours.timezone}).`,
+      hours.open && !contact.configured ? 'No operations phone configured - the client was not given a number.' : null,
+      !hours.open && !contact.directPhone ? 'No direct phone configured - the client was not given a number.' : null,
+    ].filter(Boolean).join(' ') || null,
     // One callback request per client per hour, so tapping the button five
     // times does not put five identical tasks on the desk.
     idempotencyKey: `client_callback:${ctx.chatId}:${new Date().toISOString().slice(0, 13)}`,
   });
 
-  logEvent('operations_contact_requested', { chat_id: String(ctx.chatId), configured: contact.configured });
+  logEvent('operations_contact_requested', {
+    chat_id: String(ctx.chatId), configured: contact.configured, open: hours.open, phone_on_file: Boolean(held),
+  });
 
-  messages.push(askForContact());
+  const context = {
+    ...session.context,
+    department: DEPARTMENT_FOR.operations,
+    ticket: held ? { phone: held } : {},
+  };
+
+  messages.push(held ? say(M.agentAskProblem(held), kb.homeOnly()) : askForContact());
   return reply(messages, {
     active_flow: FLOWS.CONTACT,
     current_state: S.CONTACT_TICKET_DETAILS,
-    context: { ...session.context, department: DEPARTMENT_FOR.operations },
+    context,
   });
 }
 
@@ -262,6 +314,13 @@ async function progressTicket(session, incoming, ctx) {
     phone: incoming.phone ?? held.phone ?? null,
     declined: Boolean(incoming.declined || held.declined),
   };
+
+  // A number the client gave us before - in step 1 of a booking, or on an
+  // earlier ticket - is theirs to use again. Asking for it a second time is
+  // the thing "right away" is meant to remove.
+  if (!ticket.phone && !ticket.declined) {
+    ticket.phone = await phoneOnFile(ctx).catch(() => null);
+  }
 
   const context = { ...session.context, department, ticket };
 

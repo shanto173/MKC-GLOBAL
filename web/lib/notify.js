@@ -7,11 +7,23 @@
  */
 
 import { config } from './config.js';
-import { bookingConfirmationPdf } from './pdf.js';
 import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
 import { splitLanguages } from './agent.js';
 import { enqueue } from './outbox.js';
+
+/**
+ * The PDF renderer, loaded the first time a PDF is actually wanted.
+ *
+ * This module is imported by the booking flow, and the flow by the webhook, so
+ * a top-level import of pdf.js put pdfkit and the bidi tables into every cold
+ * start - including the one that answers a client tapping "Track". A PDF is
+ * built once per booking; the library is loaded then, and not before.
+ */
+async function buildPdf(booking) {
+  const { bookingConfirmationPdf } = await import('./pdf.js');
+  return bookingConfirmationPdf(booking);
+}
 
 /**
  * @param {object} booking row from the bookings table
@@ -25,7 +37,7 @@ export async function notifyBooking(booking, { skipCustomerTelegram = false } = 
 
   let pdf = null;
   try {
-    pdf = await bookingConfirmationPdf(booking);
+    pdf = await buildPdf(booking);
     result.pdf = true;
   } catch (err) {
     result.errors.push(`pdf: ${err.message}`);
@@ -224,7 +236,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
   // confirmed sheet rather than the request that preceded it.
   let decisionPdf = null;
   if (confirmed) {
-    try { decisionPdf = await bookingConfirmationPdf(booking); }
+    try { decisionPdf = await buildPdf(booking); }
     catch (err) { console.error('decision pdf failed:', err.message); }
   }
 

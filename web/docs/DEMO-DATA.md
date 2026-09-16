@@ -25,9 +25,10 @@ All four of these send the same booking.
 Labelled:
 
 ```
+Client: Nile Cargo Egypt
+Mobile: +20 100 555 1234
 Chassis: WMA06XZZ8KM745219
 Make: MAN TGX 18.500
-Client: Nile Cargo Egypt
 Loading: Hamburg
 Destination: Port Said
 ```
@@ -35,13 +36,13 @@ Destination: Port Said
 On one line:
 
 ```
-WMA06XZZ8KM745219, MAN TGX 18.500, Nile Cargo Egypt, from Hamburg to Port Said
+Nile Cargo Egypt, +20 100 555 1234, WMA06XZZ8KM745219, MAN TGX 18.500, from Hamburg to Port Said
 ```
 
 As a sentence:
 
 ```
-Hi, I need to ship a MAN TGX 18.500 for Nile Cargo Egypt. The chassis is WMA06XZZ8KM745219. We are loading it in Hamburg and it needs to come into Port Said.
+Hi, I need to ship a MAN TGX 18.500 for Nile Cargo Egypt, my number is +20 100 555 1234. The chassis is WMA06XZZ8KM745219. We are loading it in Hamburg and it needs to come into Port Said.
 ```
 
 Or a table copied out of a document, mangled on the way in — still read
@@ -51,10 +52,17 @@ correctly, and this exact shape is now a regression test:
 VIN / Chassis number`WMA06XZZ8KM745219`Make / Brand`MAN`Client name`Nile Cargo Egypt`Port of loading`Hamburg`Egyptian destination port`Port Said
 ```
 
-The label can be anything recognisable — Chassis, VIN, Make, Brand, Client,
-Customer, Loading, From, Destination, To — and the separator can be a colon, an
-equals sign, a backtick, a pipe, or just two spaces. Partial pastes are fine:
-send three of the five and it asks for the other two.
+The label can be anything recognisable — Client, Customer, Mobile, Phone,
+Chassis, VIN, Make, Brand, Loading, From, Destination, To — and the separator
+can be a colon, an equals sign, a backtick, a pipe, or just two spaces. Partial
+pastes are fine: send four of the six and it asks for the other two. That last
+table has no number in it, so after reading it the bot asks for the mobile
+number — the one thing it did not get — and then goes to the MRN question.
+
+**The chassis is looked up wherever it appears.** Paste a block with a
+chassis that is already booked at the very first question and the bot stops
+right there with the existing reference; it never writes a chassis down without
+checking it.
 
 ---
 
@@ -68,9 +76,10 @@ checksum-correct, and the numbers in the papers match the numbers here.
 Paste this to book it in one message:
 
 ```
+Client: Nile Cargo Egypt
+Mobile: +20 100 555 1234
 Chassis: WMA06XZZ8KM745219
 Make: MAN TGX 18.500
-Client: Nile Cargo Egypt
 Loading: Hamburg
 Destination: Port Said
 ```
@@ -78,9 +87,10 @@ Destination: Port Said
 One answer at a time instead — send these in order:
 
 ```
+Nile Cargo Egypt
++20 100 555 1234
 WMA06XZZ8KM745219
 MAN
-Nile Cargo Egypt
 Hamburg
 Port Said
 ```
@@ -96,9 +106,10 @@ Files — `takeA-invoice.pdf`, `takeA-cmr-transport.pdf`,
 ## KIT B — DAF, into Damietta
 
 ```
+Client: Horus Logistics
+Mobile: +20 122 000 5678
 Chassis: XLRTEH4300G512884
 Make: DAF XF 480 FT
-Client: Horus Logistics
 Loading: Rotterdam
 Destination: Damietta
 ```
@@ -106,9 +117,10 @@ Destination: Damietta
 One at a time:
 
 ```
+Horus Logistics
++20 122 000 5678
 XLRTEH4300G512884
 DAF
-Horus Logistics
 Rotterdam
 Damietta
 ```
@@ -123,9 +135,10 @@ Files — `takeB-invoice.pdf`, `takeB-cmr-transport.pdf`,
 ## KIT C — Renault, into Alexandria, MKY issues the MRN
 
 ```
+Client: Pyramid Freight
+Mobile: +20 111 000 9012
 Chassis: VF622GPA000123457
 Make: Renault T High 520
-Client: Pyramid Freight
 Loading: Vilnius
 Destination: Alexandria
 ```
@@ -133,9 +146,10 @@ Destination: Alexandria
 One at a time:
 
 ```
+Pyramid Freight
++20 111 000 9012
 VF622GPA000123457
 Renault
-Pyramid Freight
 Vilnius
 Alexandria
 ```
@@ -151,35 +165,52 @@ Files — `takeC-invoice.pdf`, `takeC-cmr-transport.pdf`,
 
 # MENU 1 — Book my shipment
 
+Three steps, and the bot says which one you are on: **Step 1 of 3 — your
+details**, **Step 2 of 3 — the vehicle and its papers**, **Step 3 of 3 — your
+booking**.
+
 ## 1a. One answer at a time — KIT A
 
-1. Tap **📦 Book my shipment**
-2. VIN / Chassis number → `WMA06XZZ8KM745219`
-3. Make / Brand → `MAN`
-4. Client name → `Nile Cargo Egypt`
-5. Port of loading → `Hamburg`
-6. Egyptian destination port → `Port Said`
-7. Do you already have an MRN? → tap **1️⃣ I already have an MRN**
-8. Upload Invoice, Brief, MRN → send `takeA-invoice.pdf`
-9. → send `takeA-cmr-transport.pdf`
-10. → send `takeA-mrn-export-declaration.pdf`
-11. Summary card → tap **✅ Confirm**
+1. Tap **📦 Book my shipment** → *Step 1 of 3 — your details*
+2. Client name → `Nile Cargo Egypt`
+3. Mobile number → tap **📱 Share my number**, or send `+20 100 555 1234`
+4. → *Step 2 of 3 — the vehicle and its papers.* VIN / Chassis number → `WMA06XZZ8KM745219`
+5. Make / Brand → `MAN`
+6. Port of loading → `Hamburg`
+7. Egyptian destination port → `Port Said`
+8. Do you already have an MRN? → tap **1️⃣ I already have an MRN**
+9. Upload Invoice, Brief, MRN → send `takeA-invoice.pdf`
+10. → send `takeA-cmr-transport.pdf`
+11. → send `takeA-mrn-export-declaration.pdf`
+12. → *Step 3 of 3 — your booking.* Summary card, with the name and number on
+    it → tap **✅ Confirm**
 
-**What you get back:** 🎉 *Booking request confirmed*, **and a PDF headed
-BOOKING REQUEST — STATUS: AWAITING CONFIRMATION.** Keep it; you will compare it
-with the second one later.
+**What you get back:** 🎉 *Booking request confirmed* **with your booking
+reference in the message**, then **a PDF headed BOOKING REQUEST — STATUS:
+AWAITING CONFIRMATION.** Keep it; you will compare it with the second one later.
+
+**Worth filming, step 3:** the number is the "share my number" button, so on a
+phone the whole of step 1 is a name and one tap. Booking again from the same
+account, the bot offers the number back — reply `yes`.
 
 Send the documents **as files, not photos** — Telegram re-encodes photos to
 JPEG, which strips the text layer and forces slower image reading.
 
 ## 1b. The whole booking in one message
 
-Tap **📦 Book my shipment**, then paste any kit block from above. It goes
-straight to the MRN question.
+Tap **📦 Book my shipment**, then paste any kit block from above at the very
+first question. It goes straight to the MRN question. Leave the `Mobile` line
+out and it asks for the number, then goes to the MRN question.
 
 ## 1c. Talking normally — no fixed phrases
 
 Start a fresh booking and send these, one message at a time:
+
+`my name is Nile Cargo Egypt`
+→ client **Nile Cargo Egypt**, not the whole sentence
+
+`you can call me on 01005551234` or `٠١٠٠٥٥٥١٢٣٤`
+→ the number, in one shape, whichever digits it was typed in
 
 `the lorry needs collecting near Bremen and dropping at the Suez one`
 → keeps loading **Bremen** and destination **Suez Port**, asks for the chassis
@@ -205,9 +236,9 @@ Anything else worth trying, at any step:
 `chassis WMA06XZZ8KM745219 from Klaipeda going to Alexandria`
 → fills three fields at once
 
-`my number is +20 100 555 1234` → kept as your contact, then asks again
+`my number is +20 122 000 9999` → replaces the number from step 1, then asks again
 
-`you can reach me at ariful@example.com` → same
+`you can reach me at ariful@example.com` → kept on your record; the number stays
 
 `how long does shipping take?` → answers it, and the booking is untouched
 
@@ -223,35 +254,41 @@ the sentence points at it. A company name containing a city stays a company name
 
 ## 1d. MKY issues the MRN — KIT C
 
-1. VIN / Chassis number → `VF622GPA000123457`
-2. Make / Brand → `Renault`
-3. Client name → `Pyramid Freight`
-4. Port of loading → `Vilnius`
-5. Egyptian destination port → `Alexandria`
-6. Do you already have an MRN? → tap **2️⃣ I need MKY to issue the MRN**
-7. Export details → paste this:
+1. Client name → `Pyramid Freight`
+2. Mobile number → `+20 111 000 9012`
+3. VIN / Chassis number → `VF622GPA000123457`
+4. Make / Brand → `Renault`
+5. Port of loading → `Vilnius`
+6. Egyptian destination port → `Alexandria`
+7. Do you already have an MRN? → tap **2️⃣ I need MKY to issue the MRN**
+8. Export details → paste this:
 
 ```
 Exported from Lithuania by UAB Baltic Auto, invoice 4471, buyer Pyramid Freight Cairo.
 ```
 
-8. Upload Invoice, Brief → send `takeC-invoice.pdf`
-9. → send `takeC-cmr-transport.pdf`
-10. Summary card → tap **✅ Confirm**
+9. Upload Invoice, Brief → send `takeC-invoice.pdf`
+10. → send `takeC-cmr-transport.pdf`
+11. Summary card → tap **✅ Confirm**
 
 Only **two** documents — it does not ask for an MRN the client does not have. An
 MRN application appears in the console under **MRN Requests**.
 
 ## 1e. Edit before confirming
 
-At the summary card, tap **✏️ Edit information** → **2️⃣ Make** → send `Scania`.
+At the summary card, tap **✏️ Edit information** → **4️⃣ Make** → send `Scania`.
 
-Editing the **chassis** re-runs the duplicate check; editing the **route** asks
-for the loading point and then the destination.
+The menu is 1 client name, 2 mobile number, 3 chassis, 4 make, 5 route,
+6 documents, 7 back. Editing the **mobile number** offers the share button
+again; editing the **chassis** re-runs the duplicate check; editing the
+**route** asks for the loading point and then the destination.
 
 ## 1f. Already booked
 
-Tap **📦 Book my shipment**, then send `WDB96340310777421`.
+Tap **📦 Book my shipment**, answer the name and number, then send
+`WDB96340310777421`. Or paste `Chassis: WDB96340310777421` at the very first
+question — the check runs wherever the chassis appears, and the flow stops
+right there with the existing reference.
 
 Also blocked: `YV2RT40A8FB712905` and `WDB96340310889134`.
 
@@ -312,13 +349,15 @@ showing empty fields. Where the database holds no vessel or arrival date it read
 
 ---
 
-# MENU 3 — Contact our team
+# MENU 3 — Talk to an agent
 
-Tap **💬 Contact our team** → four buttons.
+Tap **💬 Talk to an agent**. No menu in between: the request is logged for the
+desk at once, and the bot asks what you need help with.
 
-## 3a. Talk to Operations
+## 3a. In hours — 9 AM to 7 PM Cairo time
 
-Tap **4️⃣ 👨‍💼 Talk to Operations**, then send:
+*Connecting you with our Operations Team*, the desk's number if one is
+configured, then the question. Send:
 
 ```
 My invoice shows the wrong gross weight. Call me on +20 100 555 1234
@@ -327,27 +366,40 @@ My invoice shows the wrong gross weight. Call me on +20 100 555 1234
 🎫 Ticket `MKY-TKT-…` is opened with Booking Operations and appears in the
 console under **Client Requests**.
 
-**The variant worth filming:** tap **📱 Share my number** *first*. It takes the
-number and then asks what the problem is — it will not raise a ticket that tells
-the desk a phone number and nothing else.
+**If you booked in this chat, it already has your number** — the message says
+*I have your number (+20…)* and asks only what the problem is. One tap, one
+sentence, ticket raised.
 
-## 3b. Booking
+**The variant worth filming when there is no number on file:** tap **📱 Share
+my number** *first*. It takes the number and then asks what the problem is — it
+will not raise a ticket that tells the desk a phone number and nothing else.
 
-Tap **1️⃣ 📦 Booking**, then send `MKY-BKG-260907-4YMR`.
+## 3b. After 7 PM
 
-A reference belonging to somebody else returns "we could not find it" — the same
-answer as a genuine miss, so the bot cannot be used to discover whether a
-reference exists.
+The same button, after hours:
 
-## 3c. Shipment tracking
+> 🌙 Our agents are available from 9 AM to 7 PM Cairo time, and it is outside
+> those hours now. I have logged your request — an agent will get back to you
+> tomorrow from 9 AM.
+>
+> ☎️ If it is urgent, call us directly on +20 …
 
-Tap **2️⃣ 🚚 Shipment tracking**, then send `WDB96340310777421`.
+The direct number is `DIRECT_PHONE` (or `bot_settings.direct_phone`), falling
+back to the operations phone. With neither set the last line is simply absent —
+the bot never invents a number. The request is logged and the question still
+asked, so the first agent in has it.
 
-## 3d. Documents
+**To film this before 7 PM:** in the console's settings, or directly in
+`bot_settings`, set `support_hours_end` to the current hour. Set it back after.
+The hours are `support_hours_start` / `support_hours_end` / `support_timezone`.
 
-Tap **3️⃣ 📄 Documents** → **2️⃣ Missing documents**. Run this during an
-unfinished booking and it lists exactly what is outstanding, computed from the
-database rather than recited.
+## 3c. The older routes
+
+The four-button contact menu (booking, tracking, documents, a person) is no
+longer offered — **Track my shipment** answers the first two, and a document
+sent at any time lands on the open request. A button on an older card still
+works, and a reference belonging to somebody else still returns "we could not
+find it", the same answer as a genuine miss.
 
 ---
 
@@ -386,7 +438,19 @@ Send these one at a time.
 عايز أحجز شحنة
 ```
 
-→ تمام، يلا نبدأ الحجز. ابعتلي رقم الشاسيه
+→ تمام، يلا نبدأ الحجز. الخطوة الأولى من 3 - بياناتك. الحجز هيتسجل باسم مين؟
+
+```
+شركة النيل للنقل
+```
+
+→ ورقم الموبايل اللي نكلمك عليه؟
+
+```
+٠١٠٠٥٥٥١٢٣٤
+```
+
+→ تمام. الخطوة التانية من 3 - العربية وأوراقها. ابعتلي رقم الشاسيه
 
 ```
 رقم الشاسيه WMA06XZZ8KM745219
@@ -396,12 +460,6 @@ Send these one at a time.
 
 ```
 مرسيدس أكتروس
-```
-
-→ الحجز هيتسجل باسم مين؟
-
-```
-شركة النيل للنقل
 ```
 
 → هتشحن من فين؟
@@ -421,14 +479,17 @@ Send these one at a time.
 Or the whole thing in one message:
 
 ```
+العميل: شركة النيل للنقل
+رقم الموبايل: ٠١٠٠٥٥٥١٢٣٤
 رقم الشاسيه: WMA06XZZ8KM745219
 الماركة: مرسيدس أكتروس
-العميل: شركة النيل للنقل
 الشحن من: فيلنيوس
 ميناء الوصول: الإسكندرية
 ```
 
 **What gets stored** — worth showing on camera, because it is the point:
+
+Mobile → `01005551234`, the Arabic-Indic digits stored as digits
 
 Chassis → `WMA06XZZ8KM745219`, taken out of the Arabic sentence
 
@@ -448,7 +509,7 @@ somebody's company name is worse than Arabic they can read
 
 `الشحنة فين` → starts tracking
 
-`عايز أكلم موظف` → contact the team
+`عايز أكلم موظف` → straight to an agent
 
 `معنديش الرقم دلوقتي` → explains the chassis cannot be skipped
 

@@ -30,6 +30,8 @@ const LABELS = [
                    'ميناء الشحن', 'مدينة الشحن', 'مكان الشحن', 'الشحن من', 'شحن من', 'من']],
   ['customer_name', ['client name', 'customer name', 'client', 'customer', 'consignee', 'name',
                      'اسم العميل', 'العميل', 'الاسم']],
+  ['customer_contact', ['mobile number', 'phone number', 'mobile', 'phone', 'tel', 'telephone', 'contact number', 'contact',
+                        'رقم الموبايل', 'الموبايل', 'رقم التليفون', 'التليفون', 'الهاتف', 'رقم الهاتف']],
   ['vin', ['chassis / vin', 'chassis no', 'chassis number', 'chassis', 'vin no', 'vin',
            'رقم الشاسيه', 'الشاسيه']],
   ['make', ['make / brand', 'make', 'brand', 'manufacturer', 'vehicle',
@@ -68,7 +70,9 @@ export function parsePastedFields(text) {
 
   for (const [label, value] of labelledPairs(raw)) {
     const key = label.toLowerCase().replace(/[^a-z؀-ۿ/ ]/g, '').trim();
-    const clean = value.replace(DECORATION, ' ').trim().replace(/\s+/g, ' ');
+    // A "+" in front of digits is a country code, not a table corner.
+    const plus = /^\s*\+\s*\d/.test(value) ? '+' : '';
+    const clean = plus + value.replace(DECORATION, ' ').trim().replace(/\s+/g, ' ');
     if (!key || !clean || clean.length > 120) continue;
 
     for (const [field, names] of LABELS) {

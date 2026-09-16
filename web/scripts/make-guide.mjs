@@ -88,92 +88,80 @@ const GUIDE = {
     en: [
       ['1', 'Book my shipment - start a new booking'],
       ['2', 'Track my shipment - where is my vehicle now'],
-      ['3', 'Contact our team - a person will reply'],
+      ['3', 'Talk to an agent - a person, right away'],
     ],
     ar: [
       ['1', 'احجز شحنة - تبدأ حجز جديد'],
       ['2', 'تتبع شحنتي - عربيتك فين دلوقتي'],
-      ['3', 'تواصل مع فريقنا - حد من الفريق هيرد عليك'],
+      ['3', 'كلّم موظف - حد من الفريق، على طول'],
     ],
   },
 
   steps: [
     {
       n: 1,
-      title: { en: 'Send the chassis number', ar: 'ابعت رقم الشاسيه' },
+      title: { en: 'Your details', ar: 'بياناتك' },
       body: {
-        en: 'This is the first thing we ask for, and everything else hangs off it. It is the 17-character '
-          + 'number on the chassis plate and on your invoice - the VIN. Send it on its own line, exactly as '
-          + 'it is written. We check it against our records and tell you whether the unit is new to us, '
-          + 'already on file, or already booked.',
-        ar: 'ده أول حاجة بنطلبها، وكل حاجة تانية بتترتب عليه. هو الرقم المكون من 17 خانة الموجود على '
-          + 'لوحة الشاسيه وعلى الفاتورة - VIN. ابعته لوحده بالظبط زي ما هو مكتوب. إحنا بنراجعه عندنا '
-          + 'ونقولك الوحدة جديدة علينا، ولا مسجلة، ولا محجوزة قبل كده.',
+        en: 'Two things: the name the booking is for, and a mobile number we can call you on. On Telegram, '
+          + 'tap "Share my number" and it arrives verified; or type it with the country code. If you have '
+          + 'booked with us before we offer your number back - just reply yes. That number is how we reach '
+          + 'you about this booking, and it means you are never asked for it again when you ask for a person.',
+        ar: 'حاجتين: الاسم اللي الحجز هيتسجل بيه، ورقم موبايل نكلمك عليه. على تليجرام اضغط "شارك رقمي" '
+          + 'وهيوصلنا متأكد منه، أو اكتبه بكود الدولة. لو حجزت معانا قبل كده هنعرض عليك رقمك - رد بـ "تمام" '
+          + 'وخلاص. الرقم ده هو اللي هنكلمك عليه بخصوص الحجز، ومش هنطلبه منك تاني لما تطلب تكلم موظف.',
+      },
+      example: { en: 'Nile Cargo Egypt, then +20 100 555 1234', ar: 'شركة النيل للنقل، وبعدها +20 100 555 1234' },
+    },
+    {
+      n: 2,
+      title: { en: 'The vehicle and its papers', ar: 'العربية وأوراقها' },
+      body: {
+        en: 'First the chassis number - the 17-character VIN on the chassis plate and on your invoice, '
+          + 'exactly as written. We check it against our records and tell you whether the unit is new to us, '
+          + 'already on file, or already booked. Then the make, where it loads and which Egyptian port it '
+          + 'comes into - one or two things at a time, or everything in one message if you prefer. Then '
+          + 'the documents: send them as files or photograph them with your phone. We check that the '
+          + 'chassis number matches across all of them, because a mismatch is what gets a customs '
+          + 'declaration rejected.',
+        ar: 'الأول رقم الشاسيه - الرقم المكون من 17 خانة الموجود على لوحة الشاسيه وعلى الفاتورة، بالظبط '
+          + 'زي ما هو مكتوب. بنراجعه عندنا ونقولك الوحدة جديدة علينا، ولا مسجلة، ولا محجوزة قبل كده. '
+          + 'بعدين الماركة، وبتشحن منين، وهتوصل لأنهي ميناء مصري - حاجة أو اتنين في المرة، أو كل حاجة '
+          + 'في رسالة واحدة لو تحب. وبعدين المستندات: ابعتهم ملفات أو صورهم بموبايلك. وبنتأكد إن رقم '
+          + 'الشاسيه واحد في كل المستندات، لأن الاختلاف ده هو اللي بيرفض البيان الجمركي.',
       },
       example: { en: 'W1T96340310484233', ar: 'W1T96340310484233' },
     },
     {
-      n: 2,
-      title: { en: 'Give the basic details', ar: 'اكتب البيانات الأساسية' },
-      body: {
-        en: 'We ask one or two things at a time so it stays easy on a phone, but you can send everything '
-          + 'in one message if you prefer. If the vehicle has any damage - engine, gearbox, accident, not '
-          + 'running - say so. It changes how the unit is cleared, and hiding it causes trouble at the port, '
-          + 'not before.',
-        ar: 'بنسأل حاجة أو اتنين في المرة عشان يبقى سهل على الموبايل، بس تقدر تبعت كل حاجة في رسالة '
-          + 'واحدة لو تحب. لو في أي تلف في العربية - موتور، فتيس، حادثة، مش بتمشي - قول. ده بيغير طريقة '
-          + 'التخليص، وإخفاؤه بيعمل مشاكل في الميناء مش قبل كده.',
-      },
-    },
-    {
       n: 3,
-      title: { en: 'Send your documents', ar: 'ابعت المستندات' },
-      body: {
-        en: 'Send them as files or just photograph them with your phone - we read scans and photos the same '
-          + 'way, in Arabic, English, German or Polish. We check that the chassis number matches across all '
-          + 'of them, because a mismatch is what gets a customs declaration rejected.',
-        ar: 'ابعتهم ملفات أو صورهم بموبايلك - بنقرا الاسكان والصور بنفس الطريقة، بالعربي أو الإنجليزي '
-          + 'أو الألماني أو البولندي. وبنتأكد إن رقم الشاسيه واحد في كل المستندات، لأن الاختلاف ده هو '
-          + 'اللي بيرفض البيان الجمركي.',
-      },
-    },
-    {
-      n: 4,
-      title: { en: 'Check the summary', ar: 'راجع الملخص' },
+      title: { en: 'Your booking', ar: 'حجزك' },
       body: {
         en: 'We show you a summary card built from exactly what you told us - never from what we assumed. '
-          + 'Read it. Nothing is booked while that card is on the screen. If something is wrong, say what to '
-          + 'change in plain words and a corrected card comes back. When it is right, say yes.',
+          + 'Read it. Nothing is booked while that card is on the screen; if something is wrong, tap Edit. '
+          + 'When it is right, tap Confirm. You get your booking reference - MKY-BKG-260907-AB12, say - '
+          + 'straight away, and a PDF copy in the chat. Keep the reference: it is how you track the vehicle. '
+          + 'Booking Operations reviews the request and confirms space and price, normally within one '
+          + 'business day, and a status card pinned to the top of your chat follows the vehicle until it '
+          + 'is delivered.',
         ar: 'هنوريك كارت ملخص مبني بالظبط على اللي قولته - مش على أي حاجة إحنا افترضناها. اقراه كويس. '
-          + 'مفيش أي حجز بيتم والكارت ده على الشاشة. لو في حاجة غلط، قول عايز تغير إيه بكلام عادي '
-          + 'وهيرجعلك كارت متصحح. لما يبقى مظبوط، قول أيوه.',
-      },
-    },
-    {
-      n: 5,
-      title: { en: 'You are booked', ar: 'تم الحجز' },
-      body: {
-        en: 'You get a booking reference like MKY-BKG-260907-AB12 and a PDF copy in the chat. Booking '
-          + 'Operations reviews it and confirms space and price - normally within one business day. After '
-          + 'that a status card is pinned to the top of your chat and follows your vehicle until it is '
-          + 'delivered, so you never have to ask where it is.',
-        ar: 'هتاخد رقم حجز زي MKY-BKG-260907-AB12 ونسخة PDF في المحادثة. قسم عمليات الحجز هيراجعه '
-          + 'ويأكد المساحة والسعر - عادةً خلال يوم عمل واحد. بعد كده هيتثبت كارت حالة فوق في المحادثة '
-          + 'ويفضل يتابع عربيتك لحد ما توصل، فمش هتحتاج تسأل هي فين.',
+          + 'مفيش أي حجز بيتم والكارت ده على الشاشة؛ لو في حاجة غلط اضغط "عدّل". لما يبقى مظبوط اضغط '
+          + '"أكّد". هتاخد رقم الحجز - زي MKY-BKG-260907-AB12 - على طول، ونسخة PDF في المحادثة. احتفظ '
+          + 'بالرقم: هو اللي هتتبع بيه العربية. قسم عمليات الحجز هيراجع الطلب ويأكد المساحة والسعر، عادةً '
+          + 'خلال يوم عمل واحد، وكارت حالة مثبت فوق في المحادثة هيفضل يتابع العربية لحد ما توصل.',
       },
     },
   ],
 
   fieldsTitle: { en: 'What we need from you', ar: 'إحنا محتاجين منك إيه' },
   fieldsIntro: {
-    en: 'The five marked "required" are the least we can book with. The rest can follow later.',
-    ar: 'الخمسة المكتوب جنبهم "مطلوب" هما أقل حاجة نقدر نحجز بيها. الباقي ممكن يجي بعدين.',
+    en: 'The six marked "required" are the least we can book with. The rest can follow later.',
+    ar: 'الستة المكتوب جنبهم "مطلوب" هما أقل حاجة نقدر نحجز بيها. الباقي ممكن يجي بعدين.',
   },
   fields: {
     en: [
+      ['Your name', 'required', 'Ariful Islam'],
+      ['Mobile number', 'required', '+20 100 555 1234'],
       ['Chassis / VIN', 'required', 'W1T96340310484233'],
       ['Make and model', 'required', 'Mercedes-Benz Actros 1845'],
-      ['Your name', 'required', 'Ariful Islam'],
       ['Port or city of loading', 'required', 'Vilnius'],
       ['Egyptian port', 'required', 'Alexandria Port'],
       ['Vehicle type', 'optional', 'tractor unit, truck, trailer, van'],
@@ -182,14 +170,15 @@ const GUIDE = {
       ['Incoterm', 'optional', 'EXW, FOB, CIF or DAP'],
       ['Cargo ready date', 'optional', '20 October 2026'],
       ['Company name', 'optional', 'Rahman Trading Co.'],
-      ['Email or phone', 'optional', 'you@example.com'],
+      ['Email', 'optional', 'you@example.com'],
       ['MRN number', 'optional', 'if you already have one'],
       ['ACID number', 'optional', '19 digits from Nafeza'],
     ],
     ar: [
+      ['اسمك', 'مطلوب', 'عارف إسلام'],
+      ['رقم الموبايل', 'مطلوب', '+20 100 555 1234'],
       ['رقم الشاسيه', 'مطلوب', 'W1T96340310484233'],
       ['الماركة والموديل', 'مطلوب', 'Mercedes-Benz Actros 1845'],
-      ['اسمك', 'مطلوب', 'عارف إسلام'],
       ['ميناء أو مدينة الشحن', 'مطلوب', 'Vilnius'],
       ['الميناء المصري', 'مطلوب', 'ميناء الإسكندرية'],
       ['نوع المركبة', 'اختياري', 'جرار، لوري، مقطورة، فان'],
@@ -198,7 +187,7 @@ const GUIDE = {
       ['شرط التسليم', 'اختياري', 'EXW أو FOB أو CIF أو DAP'],
       ['تاريخ جاهزية البضاعة', 'اختياري', '20 أكتوبر 2026'],
       ['اسم الشركة', 'اختياري', 'شركة رحمن للتجارة'],
-      ['إيميل أو تليفون', 'اختياري', 'you@example.com'],
+      ['إيميل', 'اختياري', 'you@example.com'],
       ['رقم MRN', 'اختياري', 'لو عندك واحد بالفعل'],
       ['رقم ACID', 'اختياري', '19 رقم من منصة نافذة'],
     ],

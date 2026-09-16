@@ -1,5 +1,10 @@
 /**
- * The booking conversation: roadmap steps 1 to 4, as a state machine.
+ * The booking conversation, as a state machine, in the three steps MKY
+ * describes it to clients:
+ *
+ *   1. who is booking   - a name, and a number to call
+ *   2. the vehicle      - the chassis check, make, route, MRN, and the papers
+ *   3. the booking      - the card, the yes, and the reference they keep
  *
  * Nothing in this file asks a language model what to do next. Which question
  * comes next, whether a chassis may be booked, which documents are outstanding
@@ -14,7 +19,7 @@
  * Telegram token.
  */
 
-import { S, FLOWS } from './states.js';
+import { S, FLOWS, BASIC_FIELDS } from './states.js';
 import { M, FIELD_LABELS, DOC_LABELS, both } from './messages.js';
 import * as kb from './keyboards.js';
 import {
@@ -31,6 +36,8 @@ import { operationsNotifier } from '../operations.js';
 import { enqueue } from '../outbox.js';
 import { notifyBooking } from '../notify.js';
 import { settings } from '../settings.js';
+import { normalizePhone, looksLikePhone } from '../phone.js';
+import { rememberClientContact, phoneOnFile } from '../clients.js';
 import { DESTINATION_PORTS } from '../config.js';
 import { audit, logEvent } from '../audit.js';
 
@@ -48,8 +55,24 @@ const reply = (messages, patch = {}) => ({
 const isYes = (text) => /^(y|yes|yeah|yep|ok|okay|sure|correct|right|confirm|تمام|نعم|ايوه|أيوه|ماشي|أكيد|صح)\b/i
   .test(String(text ?? '').trim());
 
+/** An email address, wherever it sits in a message. */
+const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
+
+/**
+ * The phone question, with the button that answers it.
+ *
+ * Telegram only hands a bot a verified number through a reply-keyboard contact
+ * button, so on Telegram this is the one prompt in the booking that is not an
+ * inline keyboard. The website widget has no such button; there the client
+ * types the number.
+ */
+function phonePrompt(ctx, text) {
+  if (ctx.channel === 'telegram') return { text, keyboard: kb.SHARE_PHONE_KEYBOARD, oneTime: true };
+  return say(text, kb.homeOnly());
+}
+
 // ---------------------------------------------------------------------------
-// Step 1 - starting, and the chassis check
+// Step 1 - who is booking
 // ---------------------------------------------------------------------------
 
 /**
@@ -83,23 +106,151 @@ async function newDraft(session, ctx) {
   if (!created.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
   return reply(
-    say(M.askVin(), kb.homeOnly()),
+    [say(M.bookingStart()), say(M.askClientName(ctx.userName ?? null), kb.homeOnly())],
     {
       active_flow: FLOWS.BOOKING,
-      current_state: S.BOOK_VIN,
+      current_state: S.BOOK_CLIENT_NAME,
       active_booking_ref: created.draft.booking_ref,
       context: {},
     },
   );
 }
 
+/** "I will type it" - the reply keyboard's other button, not a number. */
+const WANTS_TO_TYPE = /^\s*(?:✏️\s*)?(?:هكتبه بنفسي|i will type it)/i;
+
 /**
- * The chassis number, and the three-way verdict the roadmap defines.
+ * Step 1, the number.
+ *
+ * Three ways it arrives: shared through Telegram's contact button, which is a
+ * verified number and the one to prefer; typed, in either digit system, with or
+ * without a country code; or "yes" to the number we already hold for this
+ * person. Whatever the route, one shape is stored (see lib/phone.js) and the
+ * client's own record is updated, so the next booking and the next request for
+ * an agent have it without asking.
+ *
+ * `aside` is a number shared while some OTHER question was open: it is kept and
+ * that question is asked again, rather than the booking being abandoned for a
+ * support ticket - which is what a shared contact used to start.
+ */
+export async function handlePhone(session, text, ctx, { editing = false, shared = false, aside = false } = {}) {
+  const typed = String(text ?? '').trim();
+  const ref = session.active_booking_ref;
+
+  if (!shared && WANTS_TO_TYPE.test(typed)) {
+    return reply(say(M.phoneTypeIt(), kb.homeOnly()));
+  }
+
+  // Telegram vouches for a shared number and gives it in international form,
+  // sometimes without the "+". Put it back, so the same number typed and shared
+  // is stored the same way.
+  let phone = shared ? normalizePhone(/^\+/.test(typed) ? typed : `+${typed}`) : null;
+
+  // "yes" to the number on file.
+  if (!phone && !shared && isYes(typed)) {
+    phone = await phoneOnFile(ctx).catch(() => null);
+  }
+
+  // A pasted block: the number is in it, and probably everything else too.
+  if (!phone && !shared && !editing && looksLikePaste(typed)) {
+    const pasted = await handlePaste(session, typed, ctx);
+    if (pasted) return pasted;
+  }
+
+  if (!phone && !shared) {
+    // A chassis number has digits enough to pass for a phone, so it is ruled
+    // out first and read as what it is.
+    phone = looksLikeVin(typed) ? null : normalizePhone(typed);
+
+    if (!phone) {
+      // Not a number: a chassis, a question, a request to be elsewhere, an
+      // email, or "I have not got one".
+      const understood = await handleUnexpected(session, 'customer_contact', typed, ctx);
+      if (understood?.passToAssistant || understood?.switchTo) return understood;
+      if (understood?.messages) return reply(understood.messages, understood.patch ?? {});
+      phone = understood?.answer ? normalizePhone(understood.answer) : null;
+    }
+  }
+
+  if (!phone) return reply(phonePrompt(ctx, M.phoneInvalid()));
+
+  const saved = await updateDraft(ref, { customer_contact: phone }, { chatId: ctx.chatId });
+  if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+  await rememberClientContact(ctx.clientId, { phone }).catch(() => null);
+  logEvent('booking_information_updated', { booking_ref: ref, field: 'customer_contact' });
+
+  if (editing) return backToConfirmation(session, ctx, { lead: M.editSaved() });
+  if (aside) return backToConfirmation(session, ctx, { lead: M.phoneNoted(phone) });
+  return askNextBasic(saved.draft, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Step 2 - the vehicle: the chassis check first
+// ---------------------------------------------------------------------------
+
+/**
+ * The chassis check, wherever the number came from.
+ *
+ * A chassis number decides whether a booking may happen at all, so it is never
+ * simply written down. Whether it arrived as the answer to the chassis
+ * question, inside a block pasted at the name step, or in a sentence three
+ * questions later, it comes through here and faces the same lookup. Banking one
+ * sideways used to skip that: a client who mentioned the chassis early was
+ * never told the unit was already booked, and the desk found the duplicate
+ * instead.
  *
  * `excludeBookingRef` matters when a client is EDITING the chassis on their own
  * unfinished request: their own draft must not be reported as a clash with
  * itself.
+ *
+ * @returns {Promise<{ok: true, draft: object, verdict: string}
+ *                   |{ok: false, ended?: boolean, reply: object}>}
  */
+async function settleVin(session, typed, ctx, { editing = false } = {}) {
+  const ref = session.active_booking_ref;
+  const result = await lookupVehicle(typed, { excludeBookingRef: ref });
+  if (!result.ok) {
+    if (result.reason === 'too_short') return { ok: false, reply: reply(say(M.vinTooShort(), kb.homeOnly())) };
+    return { ok: false, reply: reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery())) };
+  }
+
+  // Branch C: a live booking exists. No second request, and the flow ends here
+  // with the reference and route the client actually needs.
+  if (result.verdict === 'already_booked') {
+    const b = result.booking;
+    await audit({
+      actor_type: 'client', actor_id: ctx.chatId,
+      action: 'duplicate_booking_detected',
+      entity_type: 'booking', entity_id: b.booking_ref,
+      metadata: { vin: normalizeVin(typed) },
+    });
+    // The draft this conversation was building is abandoned, not left lying
+    // around to be resumed into a duplicate later.
+    if (ref) await cancelDraft(ref, ctx.chatId);
+    return {
+      ok: false,
+      ended: true,
+      reply: reply(
+        say(M.vinAlreadyBooked(b), kb.alreadyBooked()),
+        { active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {} },
+      ),
+    };
+  }
+
+  // Branches A and B both continue; B pre-fills from what we already hold, so
+  // the client is not asked for a make we have on file.
+  const patch = { vin: String(typed).toUpperCase().replace(/\s+/g, '') };
+  const v = result.vehicle;
+  if (v?.make && !editing) patch.make = v.make;
+  if (v?.model && !editing) patch.model = v.model;
+
+  const saved = await updateDraft(ref, patch, { chatId: ctx.chatId });
+  if (!saved.ok) return { ok: false, reply: reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery())) };
+
+  return { ok: true, draft: saved.draft, verdict: result.verdict };
+}
+
+/** The chassis number, as the answer to the chassis question. */
 export async function handleVin(session, text, ctx, { editing = false } = {}) {
   let typed = String(text ?? '').trim();
 
@@ -128,56 +279,23 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
     // phone number, a question, or a request to go somewhere else.
     const understood = await handleUnexpected(session, 'vin', text, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
-    if (understood?.messages) return reply(understood.messages);
+    if (understood?.messages) return reply(understood.messages, understood.patch ?? {});
     // The model found a chassis number the patterns missed. It still goes
     // through the lookup below - being recovered by a model buys it nothing.
     if (understood?.answer && looksLikeVin(understood.answer)) typed = understood.answer;
     else return reply(say(M.vinTooShort(), kb.homeOnly()));
   }
 
-  const ref = session.active_booking_ref;
-  const result = await lookupVehicle(typed, { excludeBookingRef: ref });
-  if (!result.ok) {
-    if (result.reason === 'too_short') return reply(say(M.vinTooShort(), kb.homeOnly()));
-    return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
-  }
-
-  // Branch C: a live booking exists. No second request, and the flow ends here
-  // with the reference and route the client actually needs.
-  if (result.verdict === 'already_booked') {
-    const b = result.booking;
-    await audit({
-      actor_type: 'client', actor_id: ctx.chatId,
-      action: 'duplicate_booking_detected',
-      entity_type: 'booking', entity_id: b.booking_ref,
-      metadata: { vin: normalizeVin(typed) },
-    });
-    // The draft this conversation was building is abandoned, not left lying
-    // around to be resumed into a duplicate later.
-    if (ref) await cancelDraft(ref, ctx.chatId);
-    return reply(
-      say(M.vinAlreadyBooked(b), kb.alreadyBooked()),
-      { active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {} },
-    );
-  }
-
-  // Branches A and B both continue; B pre-fills from what we already hold, so
-  // the client is not asked for a make we have on file.
-  const patch = { vin: typed.toUpperCase().replace(/\s+/g, ''), current_step: S.BOOK_MAKE };
-  const v = result.vehicle;
-  if (v?.make && !editing) patch.make = v.make;
-  if (v?.model && !editing) patch.model = v.model;
-
-  const saved = await updateDraft(ref, patch, { chatId: ctx.chatId });
-  if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+  const settled = await settleVin(session, typed, ctx, { editing });
+  if (!settled.ok) return settled.reply;
 
   // "chassis X from Klaipeda going to Alexandria" names three things. Asking
   // for the other two afterwards is what makes a bot tiring to use.
-  if (!editing) await bankFields(session, fieldsIn(text), ctx, { except: 'vin' }).catch(() => []);
+  if (!editing) await bankFound(session, fieldsIn(text), ctx, { except: 'vin' }).catch(() => null);
 
   const opening = editing
     ? M.editSaved()
-    : result.verdict === 'new'
+    : settled.verdict === 'new'
       ? M.vinNew()
       : `${M.vinKnown()}\n\n${M.vinKnownContinue()}`;
 
@@ -185,12 +303,15 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
     return backToConfirmation(session, ctx, { lead: opening });
   }
 
-  const next = await askNextBasic(saved.draft, ctx, { listMissing: true });
+  // Re-read, so whatever the sentence supplied alongside the chassis is not
+  // asked for again a moment later.
+  const draft = (await bookingByRef(settled.draft.booking_ref)) ?? settled.draft;
+  const next = await askNextBasic(draft, ctx, { listMissing: true });
   return reply([say(opening), ...next.messages], next.patch);
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 - the basics
+// Step 2 - the rest of the basics
 // ---------------------------------------------------------------------------
 
 
@@ -228,9 +349,10 @@ function normalisePlace(value) {
 
 /** What each field is called when we ask for it again. */
 const NEED = {
+  customer_name: ['اسم العميل', 'the client name'],
+  customer_contact: ['رقم الموبايل', 'the mobile number'],
   vin: ['رقم الشاسيه', 'the chassis / VIN number'],
   make: ['الماركة', 'the make'],
-  customer_name: ['اسم العميل', 'the client name'],
   origin_port: ['ميناء أو مدينة الشحن', 'the port of loading'],
   destination_port: ['ميناء الوصول المصري', 'the Egyptian destination port'],
 };
@@ -244,6 +366,9 @@ const GOT = {
   origin_port: ['ميناء الشحن', 'the loading point'],
   destination_port: ['ميناء الوصول', 'the destination'],
 };
+
+const gotAr = (fields) => fields.map((f) => GOT[f]?.[0] ?? f).join(' و ');
+const gotEn = (fields) => fields.map((f) => GOT[f]?.[1] ?? f).join(' and ');
 
 /**
  * The client said something that was not the answer to the question asked.
@@ -268,29 +393,37 @@ async function handleUnexpected(session, field, text, ctx) {
     case 'intent':
       return { switchTo: verdict.value };
 
-    // A value for another field: keep it, say so, ask again for this one.
+    // A value for another field: keep it, say so, ask again for this one. A
+    // chassis among them faces the duplicate check like any other; if the unit
+    // turns out to be booked already, that verdict is the whole answer.
     case 'other_field': {
-      const saved = await bankFields(session, fieldsIn(text), ctx, { except: field });
-      if (!saved.length) return null;
-      const got = saved.map((f) => GOT[f][0]).join(' و ');
-      const gotEn = saved.map((f) => GOT[f][1]).join(' and ');
+      const banked = await bankFound(session, fieldsIn(text), ctx, { except: field });
+      if (banked.ended) return { messages: banked.ended.messages, patch: banked.ended.patch };
+      if (!banked.saved.length) return null;
       return {
-        messages: [say(M.notedNowNeed(got, gotEn, NEED[field][0], NEED[field][1]), kb.homeOnly())],
+        messages: [say(M.notedNowNeed(gotAr(banked.saved), gotEn(banked.saved), NEED[field][0], NEED[field][1]), kb.homeOnly())],
       };
     }
 
     case 'contact': {
-      await updateDraft(session.active_booking_ref, { customer_contact: verdict.value }, { chatId: ctx.chatId })
-        .catch(() => null);
+      const noted = await noteContact(session, verdict.value, ctx);
+      if (!noted) return null;
+      if (field === 'customer_contact') {
+        // Asked for a phone number. A number IS the answer; an email is kept,
+        // and the number is still wanted.
+        if (noted.kind === 'phone') return { answer: noted.value };
+        return { messages: [phonePrompt(ctx, M.emailNotedNeedPhone(noted.value))] };
+      }
       return {
-        messages: [say(M.contactNoted(verdict.value, NEED[field][0], NEED[field][1]), kb.homeOnly())],
+        messages: [say(M.contactNoted(noted.value, NEED[field][0], NEED[field][1]), kb.homeOnly())],
       };
     }
 
-    // They have not got it. Only the chassis genuinely stops everything.
+    // They have not got it. The chassis and a number to call are the two
+    // things a booking genuinely cannot go on without.
     case 'refusal':
-      if (field === 'vin') {
-        return { messages: [say(M.cannotSkip(NEED.vin[0], NEED.vin[1]), kb.mainMenu())] };
+      if (field === 'vin' || field === 'customer_contact') {
+        return { messages: [say(M.cannotSkip(NEED[field][0], NEED[field][1]), kb.mainMenu())] };
       }
       return null;
 
@@ -329,31 +462,37 @@ async function askTheModel(session, field, text, ctx) {
   const found = read.fields;
   if (!Object.keys(found).length) return null;
 
+  // The model reports a number or an email as "contact"; the booking calls
+  // that column customer_contact.
+  const key = field === 'customer_contact' ? 'contact' : field;
+
   // It answered the question that was asked.
-  if (found[field]) {
-    const answer = found[field];
+  if (found[key]) {
+    const answer = found[key];
     const rest = { ...found };
-    delete rest[field];
-    await bankFields(session, rest, ctx, { except: field }).catch(() => []);
+    delete rest[key];
+    const banked = await bankFound(session, rest, ctx, { except: field }).catch(() => ({ saved: [], ended: null }));
+    if (banked.ended) return { messages: banked.ended.messages, patch: banked.ended.patch };
     return { answer };
   }
 
   // It supplied something else. Keep it and ask again.
-  const saved = await bankFields(session, found, ctx, { except: field });
-  if (!saved.length) return null;
+  const banked = await bankFound(session, found, ctx, { except: field });
+  if (banked.ended) return { messages: banked.ended.messages, patch: banked.ended.patch };
+  if (!banked.saved.length) return null;
 
   return {
-    messages: [say(M.notedNowNeed(
-      saved.map((f) => GOT[f]?.[0] ?? f).join(' و '),
-      saved.map((f) => GOT[f]?.[1] ?? f).join(' and '),
-      NEED[field][0], NEED[field][1],
-    ), kb.homeOnly())],
+    messages: [say(M.notedNowNeed(gotAr(banked.saved), gotEn(banked.saved), NEED[field][0], NEED[field][1]), kb.homeOnly())],
   };
 }
 
 /**
  * Stores every field a message supplied, validating each one exactly as if it
  * had been typed on its own.
+ *
+ * Two fields are deliberately NOT written here. A chassis has to be looked up,
+ * not stored (settleVin); a contact has rules about what may replace what
+ * (noteContact). bankFound() routes them; this handles the rest.
  *
  * @returns {Promise<string[]>} the fields actually written
  */
@@ -365,10 +504,6 @@ async function bankFields(session, found, ctx, { except = null } = {}) {
     if (field === 'destination_port') {
       const port = matchPort(value);
       if (port) patch.destination_port = port;
-    } else if (field === 'vin') {
-      // A chassis arriving sideways is stored, but it still has to face the
-      // duplicate rule - which handleVin does when it is asked for.
-      if (looksLikeVin(value)) patch.vin = String(value).toUpperCase().replace(/\s+/g, '');
     } else if (field === 'make' && String(value).trim()) {
       Object.assign(patch, normaliseMake(String(value).trim()));
     } else if (field === 'origin_port' && String(value).trim() && String(value).length <= 120) {
@@ -376,14 +511,75 @@ async function bankFields(session, found, ctx, { except = null } = {}) {
     } else if (['model', 'customer_name'].includes(field)
                && String(value).trim() && String(value).length <= 120) {
       patch[field] = String(value).trim();
-    } else if (field === 'contact' && String(value).trim()) {
-      patch.customer_contact = String(value).trim().slice(0, 120);
     }
   }
 
   if (!Object.keys(patch).length) return [];
   const saved = await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId });
   return saved.ok ? Object.keys(patch) : [];
+}
+
+/**
+ * Everything a message supplied, each value by its own rule.
+ *
+ * @returns {Promise<{saved: string[], ended: object|null}>} the fields written,
+ *   and - when a chassis among them turned out to be booked already - the reply
+ *   that ends the flow, which replaces whatever the caller was about to say.
+ */
+async function bankFound(session, found, ctx, { except = null } = {}) {
+  const rest = { ...found };
+  const vin = except !== 'vin' && rest.vin ? rest.vin : null;
+  const contact = except !== 'customer_contact' && rest.contact ? rest.contact : null;
+  delete rest.vin;
+  delete rest.contact;
+
+  const saved = await bankFields(session, rest, ctx, { except });
+
+  if (contact) {
+    const noted = await noteContact(session, contact, ctx);
+    if (noted) saved.push('contact');
+  }
+
+  if (vin && looksLikeVin(vin)) {
+    const settled = await settleVin(session, vin, ctx);
+    if (!settled.ok && settled.ended) return { saved, ended: settled.reply };
+    if (settled.ok) saved.push('vin');
+  }
+
+  return { saved, ended: null };
+}
+
+/**
+ * A phone number or an email, said when something else was asked.
+ *
+ * A number replaces whatever the booking held and goes on the client's record.
+ * An email goes on the client's record too, but stands in as the booking's
+ * contact only while there is no number: the desk phones people, and an email
+ * mentioned in passing must not overwrite the number given a minute earlier.
+ *
+ * @returns {Promise<{kind: 'phone'|'email', value: string}|null>}
+ */
+async function noteContact(session, value, ctx) {
+  const raw = String(value ?? '').trim();
+  const email = raw.includes('@') ? raw.match(EMAIL)?.[0] ?? null : null;
+  const phone = email ? null : normalizePhone(raw);
+
+  if (phone) {
+    const saved = await updateDraft(session.active_booking_ref, { customer_contact: phone }, { chatId: ctx.chatId })
+      .catch(() => ({ ok: false }));
+    if (!saved.ok) return null;
+    await rememberClientContact(ctx.clientId, { phone }).catch(() => null);
+    return { kind: 'phone', value: phone };
+  }
+
+  if (!email) return null;
+  await rememberClientContact(ctx.clientId, { email }).catch(() => null);
+  const booking = await bookingByRef(session.active_booking_ref);
+  if (booking && !looksLikePhone(booking.customer_contact)) {
+    await updateDraft(session.active_booking_ref, { customer_contact: email }, { chatId: ctx.chatId })
+      .catch(() => null);
+  }
+  return { kind: 'email', value: email };
 }
 
 /**
@@ -405,10 +601,14 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
 
   const [next] = missing;
 
-  // The list of what is outstanding is shown ONCE, on the way into step 2, so
-  // the client knows how much is coming. Repeating it after every answer - which
-  // it did - reads as being asked for the same things over and over, which is
-  // the single complaint this flow exists to stop.
+  // Step 2 opens the moment the person is known and the vehicle is not. Said
+  // as the chassis is asked for, so the client can see where they are.
+  const intro = next === 'vin' ? [say(M.detailsComplete(booking.customer_name ?? null))] : [];
+
+  // The list of what is outstanding is shown ONCE, on the way into the vehicle
+  // questions, so the client knows how much is coming. Repeating it after every
+  // answer - which it did - reads as being asked for the same things over and
+  // over, which is the single complaint this flow exists to stop.
   const preface = listMissing && missing.length > 1
     ? [say(M.missingBasics(
         missing.map((f) => FIELD_LABELS[f][0]),
@@ -416,26 +616,25 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
       ))]
     : [];
 
+  // The number we already hold for this person, offered back rather than
+  // asked for again. Null on a first booking - never guessed.
+  const suggestion = next === 'customer_contact' ? await phoneOnFile(ctx).catch(() => null) : null;
+
   const prompts = {
+    customer_name: () => say(M.askClientName(ctx.userName ?? null), kb.homeOnly()),
+    customer_contact: () => phonePrompt(ctx, M.askPhone(suggestion)),
     vin: () => say(M.askVin(), kb.homeOnly()),
     make: () => say(M.askMake(), kb.homeOnly()),
-    customer_name: () => say(M.askClientName(ctx.userName ?? null), kb.homeOnly()),
     origin_port: () => say(M.askPol(), kb.homeOnly()),
     destination_port: () => say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()),
   };
 
-  const states = {
-    vin: S.BOOK_VIN,
-    make: S.BOOK_MAKE,
-    customer_name: S.BOOK_CLIENT_NAME,
-    origin_port: S.BOOK_POL,
-    destination_port: S.BOOK_DESTINATION,
-  };
+  const states = Object.fromEntries(BASIC_FIELDS.map((f) => [f.field, f.state]));
 
   await updateDraft(booking.booking_ref, { current_step: states[next] }, { chatId: ctx.chatId })
     .catch(() => null);
 
-  return reply([...preface, prompts[next]()], { current_state: states[next] });
+  return reply([...intro, ...preface, prompts[next]()], { current_state: states[next] });
 }
 
 /**
@@ -469,10 +668,67 @@ async function applyPastedFields(session, text, ctx) {
     else rejected.push(parsed.destination_port);
   }
 
+  // A number in the block is the booking's number, in the one stored shape.
+  if (parsed.customer_contact) {
+    const phone = normalizePhone(parsed.customer_contact);
+    if (phone) {
+      patch.customer_contact = phone;
+      await rememberClientContact(ctx.clientId, { phone }).catch(() => null);
+    }
+  }
+
   // The chassis is deliberately NOT taken from a paste. It decides whether the
-  // unit may be booked at all, and that verdict runs through handleVin - which
+  // unit may be booked at all, and that verdict runs through settleVin - which
   // has to look it up, not just store it.
   return { patch, rejected, vin: parsed.vin ?? null };
+}
+
+/**
+ * A pasted block of details, answering several questions at once.
+ *
+ * Taking it beats refusing it: everything asked for is in the message, and a
+ * client who is told "that is rather long" has to retype what they already
+ * sent. Whatever the block did not contain is asked for next, as usual.
+ *
+ * @returns {Promise<object|null>} the reply, or null when the block held
+ *   nothing usable and the caller should read the message as a plain answer
+ */
+async function handlePaste(session, value, ctx) {
+  const { patch, rejected, vin } = await applyPastedFields(session, value, ctx);
+  if (!Object.keys(patch).length && !vin) return null;
+
+  let draft = null;
+  if (Object.keys(patch).length) {
+    const saved = await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId });
+    if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+    draft = saved.draft;
+
+    logEvent('booking_information_pasted', {
+      booking_ref: session.active_booking_ref, fields: Object.keys(patch),
+    });
+  }
+
+  const messages = [];
+  // A port we do not serve is said out loud rather than silently dropped,
+  // or the client sees us ask for a destination they believe they gave.
+  for (const bad of rejected) {
+    messages.push(say(M.destinationNotServed(bad, DESTINATION_PORTS)));
+  }
+
+  // The chassis in the block is looked up, exactly as if it had been typed at
+  // the chassis question. A block pasted at the name step with a unit that is
+  // already booked ends the flow right here, with the existing reference.
+  if (vin && looksLikeVin(vin)) {
+    const settled = await settleVin(session, vin, ctx);
+    if (!settled.ok) return settled.reply;
+    draft = settled.draft;
+  }
+
+  if (!draft) draft = await bookingByRef(session.active_booking_ref);
+  if (!draft) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+
+  const next = await askNextBasic(draft, ctx);
+  return reply([...messages, ...next.messages], next.patch);
 }
 
 /** Make, client name and port of loading: free text, stored as given. */
@@ -480,30 +736,9 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   const value = String(text ?? '').trim();
   if (!value) return reply(say(M.notUnderstood(), kb.homeOnly()));
 
-  // A pasted block of details, answering several questions at once. Taking it
-  // beats refusing it: everything asked for is in the message, and a client who
-  // is told "that is rather long" has to retype what they already sent.
   if (!editing && looksLikePaste(value)) {
-    const { patch, rejected } = await applyPastedFields(session, value, ctx);
-
-    if (Object.keys(patch).length) {
-      const saved = await updateDraft(session.active_booking_ref, patch, { chatId: ctx.chatId });
-      if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
-
-      logEvent('booking_information_pasted', {
-        booking_ref: session.active_booking_ref, fields: Object.keys(patch),
-      });
-
-      const messages = [];
-      // A port we do not serve is said out loud rather than silently dropped,
-      // or the client sees us ask for a destination they believe they gave.
-      for (const bad of rejected) {
-        messages.push(say(M.destinationNotServed(bad, DESTINATION_PORTS)));
-      }
-
-      const next = await askNextBasic(saved.draft, ctx);
-      return reply([...messages, ...next.messages], next.patch);
-    }
+    const pasted = await handlePaste(session, value, ctx);
+    if (pasted) return pasted;
   }
 
   // The answer to the question that was asked, out of whatever was written
@@ -528,7 +763,7 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   if (verdict.kind !== 'answer') {
     const understood = await handleUnexpected(session, field, value, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
-    if (understood?.messages) return reply(understood.messages);
+    if (understood?.messages) return reply(understood.messages, understood.patch ?? {});
     if (understood?.answer) resolvedValue = understood.answer;
   }
 
@@ -576,7 +811,7 @@ export async function handleDestination(session, text, ctx, { editing = false } 
   if (!port) {
     const understood = await handleUnexpected(session, 'destination_port', text, ctx);
     if (understood?.passToAssistant || understood?.switchTo) return understood;
-    if (understood?.messages) return reply(understood.messages);
+    if (understood?.messages) return reply(understood.messages, understood.patch ?? {});
     // A port the model recovered is still checked against the five we serve.
     const recovered = understood?.answer ? matchPort(understood.answer) : null;
     if (!recovered) {
@@ -765,7 +1000,7 @@ export async function handleDocumentClassified(session, type, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 - the summary, the edit menu, the yes
+// Step 3 - the summary, the edit menu, the yes
 // ---------------------------------------------------------------------------
 
 /**
@@ -794,13 +1029,18 @@ export async function confirmationCard(booking, documentState = null) {
     docLines.push('🕒 MRN — MKY تستخرجه / MKY is obtaining it');
   }
 
+  // "telegram:6284…" is our own routing address, not something the client
+  // recognises as their number.
+  const phone = looksLikePhone(booking.customer_contact) ? booking.customer_contact : '—';
+
   const lines = [
     M.confirmHeaderAr,
     M.confirmHeaderEn,
     '',
+    `👤 العميل / Client: ${booking.customer_name ?? '—'}`,
+    `📱 الموبايل / Phone: ${phone}`,
     `🚘 الشاسيه / Chassis · VIN: ${booking.vin ?? '—'}`,
     `🚗 الماركة / Make: ${[booking.make, booking.model].filter(Boolean).join(' ') || '—'}`,
-    `👤 العميل / Client: ${booking.customer_name ?? '—'}`,
     `🌍 خط الشحن / Route: ${booking.origin_port ?? '—'} → ${booking.destination_port ?? '—'}`,
     '',
     '📄 المستندات / Documents:',
@@ -855,6 +1095,11 @@ const EDIT_TARGETS = {
 
 export async function handleEditChoice(session, target, ctx) {
   if (target === 'back') return backToConfirmation(session, ctx);
+
+  // The number has its own prompt: on Telegram it comes with the share button.
+  if (target === 'phone') {
+    return reply(phonePrompt(ctx, M.askPhone(null)), { current_state: S.BOOK_EDIT_CLIENT_PHONE });
+  }
 
   if (target === 'documents') {
     const booking = await bookingByRef(session.active_booking_ref);
@@ -962,20 +1207,11 @@ export async function handleConfirm(session, ctx) {
 
   const submitted = await bookingByRef(ref);
 
-  // Told through the outbox rather than sent from here, so a Telegram hiccup
-  // retries instead of losing the only acknowledgement the client gets.
-  await enqueue({
-    chatId: ctx.chatId,
-    clientId: ctx.clientId ?? null,
-    eventType: 'booking_request_submitted',
-    entityType: 'booking',
-    entityId: ref,
-    idempotencyKey: `booking_request_submitted:${ref}`,
-    payload: { booking_ref: ref },
-  });
-
-  // And their copy of the paperwork. A separate row with its own key: the
-  // client should get the PDF even if the text failed, and vice versa.
+  // The client's copy of the paperwork, through the outbox so a Telegram
+  // hiccup retries rather than losing it. The text that answers the yes is
+  // sent by the transport, below, with the reference in it; the PDF's caption
+  // carries the reference too. Queuing the text as well sent the same
+  // confirmation twice, one after the other, to every client who booked.
   await enqueue({
     chatId: ctx.chatId,
     clientId: ctx.clientId ?? null,
@@ -1008,7 +1244,7 @@ export async function handleConfirm(session, ctx) {
   // card found no request and apologised for a technical fault, when what had
   // actually happened was that the booking went through the first time.
   return reply(
-    say(M.submitted(), kb.afterSubmitted()),
+    say(M.submitted(ref), kb.afterSubmitted()),
     { active_flow: null, current_state: S.BOOK_SUBMITTED, active_booking_ref: ref, context: {} },
   );
 }

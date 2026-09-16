@@ -62,7 +62,25 @@ export default async function handler(req, res) {
   // A tapped button is acknowledged before anything that can be slow or can
   // fail. Telegram spins for a few seconds and then shows the client a dead
   // button, and that happens whether or not the work behind it succeeded.
-  if (callbackQuery) await answerCallback(callbackQuery.id);
+  //
+  // Sent, not waited for: nothing below depends on Telegram's answer, and
+  // waiting for it put a whole round trip in front of every reply to a tap.
+  // answerCallback never throws; it is awaited at the end so the function does
+  // not return with the request still in flight.
+  const acknowledged = callbackQuery ? answerCallback(callbackQuery.id) : Promise.resolve();
+
+  // The client record is refreshed on every update and the refresh is
+  // idempotent, so it goes out in the same breath as the claim below rather
+  // than after it. A duplicate update does one harmless extra upsert.
+  const clientPromise = from
+    ? upsertTelegramClient({
+        telegramUserId: from.id,
+        chatId,
+        username: from.username,
+        firstName: from.first_name,
+        lastName: from.last_name,
+      }).catch((err) => { console.error('client upsert failed:', err?.message); return null; })
+    : Promise.resolve(null);
 
   // Claimed in one statement, so two workers handling the same retried update
   // cannot both proceed. A crashed worker's claim becomes reclaimable after a
@@ -70,6 +88,7 @@ export default async function handler(req, res) {
   const claimed = await claimUpdate(update.update_id, chatId);
   if (!claimed) {
     logEvent('telegram_update_duplicate', { update_id: update.update_id, correlation_id: correlationId });
+    await acknowledged;
     return res.status(200).json({ ok: true, duplicate: true });
   }
 
@@ -80,15 +99,7 @@ export default async function handler(req, res) {
   });
 
   try {
-    const client = from
-      ? await upsertTelegramClient({
-          telegramUserId: from.id,
-          chatId,
-          username: from.username,
-          firstName: from.first_name,
-          lastName: from.last_name,
-        })
-      : null;
+    const client = await clientPromise;
 
     const ctx = {
       channel: 'telegram',
@@ -103,6 +114,7 @@ export default async function handler(req, res) {
     if (client?.is_blocked) {
       await sendMessage(chatId, M.blocked());
       await finishUpdate(update.update_id, 'processed');
+      await acknowledged;
       return res.status(200).json({ ok: true, blocked: true });
     }
 
@@ -113,6 +125,7 @@ export default async function handler(req, res) {
     if (input.kind === 'command' && input.command === '/reset') {
       await handleReset(ctx);
       await finishUpdate(update.update_id, 'processed');
+      await acknowledged;
       return res.status(200).json({ ok: true });
     }
 
@@ -128,29 +141,35 @@ export default async function handler(req, res) {
     if (input.kind === 'rejected') {
       await sendMessage(chatId, input.text, { inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
+      await acknowledged;
       return res.status(200).json({ ok: true });
     }
 
     if (input.kind === 'ignore') {
       await finishUpdate(update.update_id, 'processed');
+      await acknowledged;
       return res.status(200).json({ ok: true, skipped: true });
     }
 
     // Anything the client sends while we are waiting on them brings the request
     // back to the desk. Done before the flow runs, so the status the flow reads
-    // is already the reopened one.
-    await noteClientResponse(chatId, { clientId: ctx.clientId }).catch(() => null);
-
-    await sendTyping(chatId);
+    // is already the reopened one. The typing indicator goes out alongside it;
+    // neither waits for the other.
+    await Promise.all([
+      noteClientResponse(chatId, { clientId: ctx.clientId }).catch(() => null),
+      sendTyping(chatId).catch(() => null),
+    ]);
 
     const flow = await runFlow(input, ctx);
 
     if (flow.handled) {
       // The card whose button was just pressed has been acted on; leaving the
-      // buttons live invites a second press on a decision already taken.
-      if (callbackQuery?.message?.message_id) {
-        await clearButtons(chatId, callbackQuery.message.message_id);
-      }
+      // buttons live invites a second press on a decision already taken. The
+      // buttons come off while the reply goes out, not before it - the client
+      // is waiting for the reply, not for the old card to change.
+      const cleared = callbackQuery?.message?.message_id
+        ? clearButtons(chatId, callbackQuery.message.message_id)
+        : Promise.resolve();
       for (const m of flow.messages) {
         await sendMessage(chatId, m.text, {
           inline: m.inline,
@@ -158,6 +177,7 @@ export default async function handler(req, res) {
           oneTime: m.oneTime ?? false,
         });
       }
+      await cleared;
     } else {
       // Nothing was being asked and the text is not a menu choice, so it is a
       // question. The assistant answers it; the flow state is untouched, so a
@@ -175,6 +195,7 @@ export default async function handler(req, res) {
     logEvent('telegram_update_processed', {
       update_id: update.update_id, correlation_id: correlationId, state: flow.state, handled: flow.handled,
     });
+    await acknowledged;
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error(`telegram handler error [${correlationId}]:`, err);
@@ -189,6 +210,7 @@ export default async function handler(req, res) {
       await sendMessage(chatId, M.recoverableError(correlationId), { inline: kb.errorRecovery() });
     } catch { /* best effort */ }
 
+    await acknowledged;
     return res.status(200).json({ ok: true, error: true });
   }
 }

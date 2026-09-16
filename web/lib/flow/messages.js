@@ -50,10 +50,57 @@ export const M = {
     'You can also just tell me what you need in your own words.',
   ),
 
-  // -- booking, step 1 ------------------------------------------------------
+  // -- booking, step 1: who is booking ---------------------------------------
+  bookingStart: () => both(
+    '📦 تمام، يلا نبدأ الحجز.\n\n1️⃣ الخطوة الأولى من 3 - بياناتك.',
+    '📦 Let us start your booking.\n\nStep 1 of 3 — your details.',
+  ),
+
+  askClientName: (suggestion) => both(
+    `👤 الحجز هيتسجل باسم مين؟${suggestion ? `\n(لو "${suggestion}" مظبوط ابعت "تمام")` : ''}`,
+    `👤 What client name should we use for this booking?${suggestion ? `\n(If "${suggestion}" is right, reply "yes".)` : ''}`,
+  ),
+
+  // Telegram hands over a verified number through the reply-keyboard button;
+  // typing works too, and so does saying yes to the number we already hold.
+  askPhone: (suggestion) => both(
+    '📱 ورقم الموبايل اللي نكلمك عليه؟\n' +
+    'اضغط "شارك رقمي"، أو اكتبه بكود الدولة - مثلاً +20 100 555 1234.' +
+    (suggestion ? `\n(لو ${suggestion} لسه رقمك ابعت "تمام")` : ''),
+    '📱 And a mobile number we can reach you on?\n' +
+    'Tap "Share my number", or type it with the country code — for example +20 100 555 1234.' +
+    (suggestion ? `\n(If ${suggestion} is still your number, reply "yes".)` : ''),
+  ),
+
+  phoneInvalid: () => both(
+    '⚠️ الرقم ده شكله مش رقم موبايل. ابعته بكود الدولة، مثلاً +20 100 555 1234.',
+    '⚠️ That does not look like a phone number. Please send it with the country code — for example +20 100 555 1234.',
+  ),
+
+  phoneTypeIt: () => both(
+    'تمام، اكتب رقمك بكود الدولة.',
+    'Sure — type your number, with the country code.',
+  ),
+
+  phoneNoted: (phone) => both(
+    `تمام، سجلت رقمك ${phone}.`,
+    `Noted — ${phone} is your number.`,
+  ),
+
+  emailNotedNeedPhone: (email) => both(
+    `تمام، سجلت الإيميل ${email}.\n\nبس لسه محتاج رقم موبايل نكلمك عليه.`,
+    `Noted — I have ${email} as your email.\n\nI still need a mobile number we can call you on.`,
+  ),
+
+  detailsComplete: (name) => both(
+    `✅ تمام${name ? ` يا ${name}` : ''}.\n\n2️⃣ الخطوة التانية من 3 - العربية وأوراقها.`,
+    `✅ Thank you${name ? `, ${name}` : ''}.\n\nStep 2 of 3 — the vehicle and its papers.`,
+  ),
+
+  // -- booking, step 2: the vehicle -------------------------------------------
   askVin: () => both(
-    '📦 تمام، يلا نبدأ الحجز.\n\nابعتلي رقم الشاسيه / VIN بتاع الوحدة.',
-    '📦 Let us start your booking.\n\nPlease send your VIN / Chassis number.',
+    '🚘 ابعتلي رقم الشاسيه / VIN بتاع الوحدة.',
+    '🚘 Please send your VIN / Chassis number.',
   ),
 
   vinTooShort: () => both(
@@ -87,12 +134,7 @@ export const M = {
     'No need to submit another request.',
   ),
 
-  // -- booking, step 2 ------------------------------------------------------
   askMake: () => both('🚗 الماركة إيه؟ (مرسيدس، فولفو، سكانيا…)', '🚗 What is the vehicle Make / Brand?'),
-  askClientName: (suggestion) => both(
-    `👤 الحجز هيتسجل باسم مين؟${suggestion ? `\n(لو "${suggestion}" مظبوط ابعت "تمام")` : ''}`,
-    `👤 What client name should we use for this booking?${suggestion ? `\n(If "${suggestion}" is right, reply "yes".)` : ''}`,
-  ),
   askPol: () => both(
     '🌍 هتشحن من فين؟ اكتب المدينة أو ميناء الشحن (فيلنيوس، كلايبيدا، أنتويرب…).',
     '🌍 Where does it ship from? The city or port of loading (Vilnius, Klaipeda, Antwerp…).',
@@ -212,8 +254,8 @@ What I need right now is ${needEn}.`,
   ),
 
   documentsComplete: () => both(
-    '✅ تمام! وصلنا كل اللي محتاجينه.',
-    '✅ Perfect! We have everything we need.',
+    '✅ تمام! وصلنا كل اللي محتاجينه.\n\n3️⃣ الخطوة التالتة من 3 - الحجز.',
+    '✅ Perfect! We have everything we need.\n\nStep 3 of 3 — your booking.',
   ),
 
   documentWrongChassis: (docVin, bookingVin) => both(
@@ -247,9 +289,15 @@ What I need right now is ${needEn}.`,
     'That is the same as what we already have, so nothing changed.',
   ),
 
-  submitted: () => both(
-    '🎉 اتأكد طلب الحجز!\n\nببعته لفريق العمليات دلوقتي.\nوصلنا الطلب! 😊',
-    '🎉 Booking request confirmed!\n\nI am sending your request to our Operations Team now.\nWe have got it! 😊',
+  // The reference is the thing the client keeps. It is said here, in the one
+  // message that answers the yes, and repeated on the PDF that follows.
+  submitted: (ref) => both(
+    '🎉 اتأكد طلب الحجز!\n\n' +
+    (ref ? `📋 رقم الحجز بتاعك: ${ref}\nاحتفظ بيه - هتتتبع الشحنة بيه.\n\n` : '') +
+    'ببعت الطلب لفريق العمليات دلوقتي، ونسختك PDF جاية حالاً. 😊',
+    '🎉 Booking request confirmed!\n\n' +
+    (ref ? `📋 Your booking reference: ${ref}\nKeep it — it is how you track the shipment.\n\n` : '') +
+    'I am sending your request to our Operations Team now, and your PDF copy follows. 😊',
   ),
 
   submittedAlready: (ref) => both(
@@ -370,6 +418,24 @@ What I need right now is ${needEn}.`,
     'I have logged your request and our Operations Team will get in touch. A direct contact number has not been configured for me to give out.',
   ),
 
+  // After 7 PM. The rule MKY gave: say the desk is closed, say when it opens,
+  // and leave the direct number so a client with something urgent is not left
+  // talking to a bot. The number is only ever the configured one.
+  agentAfterHours: ({ start, end, tomorrow, directPhone }) => both(
+    `🌙 فريقنا بيرد من ${hourAr(start)} لحد ${hourAr(end)} بتوقيت القاهرة، ودلوقتي برة مواعيد العمل.\n` +
+    `سجلت طلبك، وموظف هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.` +
+    (directPhone ? `\n\n☎️ لو الموضوع مستعجل، اتصل بينا مباشرة على ${directPhone}.` : ''),
+    `🌙 Our agents are available from ${hourEn(start)} to ${hourEn(end)} Cairo time, and it is outside those hours now.\n` +
+    `I have logged your request — an agent will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.` +
+    (directPhone ? `\n\n☎️ If it is urgent, call us directly on ${directPhone}.` : ''),
+  ),
+
+  // The number is already on file, so the only thing left to ask is the question.
+  agentAskProblem: (phone) => both(
+    `📝 عندي رقمك ${phone}. قولي محتاج مساعدة في إيه - جملة أو اتنين كفاية.`,
+    `📝 I have your number (${phone}). What do you need help with? A sentence or two is enough.`,
+  ),
+
   // Asked separately, because the two arrive in either order: some clients tap
   // "share my number" first, some describe the problem first. Asking for both
   // again once one is in hand reads as not having listened.
@@ -415,11 +481,27 @@ What I need right now is ${needEn}.`,
   ),
 };
 
+/** "9 AM", "7 PM" - the hours the desk keeps, said the way people say them. */
+function hourEn(h) {
+  const n = Number(h) % 24;
+  if (n === 0) return '12 AM';
+  if (n === 12) return '12 PM';
+  return n < 12 ? `${n} AM` : `${n - 12} PM`;
+}
+
+function hourAr(h) {
+  const n = Number(h) % 24;
+  if (n === 0) return '12 بالليل';
+  if (n === 12) return '12 الظهر';
+  return n < 12 ? `${n} الصبح` : `${n - 12} ${n < 18 ? 'العصر' : 'بالليل'}`;
+}
+
 /** Bilingual labels for the fields the booking flow collects. */
 export const FIELD_LABELS = {
+  customer_name: ['اسم العميل', 'Client name'],
+  customer_contact: ['رقم الموبايل', 'Mobile number'],
   vin: ['رقم الشاسيه / VIN', 'Chassis / VIN'],
   make: ['الماركة', 'Make / Brand'],
-  customer_name: ['اسم العميل', 'Client name'],
   origin_port: ['ميناء أو مدينة الشحن', 'Port of loading'],
   destination_port: ['ميناء الوصول', 'Destination'],
 };

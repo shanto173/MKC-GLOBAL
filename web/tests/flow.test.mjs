@@ -47,6 +47,16 @@ const SETTINGS = [
 const CHAT = '555';
 const OTHER_CHAT = '777';
 
+// The desk keeps 9 to 19 Cairo time, which is UTC+2 or UTC+3 depending on the
+// season. Each of these lands on the same side of the line either way.
+const IN_HOURS = new Date('2026-09-16T12:00:00Z');       // 14:00 or 15:00 in Cairo
+const AFTER_HOURS = new Date('2026-09-16T20:00:00Z');    // 22:00 or 23:00
+const EARLY_EVENING = new Date('2026-09-16T17:30:00Z');  // 19:30 or 20:30
+const BEFORE_HOURS = new Date('2026-09-16T03:00:00Z');   // 05:00 or 06:00
+
+const PHONE = '+20 100 555 1234';
+const PHONE_STORED = '+201005551234';
+
 function harness(seed = {}) {
   const db = createFakeDb({
     bot_settings: SETTINGS,
@@ -65,6 +75,8 @@ function harness(seed = {}) {
     telegramUserId: 999,
     userName: 'Arif',
     correlationId: 'test',
+    // Pinned, so a test that runs at ten past seven does not find the desk shut.
+    now: IN_HOURS,
   };
 
   const send = (input) => runFlow(input, ctx);
@@ -103,13 +115,19 @@ const said = (result) => result.messages.map((m) => m.text).join('\n---\n');
 const buttons = (result) =>
   result.messages.flatMap((m) => (m.inline ?? []).flat().map((b) => b.callback_data));
 
-/** Walks a fresh booking from /start to the confirmation card. */
-async function bookUpTo(h, { vin = 'W1T96340310484233', mrn = 'existing', documents = true } = {}) {
+/** Step 1: starts a booking and answers the two questions about the person. */
+async function identify(h, { name = 'Nile Motors', phone = PHONE } = {}) {
   await h.command('/start');
   await h.tap('menu:book');
+  await h.text(name);
+  return h.text(phone);
+}
+
+/** Walks a fresh booking from /start to the confirmation card. */
+async function bookUpTo(h, { vin = 'W1T96340310484233', mrn = 'existing', documents = true } = {}) {
+  await identify(h);
   await h.text(vin);
   await h.text('Mercedes-Benz');
-  await h.text('Nile Motors');
   await h.text('Vilnius');
   await h.text('Alexandria');
   const choice = await h.tap(`bk:mrn:${mrn}`);
@@ -143,18 +161,172 @@ test('a typed "1" still starts a booking, alongside the buttons', async () => {
   const h = harness();
   await h.command('/start');
   const r = await h.text('1');
-  assert.match(said(r), /VIN \/ Chassis number/);
+  assert.match(said(r), /Step 1 of 3/);
+  assert.match(said(r), /client name/);
+  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+});
+
+// ---------------------------------------------------------------------------
+// Step 1 - who is booking
+// ---------------------------------------------------------------------------
+
+test('step 1 asks for the name, then the number, then opens step 2 with the chassis', async () => {
+  const h = harness();
+  await h.command('/start');
+  const start = await h.tap('menu:book');
+  assert.match(said(start), /Step 1 of 3/);
+  assert.match(said(start), /client name/);
+  assert.equal(start.state, S.BOOK_CLIENT_NAME);
+
+  const askedPhone = await h.text('Nile Motors');
+  assert.match(said(askedPhone), /mobile number/);
+  assert.equal(askedPhone.state, S.BOOK_CLIENT_PHONE);
+  // On Telegram the number is asked with the share button, not an inline card.
+  assert.ok(askedPhone.messages.some((m) => m.keyboard?.[0]?.[0]?.request_contact === true));
+
+  const askedVin = await h.text(PHONE);
+  assert.match(said(askedVin), /Thank you, Nile Motors/);
+  assert.match(said(askedVin), /Step 2 of 3/);
+  assert.match(said(askedVin), /VIN \/ Chassis number/);
+  assert.equal(askedVin.state, S.BOOK_VIN);
+
+  const b = h.booking();
+  assert.equal(b.customer_name, 'Nile Motors');
+  assert.equal(b.customer_contact, PHONE_STORED, 'one stored shape, whatever was typed');
+});
+
+test('the number shared through Telegram\'s button answers the phone question', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+
+  const r = await h.send({ kind: 'contact', phone: '+201005551234' });
+
   assert.equal(r.state, S.BOOK_VIN);
+  assert.equal(h.booking().customer_contact, '+201005551234');
+  // And it goes on the person's record, for next time.
+  assert.equal(h.db._tables.clients[0].phone, '+201005551234');
+});
+
+test('a number typed in Arabic digits, or without a country code, is understood', async () => {
+  for (const [typed, stored] of [['٠١٠٠٥٥٥١٢٣٤', '01005551234'], ['0100 555 1234', '01005551234'],
+                                 ['0020 100 555 1234', '+201005551234'], ['my number is +20 100 555 1234', '+201005551234']]) {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    await h.text('Nile Motors');
+    const r = await h.text(typed);
+    assert.equal(h.booking().customer_contact, stored, typed);
+    assert.equal(r.state, S.BOOK_VIN, typed);
+  }
+});
+
+test('something that is not a number is refused, and the number asked for again', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+
+  const r = await h.text('soon');
+  assert.match(said(r), /does not look like a phone number/);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE);
+  assert.notEqual(h.booking().customer_contact, 'soon');
+});
+
+test('the number on file is offered back, and "yes" takes it', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201112223334';
+
+  await h.command('/start');
+  await h.tap('menu:book');
+  const asked = await h.text('Nile Motors');
+  assert.match(said(asked), /\+201112223334 is still your number/);
+
+  const r = await h.text('yes');
+  assert.equal(h.booking().customer_contact, '+201112223334');
+  assert.equal(r.state, S.BOOK_VIN);
+});
+
+test('a number is never suggested when there is none on file', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  const asked = await h.text('Nile Motors');
+  assert.doesNotMatch(said(asked), /still your number/);
+});
+
+test('a chassis pasted at the name step still faces the duplicate check', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260907-TAKEN', status: 'confirmed', chat_id: OTHER_CHAT,
+      vin: 'YV2RT40A8FB712905', make: 'Volvo', customer_name: 'Someone Else',
+      origin_port: 'Koper', destination_port: 'Suez Port',
+    }],
+  });
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  // The whole block, at the very first question. The chassis in it is looked
+  // up, not written down - and this one is taken.
+  const r = await h.text('Chassis: YV2RT40A8FB712905\nMake: Volvo\nClient: Delta Trans Egypt\nPhone: +20 100 555 1234\nDestination: Port Said');
+
+  assert.match(said(r), /already booked/);
+  assert.match(said(r), /MKY-BKG-260907-TAKEN/);
+  assert.equal(r.state, S.MAIN_MENU);
+});
+
+test('a chassis mentioned at the name step is checked, kept, and the name still asked', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text('W1T96340310484233');
+  assert.equal(h.booking().vin, 'W1T96340310484233');
+  assert.match(said(r), /Noted/);
+  assert.match(said(r), /client name/);
+  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+});
+
+test('a block with everything in it, pasted at the name step, goes straight to the MRN question', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+
+  const r = await h.text(
+    'Client: Nile Cargo Egypt\nMobile: +20 100 555 1234\nChassis: WMA06XZZ8KM745219\nMake: MAN\nLoading: Hamburg\nDestination: Port Said',
+  );
+
+  const b = h.booking();
+  assert.equal(b.customer_name, 'Nile Cargo Egypt');
+  assert.equal(b.customer_contact, PHONE_STORED);
+  assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  assert.equal(b.destination_port, 'Port Said');
+  assert.match(said(r), /Do you already have an MRN/);
+  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
+
+test('a number shared while another question is open is kept, and that question asked again', async () => {
+  const h = harness();
+  await identify(h);
+  await h.text('W1T96340310484233');
+  // Being asked for the make; the client taps "share my number" instead.
+  const r = await h.send({ kind: 'contact', phone: '+201222333444' });
+
+  assert.equal(h.booking().customer_contact, '+201222333444');
+  assert.match(said(r), /Make \/ Brand/);
+  assert.equal(r.state, S.BOOK_MAKE);
+  // It did NOT become a support ticket.
+  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
 });
 
 // ---------------------------------------------------------------------------
 // 2-4 - the chassis check
 // ---------------------------------------------------------------------------
 
-test('TEST 2 - an unknown chassis is new, and moves to step 2', async () => {
+test('TEST 2 - an unknown chassis is new, and moves on to the make', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('W1T96340310484233');
 
   assert.match(said(r), /This unit is new/);
@@ -167,15 +339,14 @@ test('TEST 3 - a known unit with no live booking continues, reusing what we hold
   const h = harness({
     vehicles: [{ vin: 'W1T96340310484233', make: 'Scania', model: 'R450' }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('W1T96340310484233');
 
   assert.match(said(r), /already in our system/);
   assert.match(said(r), /Nothing is blocking it/);
   // The make we already hold is not asked for again.
   assert.equal(h.booking().make, 'Scania');
-  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+  assert.equal(r.state, S.BOOK_POL);
 });
 
 test('TEST 4 - an already-booked chassis is refused, with reference and route', async () => {
@@ -186,8 +357,7 @@ test('TEST 4 - an already-booked chassis is refused, with reference and route', 
       origin_port: 'Klaipeda', destination_port: 'Port Said',
     }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('W1T96340310484233');
 
   assert.match(said(r), /already booked/);
@@ -210,16 +380,14 @@ test('a chassis that differs only in spacing and case is the same chassis', asyn
       origin_port: 'Koper', destination_port: 'Suez Port',
     }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('w1t 9634-0310 484233');
   assert.match(said(r), /already booked/);
 });
 
 test('something that is not a chassis number is rejected, not stored', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('12345');
 
   assert.match(said(r), /does not look like a full chassis number/);
@@ -233,11 +401,9 @@ test('something that is not a chassis number is rejected, not stored', async () 
 
 test('TEST 5 - one missing field is asked for on its own', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('W1T96340310484233');
   await h.text('Mercedes-Benz');
-  await h.text('Nile Motors');
   const r = await h.text('Vilnius');
 
   assert.match(said(r), /Egyptian destination port/);
@@ -247,23 +413,23 @@ test('TEST 5 - one missing field is asked for on its own', async () => {
 
 test('TEST 6 - several missing fields are listed before the first is asked', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('W1T96340310484233');
 
   assert.match(said(r), /We are missing some information/);
   assert.match(said(r), /Make \/ Brand/);
-  assert.match(said(r), /Client name/);
+  assert.match(said(r), /Port of loading/);
   assert.match(said(r), /Destination/);
+  // Step 1 is done; it is not listed as if it were still to come.
+  assert.doesNotMatch(said(r), /Client name/);
+  assert.doesNotMatch(said(r), /Mobile number/);
 });
 
 test('a destination we do not serve is refused with the list of ones we do', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('W1T96340310484233');
   await h.text('Mercedes-Benz');
-  await h.text('Nile Motors');
   await h.text('Vilnius');
   const r = await h.text('Aswan');
 
@@ -276,6 +442,10 @@ test('the draft is written as each answer arrives, not held until the end', asyn
   const h = harness();
   await h.command('/start');
   await h.tap('menu:book');
+  await h.text('Nile Motors');
+  assert.equal(h.booking().customer_name, 'Nile Motors');
+  await h.text(PHONE);
+  assert.equal(h.booking().customer_contact, PHONE_STORED);
   await h.text('W1T96340310484233');
   assert.equal(h.booking().vin, 'W1T96340310484233');
   await h.text('Mercedes-Benz');
@@ -294,11 +464,9 @@ test('the MRN question is asked once the basics are in, with two choices', async
 
   // Re-run to observe the question itself.
   const h2 = harness();
-  await h2.command('/start');
-  await h2.tap('menu:book');
+  await identify(h2);
   await h2.text('W1T96340310484233');
   await h2.text('Mercedes-Benz');
-  await h2.text('Nile Motors');
   await h2.text('Vilnius');
   const q = await h2.text('Alexandria');
   assert.match(said(q), /Do you already have an MRN/);
@@ -366,13 +534,17 @@ test('TEST 10 - the last outstanding document gives the "almost there" message',
   assert.doesNotMatch(said(r), /Just a little more/);
 });
 
-test('TEST 11 - all documents present advances to the confirmation card', async () => {
+test('TEST 11 - all documents present advances to the confirmation card, step 3', async () => {
   const h = harness();
   const r = await bookUpTo(h);
 
   assert.match(said(r), /We have everything we need/);
+  assert.match(said(r), /Step 3 of 3/);
   assert.match(said(r), /Please confirm your booking details/);
   assert.match(said(r), /W1T96340310484233/);
+  // The card shows the person as well as the vehicle - it is what they agree to.
+  assert.match(said(r), /Nile Motors/);
+  assert.match(said(r), /\+201005551234/);
   assert.deepEqual(buttons(r), ['bk:confirm', 'bk:edit', 'bk:cancel:ask']);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
@@ -477,8 +649,32 @@ test('TEST 14 - Confirm submits the request and creates exactly one Operations t
   assert.ok(b.submitted_at);
   assert.ok(b.client_confirmed_at);
 
+  // The client gets their reference in the message that answers the yes, and
+  // the PDF copy is queued to follow it.
+  assert.match(said(r), new RegExp(`Your booking reference: ${b.booking_ref}`));
+  assert.equal(h.outbox().filter((o) => o.event_type === 'booking_request_pdf').length, 1);
+  // Not the same confirmation twice: the text is sent once, by the transport.
+  assert.equal(h.outbox().filter((o) => o.event_type === 'booking_request_submitted').length, 0);
+
   const tasks = h.tasks().filter((t) => t.task_type === 'new_booking_request');
   assert.equal(tasks.length, 1);
+});
+
+test('the edit menu offers the phone number, and editing it returns to the card', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  const menu = await h.tap('bk:edit');
+  assert.ok(buttons(menu).includes('bk:edit:phone'));
+
+  const asked = await h.tap('bk:edit:phone');
+  assert.match(said(asked), /mobile number/);
+  assert.equal(asked.state, S.BOOK_EDIT_CLIENT_PHONE);
+
+  const r = await h.text('+20 122 000 9999');
+  assert.match(said(r), /Information updated successfully/);
+  assert.match(said(r), /\+201220009999/);
+  assert.equal(h.booking().customer_contact, '+201220009999');
+  assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
 test('Confirm is refused while a required document is missing', async () => {
@@ -500,7 +696,7 @@ test('TEST 15 - a repeated Confirm does not submit twice', async () => {
 
   assert.match(said(again), /already with our Operations Team/);
   assert.equal(h.tasks().filter((t) => t.task_type === 'new_booking_request').length, 1);
-  assert.equal(h.outbox().filter((o) => o.event_type === 'booking_request_submitted').length, 1);
+  assert.equal(h.outbox().filter((o) => o.event_type === 'booking_request_pdf').length, 1);
 });
 
 test('submission is blocked when another chat booked the chassis in the meantime', async () => {
@@ -528,6 +724,7 @@ test('the submitted request carries exactly what the client approved', async () 
   assert.equal(b.vin, 'W1T96340310484233');
   assert.equal(b.make, 'Mercedes-Benz');
   assert.equal(b.customer_name, 'Nile Motors');
+  assert.equal(b.customer_contact, PHONE_STORED);
   assert.equal(b.origin_port, 'Vilnius');
   assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
 });
@@ -682,12 +879,120 @@ test('a confirmed booking with no shipment yet says where it actually is', async
 // 22-25 - contact
 // ---------------------------------------------------------------------------
 
-test('TEST 22-25 - the contact menu offers all four routes', async () => {
+test('TEST 22-25 - "Talk to an agent" goes straight to the agent, no menu first', async () => {
   const h = harness();
   const r = await h.tap('menu:contact');
 
+  assert.match(said(r), /Connecting you with our Operations Team/);
+  assert.doesNotMatch(said(r), /What do you need help with/);
+  assert.match(said(r), /To open this with the team/);
+  assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
+  // Logged for the desk before the client has typed a word.
+  assert.equal(h.tasks().filter((t) => t.task_type === 'client_callback').length, 1);
+});
+
+test('a client whose number is on file is not asked for it again', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+
+  const r = await h.tap('menu:contact');
+  assert.match(said(r), /I have your number \(\+201005551234\)/);
+  assert.doesNotMatch(said(r), /A phone number we can call you on/);
+
+  const done = await h.text('The vessel on my shipment is wrong.');
+  assert.match(said(done), /Ticket MKY-TKT-/);
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 1);
+  assert.equal(tickets[0].contact, '+201005551234');
+  assert.match(tickets[0].summary, /vessel on my shipment is wrong/);
+});
+
+test('the number given in step 1 of a booking serves the next request for an agent', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+
+  await h.command('/menu');
+  const r = await h.tap('menu:contact');
+  assert.match(said(r), /I have your number \(\+201005551234\)/);
+
+  await h.text('My invoice shows the wrong gross weight.');
+  assert.equal(h.db._tables.support_tickets[0].contact, PHONE_STORED);
+});
+
+test('after 7 PM the bot says when the desk is back, and gives the direct number', async () => {
+  const h = harness();
+  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+20 100 000 0001' });
+  invalidateSettings();
+
+  const r = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: AFTER_HOURS },
+  );
+
+  assert.match(said(r), /available from 9 AM to 7 PM Cairo time/);
+  assert.match(said(r), /tomorrow from 9 AM/);
+  assert.match(said(r), /If it is urgent, call us directly on \+20 100 000 0001/);
+  assert.doesNotMatch(said(r), /Connecting you with our Operations Team/);
+  // Still logged, and the question still asked, so the first agent in has it.
+  const task = h.tasks().find((t) => t.task_type === 'client_callback');
+  assert.equal(task.payload.after_hours, true);
+  assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
+});
+
+test('before 9 AM it is "today from 9 AM", not tomorrow', async () => {
+  const h = harness();
+  const r = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: BEFORE_HOURS },
+  );
+  assert.match(said(r), /today from 9 AM/);
+});
+
+test('after hours with no direct number configured, no number is invented', async () => {
+  const h = harness();      // direct_phone and operations_phone both unset
+  const r = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: AFTER_HOURS },
+  );
+  assert.match(said(r), /tomorrow from 9 AM/);
+  assert.doesNotMatch(said(r), /call us directly/);
+  assert.doesNotMatch(said(r), /\+20/);
+});
+
+test('the placeholder number from .env.example is never read out as the direct line', async () => {
+  const h = harness();
+  h.db._tables.bot_settings.push({ key: 'direct_phone', value: '+20 3 555 0143' });
+  invalidateSettings();
+  const r = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: AFTER_HOURS },
+  );
+  assert.doesNotMatch(said(r), /555 0143/);
+});
+
+test('the desk hours come from settings, so early evening is inside a desk that closes at 11', async () => {
+  const h = harness();
+  const closed = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: EARLY_EVENING },
+  );
+  assert.match(said(closed), /outside those hours/, 'after 7 PM by default');
+
+  h.db._tables.bot_settings.push({ key: 'support_hours_end', value: 23 });
+  invalidateSettings();
+  const open = await runFlow(
+    { kind: 'callback', callback: { ...parseCallback('menu:contact'), id: 'cbq' } },
+    { ...h.ctx, now: EARLY_EVENING },
+  );
+  assert.match(said(open), /Connecting you with our Operations Team/, 'but not once the desk closes at 11');
+});
+
+test('the older contact routes still answer a button on an old card', async () => {
+  const h = harness();
+  const r = await h.tap('ct:docs');
   assert.match(said(r), /What do you need help with/);
-  assert.deepEqual(buttons(r), ['ct:booking', 'ct:tracking', 'ct:docs', 'ct:ops']);
+  assert.deepEqual(buttons(r), ['ct:docs:upload', 'ct:docs:missing', 'ct:docs:request', 'ct:docs:other', 'menu:home']);
 });
 
 test('TEST 22 - contact/booking shows only a booking this client owns', async () => {
@@ -699,7 +1004,6 @@ test('TEST 22 - contact/booking shows only a booking this client owns', async ()
       mrn_choice: 'existing',
     }],
   });
-  await h.tap('menu:contact');
   await h.tap('ct:booking');
   const r = await h.text('MKY-BKG-260901-FFFF');
 
@@ -715,7 +1019,6 @@ test('TEST 27 - contact/booking refuses another client\'s reference', async () =
       origin_port: 'Koper', destination_port: 'Suez Port',
     }],
   });
-  await h.tap('menu:contact');
   await h.tap('ct:booking');
   const r = await h.text('MKY-BKG-260901-GGGG');
 
@@ -728,7 +1031,6 @@ test('TEST 24 - contact/documents computes what is missing from the database', a
   await bookUpTo(h, { documents: false });
   await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
 
-  await h.tap('menu:contact');
   await h.tap('ct:docs');
   const r = await h.tap('ct:docs:missing');
 
@@ -737,10 +1039,9 @@ test('TEST 24 - contact/documents computes what is missing from the database', a
   assert.doesNotMatch(said(r), /Invoice/);
 });
 
-test('TEST 25 - Talk to Operations never invents a phone number', async () => {
+test('TEST 25 - Talk to an agent never invents a phone number', async () => {
   const h = harness();      // operations_phone is null and OPERATIONS_PHONE is unset
-  await h.tap('menu:contact');
-  const r = await h.tap('ct:ops');
+  const r = await h.tap('menu:contact');
 
   assert.match(said(r), /Connecting you with our Operations Team/);
   assert.match(said(r), /has not been configured/);
@@ -750,20 +1051,24 @@ test('TEST 25 - Talk to Operations never invents a phone number', async () => {
   assert.equal(h.tasks().filter((t) => t.task_type === 'client_callback').length, 1);
 });
 
-test('Talk to Operations gives the configured number when there is one', async () => {
+test('Talk to an agent gives the configured number when there is one', async () => {
   const h = harness();
   h.db._tables.bot_settings.find((s) => s.key === 'operations_phone').value = '+20 3 111 2222';
   invalidateSettings();
 
-  await h.tap('menu:contact');
-  const r = await h.tap('ct:ops');
+  const r = await h.tap('menu:contact');
   assert.match(said(r), /\+20 3 111 2222/);
+});
+
+test('the old "Contact Operations" button on a tracking card still reaches the agent', async () => {
+  const h = harness();
+  const r = await h.tap('ct:ops');
+  assert.match(said(r), /Connecting you with our Operations Team/);
 });
 
 test('a contact request becomes a ticket with the problem and the number', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
   const r = await h.text('My invoice shows the wrong weight. Call me on +20 100 555 1234');
 
   assert.match(said(r), /Ticket MKY-TKT-/);
@@ -779,18 +1084,17 @@ test('a contact request becomes a ticket with the problem and the number', async
 
 test('TEST 28 - the conversation resumes from the database after a restart', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('W1T96340310484233');
   await h.text('Mercedes-Benz');
 
   // Everything in memory is gone; only Postgres remains. A new invocation must
   // pick up exactly where the last one stopped.
   const fresh = { ...h.ctx };
-  const resumed = await runFlow({ kind: 'text', text: 'Nile Motors' }, fresh);
+  const resumed = await runFlow({ kind: 'text', text: 'Vilnius' }, fresh);
 
-  assert.equal(resumed.state, S.BOOK_POL);
-  assert.equal(h.booking().customer_name, 'Nile Motors');
+  assert.equal(resumed.state, S.BOOK_DESTINATION);
+  assert.equal(h.booking().origin_port, 'Vilnius');
 });
 
 test('TEST 29 - /cancel asks first, and only drops the unfinished request', async () => {
@@ -841,15 +1145,14 @@ test('"start over" drops the old draft and starts one request, not two', async (
   await h.tap('menu:book');
   const r = await h.tap('bk:draft:restart');
 
-  assert.match(said(r), /VIN \/ Chassis number/);
+  assert.match(said(r), /client name/);
   assert.equal(h.bookings().filter((b) => b.status === 'draft').length, 1);
   assert.equal(h.bookings().filter((b) => b.status === 'cancelled').length, 1);
 });
 
 test('TEST 30 - a database failure does not advance the conversation', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   // Writes to bookings fail; reads still work. That is what a partial outage
   // looks like from here, and it is the case where a naive flow would announce
@@ -1118,7 +1421,25 @@ test('a typed number stands in for a button, so the widget can drive the flow', 
 
   // "1" is the first button the menu offered.
   const r = await h.text('1');
-  assert.match(said(r), /VIN \/ Chassis number/);
+  assert.match(said(r), /client name/);
+});
+
+test('on the website the number is simply typed - no share button, and it still works', async () => {
+  const h = harness();
+  const web = { ...h.ctx, channel: 'web', chatId: 'web-1', clientId: null, telegramUserId: null, userName: null };
+  const go = (text) => runFlow({ kind: 'text', text }, web);
+
+  await runFlow({ kind: 'command', command: '/start', text: '/start' }, web);
+  await go('1');
+  const asked = await go('Nile Motors');
+  assert.match(said(asked), /mobile number/);
+  assert.ok(asked.messages.every((m) => !m.keyboard), 'no Telegram reply keyboard on the web');
+  assert.ok(asked.offered.length, 'the widget still gets a button to draw');
+
+  const r = await go('+20 100 555 1234');
+  assert.equal(r.state, S.BOOK_VIN);
+  const draft = h.bookings().find((b) => b.chat_id === 'web-1');
+  assert.equal(draft.customer_contact, PHONE_STORED);
 });
 
 test('the offered buttons come back with the result, for a client that cannot tap', async () => {
@@ -1131,8 +1452,7 @@ test('the offered buttons come back with the result, for a client that cannot ta
 
 test('a number is an answer, not a menu choice, when a question was asked', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('W1T96340310484233');
 
   // Being asked for the make. "2" is a (silly) make, not the second button.
@@ -1154,24 +1474,22 @@ test('a number outside the offered range is not treated as a button', async () =
 
 test('regression: the outstanding list is shown once, not after every answer', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   const afterVin = await h.text('W1T96340310484233');
   assert.match(said(afterVin), /We are missing some information/, 'shown on the way in');
 
   const afterMake = await h.text('Mercedes-Benz');
   assert.doesNotMatch(said(afterMake), /We are missing some information/, 'and not repeated');
-  assert.match(said(afterMake), /client name/i, 'just the next question');
+  assert.match(said(afterMake), /port of loading/i, 'just the next question');
 
-  const afterName = await h.text('Nile Motors');
-  assert.doesNotMatch(said(afterName), /We are missing some information/);
+  const afterPol = await h.text('Vilnius');
+  assert.doesNotMatch(said(afterPol), /We are missing some information/);
 });
 
 test('a client who has been away is reminded what is left when they resume', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('W1T96340310484233');
 
   await h.command('/menu');
@@ -1270,8 +1588,7 @@ const PASTED_TABLE = `Make        │ Volvo FH 460 Globetrotter │
 
 test('regression: a pasted table is read, not refused as "too long"', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('YV2RT40A8FB712905');
 
   const r = await h.text(PASTED_TABLE);
@@ -1291,8 +1608,7 @@ test('regression: a pasted table is read, not refused as "too long"', async () =
 
 test('a table pasted at the chassis step carries the chassis and the rest', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   const r = await h.text(
     'Chassis: YV2RT40A8FB712905\nMake: Volvo\nClient: Delta Trans Egypt\nLoading: Klaipeda\nDestination: Port Said',
@@ -1314,8 +1630,7 @@ test('a pasted chassis still faces the duplicate check, it is not just stored', 
       origin_port: 'Koper', destination_port: 'Suez Port',
     }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   const r = await h.text('Chassis: YV2RT40A8FB712905\nMake: Volvo\nClient: Delta Trans Egypt\nDestination: Port Said');
 
@@ -1325,8 +1640,7 @@ test('a pasted chassis still faces the duplicate check, it is not just stored', 
 
 test('a port we do not serve in a paste is said out loud, not silently dropped', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('YV2RT40A8FB712905');
 
   const r = await h.text('Make: Volvo\nClient: Delta Trans Egypt\nLoading: Klaipeda\nDestination: Aswan');
@@ -1339,13 +1653,13 @@ test('a port we do not serve in a paste is said out loud, not silently dropped',
 
 test('an ordinary one-word answer is still an answer, not a paste', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('YV2RT40A8FB712905');
   await h.text('Volvo');
 
   assert.equal(h.booking().make, 'Volvo');
-  assert.equal(h.booking().customer_name, undefined);
+  assert.equal(h.booking().model, undefined);
+  assert.equal(h.booking().customer_name, 'Nile Motors', 'untouched by a one-word make');
 });
 
 test('regression: a labelled single row does not put the label in the value', async () => {
@@ -1353,15 +1667,18 @@ test('regression: a labelled single row does not put the label in the value', as
   await h.command('/start');
   await h.tap('menu:book');
 
+  await h.text('Client: Delta Trans Egypt');
+  assert.equal(h.booking().customer_name, 'Delta Trans Egypt');
+
+  await h.text('Mobile: +20 100 555 1234');
+  assert.equal(h.booking().customer_contact, PHONE_STORED);
+
   await h.text('Chassis │ YV2RT40A8FB712905');
   assert.equal(h.booking().vin, 'YV2RT40A8FB712905', 'not "CHASSIS│YV2RT40A8FB712905"');
 
   await h.text('Make │ Volvo FH 460 Globetrotter');
   assert.equal(h.booking().make, 'Volvo');
   assert.equal(h.booking().model, 'FH 460 Globetrotter');
-
-  await h.text('Client: Delta Trans Egypt');
-  assert.equal(h.booking().customer_name, 'Delta Trans Egypt');
 });
 
 test('a labelled chassis still faces the duplicate check', async () => {
@@ -1372,8 +1689,7 @@ test('a labelled chassis still faces the duplicate check', async () => {
       origin_port: 'Koper', destination_port: 'Suez Port',
     }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('Chassis │ YV2RT40A8FB712905');
   assert.match(said(r), /already booked/);
 });
@@ -1385,7 +1701,6 @@ test('a labelled chassis still faces the duplicate check', async () => {
 test('regression: sharing a number asks for the problem instead of raising a ticket', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
 
   const r = await h.send({ kind: 'contact', phone: '+8801818488624' });
 
@@ -1406,7 +1721,6 @@ test('regression: sharing a number asks for the problem instead of raising a tic
 test('describing the problem first then sharing a number also works', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
 
   const asked = await h.text('The vessel on my shipment is wrong.');
   assert.equal((h.db._tables.support_tickets ?? []).length, 0);
@@ -1423,7 +1737,6 @@ test('describing the problem first then sharing a number also works', async () =
 test('problem and number in one message still raises one ticket', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
 
   await h.text('My ACID is missing from the paperwork. Call me on +20 100 555 1234');
 
@@ -1436,7 +1749,6 @@ test('problem and number in one message still raises one ticket', async () => {
 test('a client who will not give a number still gets a ticket, reachable in the chat', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
 
   await h.text('The booking reference on my PDF is wrong.');
   const r = await h.text('not now');
@@ -1451,7 +1763,6 @@ test('a client who will not give a number still gets a ticket, reachable in the 
 test('a bare phone number is never mistaken for a problem description', async () => {
   const h = harness();
   await h.tap('menu:contact');
-  await h.tap('ct:ops');
 
   const r = await h.text('+8801818488624');
 
@@ -1465,8 +1776,7 @@ test('a bare phone number is never mistaken for a problem description', async ()
 
 test('regression: a chassis number inside a sentence is accepted', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   // The exact message that was refused in the field.
   const r = await h.text('here is my chasis number : WMA06XZZ8KM745219');
@@ -1484,8 +1794,7 @@ test('a chassis in a sentence still faces the duplicate check', async () => {
       origin_port: 'Hamburg', destination_port: 'Port Said',
     }],
   });
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   const r = await h.text('my chassis is WMA06XZZ8KM745219, please book it');
   assert.match(said(r), /already booked/);
 });
@@ -1494,14 +1803,19 @@ test('the other fields are read out of a sentence too', async () => {
   const h = harness();
   await h.command('/start');
   await h.tap('menu:book');
+
+  await h.text('my name is Nile Cargo Egypt');
+  assert.equal(h.booking().customer_name, 'Nile Cargo Egypt');
+
+  await h.text('you can call me on 01005551234');
+  assert.equal(h.booking().customer_contact, '01005551234');
+
   await h.text('chassis WMA06XZZ8KM745219');
+  assert.equal(h.booking().vin, 'WMA06XZZ8KM745219');
 
   await h.text('it is a MAN TGX 18.500');
   assert.equal(h.booking().make, 'MAN');
   assert.equal(h.booking().model, 'TGX 18.500');
-
-  await h.text('my name is Nile Cargo Egypt');
-  assert.equal(h.booking().customer_name, 'Nile Cargo Egypt');
 
   await h.text('we ship from Hamburg');
   assert.equal(h.booking().origin_port, 'Hamburg');
@@ -1513,8 +1827,7 @@ test('the other fields are read out of a sentence too', async () => {
 
 test('a sentence with no chassis keeps what it DID contain, and asks again', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   const r = await h.text('I want to book a truck to Alexandria');
 
@@ -1527,27 +1840,41 @@ test('a sentence with no chassis keeps what it DID contain, and asks again', asy
   assert.equal(r.state, S.BOOK_VIN, 'still waiting for the chassis');
 });
 
-test('a phone number is kept as a contact, not stored as a chassis', async () => {
+test('a new number given at the chassis step replaces the old one, and is not stored as a chassis', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
-  const r = await h.text('my number is +20 100 555 1234');
+  const r = await h.text('my number is +20 122 000 9999');
 
   assert.equal(h.booking().vin, undefined);
-  assert.match(h.booking().customer_contact, /\+20 100 555 1234/);
+  assert.equal(h.booking().customer_contact, '+201220009999');
   assert.match(said(r), /contact/i);
   assert.equal(r.state, S.BOOK_VIN);
 });
 
-test('an email is kept as a contact too', async () => {
+test('an email mentioned later is kept on the record, and does not overwrite the number', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   await h.text('you can reach me at ariful@example.com');
   assert.equal(h.booking().vin, undefined);
-  assert.match(h.booking().customer_contact, /ariful@example\.com/);
+  assert.equal(h.booking().customer_contact, PHONE_STORED, 'the desk phones people');
+  assert.equal(h.db._tables.clients[0].email, 'ariful@example.com');
+});
+
+test('an email given instead of a number is kept, and the number still asked for', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+
+  const r = await h.text('ariful@example.com');
+  assert.match(said(r), /still need a mobile number/);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE);
+  assert.equal(h.db._tables.clients[0].email, 'ariful@example.com');
+
+  await h.text(PHONE);
+  assert.equal(h.booking().customer_contact, PHONE_STORED);
 });
 
 test('a question mid-form is answered by the assistant, and the form survives', async () => {
@@ -1558,7 +1885,7 @@ test('a question mid-form is answered by the assistant, and the form survives', 
   const r = await h.text('how long does shipping to Alexandria take?');
 
   assert.equal(r.handled, false, 'handed to the knowledge assistant');
-  assert.equal(r.state, S.BOOK_VIN, 'and the booking is exactly where it was');
+  assert.equal(r.state, S.BOOK_CLIENT_NAME, 'and the booking is exactly where it was');
 });
 
 test('asking to track mid-booking takes them there', async () => {
@@ -1573,23 +1900,24 @@ test('asking to track mid-booking takes them there', async () => {
 
 test('a whole sentence fills every field it names', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
-  await h.text('chassis WMA06XZZ8KM745219 from Klaipeda going to Alexandria');
+  const r = await h.text('chassis WMA06XZZ8KM745219 from Klaipeda going to Alexandria');
 
   const b = h.booking();
   assert.equal(b.vin, 'WMA06XZZ8KM745219');
   assert.equal(b.origin_port, 'Klaipeda');
   assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  // And the next question is the one thing it did not say - not a list that
+  // still includes the ports it just gave.
+  assert.match(said(r), /Make \/ Brand/);
+  assert.doesNotMatch(said(r), /We are missing some information/);
 });
 
 test('a company name containing a city is not read as a destination', async () => {
   const h = harness();
   await h.command('/start');
   await h.tap('menu:book');
-  await h.text('WMA06XZZ8KM745219');
-  await h.text('MAN');
 
   await h.text('Alexandria Trading Co');
 
@@ -1600,8 +1928,7 @@ test('a company name containing a city is not read as a destination', async () =
 
 test('a question at the make step is not stored as a manufacturer', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('WMA06XZZ8KM745219');
 
   const r = await h.text('what makes do you accept?');
@@ -1611,12 +1938,22 @@ test('a question at the make step is not stored as a manufacturer', async () => 
 
 test('"I do not have it" at the chassis step explains rather than repeating', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
 
   const r = await h.text('I do not have it yet');
   assert.match(said(r), /cannot go further without/i);
   assert.doesNotMatch(said(r), /does not look like/);
+});
+
+test('"I do not have one" at the phone step explains that a number is needed', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+
+  const r = await h.text('I do not have one');
+  assert.match(said(r), /cannot go further without the mobile number/i);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE);
 });
 
 test('our own booking reference is not read as a chassis number', async () => {
@@ -1639,15 +1976,18 @@ test('a seventeen-character number wins over other codes in the message', async 
 
 test('a whole booking works in Arabic, and the paperwork values come out Latin', async () => {
   const h = harness();
-  await h.text('عايز أحجز شحنة');
+  const start = await h.text('عايز أحجز شحنة');
+  assert.match(said(start), /الخطوة الأولى/, 'step 1, in Arabic');
+  await h.text('شركة النيل للنقل');
+  await h.text('٠١٠٠٥٥٥١٢٣٤');
   await h.text('رقم الشاسيه WMA06XZZ8KM745219');
   await h.text('مرسيدس أكتروس');
-  await h.text('شركة النيل للنقل');
   await h.text('الشحن من فيلنيوس');
   const r = await h.text('الإسكندرية');
 
   const b = h.booking();
   assert.equal(b.vin, 'WMA06XZZ8KM745219');
+  assert.equal(b.customer_contact, '01005551234', 'Arabic-Indic digits, stored as digits');
   // Transliterated, because these end up on the bill of lading and the customs
   // entry, where they must match the rest of the file.
   assert.equal(b.make, 'Mercedes-Benz', 'مرسيدس is Mercedes-Benz on the paperwork');
@@ -1701,13 +2041,17 @@ test('regression: a copied Markdown table fills the whole booking at once', asyn
   assert.equal(b.customer_name, 'Nile Cargo Egypt');
   assert.equal(b.origin_port, 'Hamburg');
   assert.equal(b.destination_port, 'Port Said');
-  assert.equal(r.state, S.BOOK_MRN_CHOICE, 'straight to the MRN question');
+  // The one thing the table did not carry is the only thing asked for.
+  assert.match(said(r), /mobile number/);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE);
+
+  const next = await h.text(PHONE);
+  assert.equal(next.state, S.BOOK_MRN_CHOICE, 'then straight to the MRN question');
 });
 
 test('regression: the same paste part-way through fills what is left', async () => {
   const h = harness();
-  await h.command('/start');
-  await h.tap('menu:book');
+  await identify(h);
   await h.text('WMA06XZZ8KM745219');
 
   const r = await h.text(
@@ -1806,5 +2150,26 @@ test('the Arabic block pastes as one message too', async () => {
   assert.equal(b.customer_name, 'شركة النيل للنقل');
   assert.equal(b.origin_port, 'Vilnius');
   assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
-  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE, 'everything but the number, so the number is asked');
+
+  const next = await h.text('رقم الموبايل: ٠١٠٠٥٥٥١٢٣٤');
+  assert.equal(h.booking().customer_contact, '01005551234');
+  assert.equal(next.state, S.BOOK_MRN_CHOICE);
+});
+
+test('the phone number helpers read what people actually type', async () => {
+  const { normalizePhone, looksLikePhone } = await import('../lib/phone.js');
+  assert.equal(normalizePhone('+20 100 555 1234'), '+201005551234');
+  assert.equal(normalizePhone('call me on 0100-555-1234 please'), '01005551234');
+  assert.equal(normalizePhone('٠١٠٠٥٥٥١٢٣٤'), '01005551234');
+  assert.equal(normalizePhone('0020 100 555 1234'), '+201005551234');
+  // A chassis number is not a phone number, however many digits it has.
+  assert.equal(normalizePhone('W1T96340310484233'), null);
+  assert.equal(normalizePhone('chassis W1T96340310484233'), null);
+  assert.equal(normalizePhone('12345'), null);
+
+  assert.equal(looksLikePhone('+201005551234'), true);
+  assert.equal(looksLikePhone('telegram:6284123456'), false, 'our routing address is not a number');
+  assert.equal(looksLikePhone('ariful@example.com'), false);
+  assert.equal(looksLikePhone(null), false);
 });

@@ -9,7 +9,7 @@ A language model reads a chassis number out of a sentence, answers a question
 about transit times, and writes a friendly reply. It does not decide whether a
 vehicle may be booked, what documents are outstanding, or whether a request goes
 to Operations. Those are decided from rows in Postgres by code you can read, and
-tested by 78 tests that run with no network and no API key.
+tested by 212 tests that run with no network and no API key.
 
 ---
 
@@ -66,9 +66,20 @@ retry and a second worker all continue the same conversation.
 
 ## The booking flow
 
+Three steps, in the order MKY describes them to a client: who is booking, the
+vehicle and its papers, the booking.
+
 ```
+                 ┌───────────────────┐
+   /book  ──────►│ BOOK_CLIENT_NAME  │   step 1 · who is booking
+                 └─────────┬─────────┘
+                           ▼
+                 ┌───────────────────┐   Telegram's "Share my number" button,
+                 │ BOOK_CLIENT_PHONE │   a typed number, or "yes" to the one on
+                 └─────────┬─────────┘   file - one stored shape (lib/phone.js)
+                           ▼
                  ┌──────────────┐
-   /book  ──────►│  BOOK_VIN    │
+                 │  BOOK_VIN    │         step 2 · the vehicle
                  └──────┬───────┘
                         │ lookup_vehicle verdict
         ┌───────────────┼───────────────────┐
@@ -77,7 +88,7 @@ retry and a second worker all continue the same conversation.
         │               │                   │
         ▼               └─────────┬─────────┘
   reference + route               ▼
-  STOP, no new request    BOOK_MAKE → BOOK_CLIENT_NAME → BOOK_POL → BOOK_DESTINATION
+  STOP, no new request    BOOK_MAKE → BOOK_POL → BOOK_DESTINATION
                                                   │
                                                   ▼
                                         BOOK_MRN_CHOICE
@@ -93,30 +104,42 @@ retry and a second worker all continue the same conversation.
                                      (loops until nothing is missing)
                                                   │
                                                   ▼
-                                     BOOK_FINAL_CONFIRMATION ◄──┐
+                                     BOOK_FINAL_CONFIRMATION ◄──┐   step 3 · the booking
                                           │            │        │
                                      ✅ Confirm    ✏️ Edit ──────┘
                                           │        (VIN change re-runs
                                           ▼         the duplicate check)
                                     BOOK_SUBMITTED
+                          the reference in the reply; the PDF via the outbox
 ```
 
-### Step 1 is not advisory
+### The chassis check is not advisory, and it runs wherever the chassis appears
 
 `lookupVehicle()` returns one of three verdicts from a single query against
 `bookings` filtered to the live statuses. `already_booked` ends the flow. There
 is no path through the code that reaches a second request for a chassis that
 already has one.
 
-Three separate things enforce that, because one is not enough:
+Because the chassis is now asked for third rather than first, it can arrive
+early: in a block pasted at the name question, or in a sentence answering the
+make. Every such arrival goes through the same `settleVin()` as the answer to
+the chassis question itself. A chassis is never simply written down.
 
-1. the flow refuses at step 1;
+Three separate things enforce the rule, because one is not enough:
+
+1. the flow refuses wherever the chassis is seen;
 2. `submit_booking_request()` re-checks inside the transaction, so a request
    that arrives between the card and the yes is caught;
 3. a partial unique index, `bookings_live_vin_unique`, makes it impossible at
    the database level.
 
-### Step 4 is a transaction
+### The number is the person's, not only the booking's
+
+The number from step 1 is stored on the booking (`customer_contact`) and on the
+client (`clients.phone`). The next booking offers it back; the next request for
+an agent uses it instead of asking. A client is asked for their number once.
+
+### Step 3 is a transaction
 
 `submit_booking_request(booking_ref, chat_id, task_ref)` does the ownership
 check, the duplicate check, the status change and the Operations task in one
@@ -198,6 +221,30 @@ the next customer message or Operations decision. On a paid plan, add:
 
 ---
 
+## Talk to an agent
+
+The main menu's third button goes straight to a person. The desk's rule, in
+two numbers from `bot_settings`:
+
+| key | default | meaning |
+|---|---|---|
+| `support_hours_start` | `9` | from 9 AM an agent answers |
+| `support_hours_end` | `19` | until 7 PM |
+| `support_timezone` | `Africa/Cairo` | the clock those are read on |
+| `direct_phone` | null | the number read out after hours for anything urgent; falls back to `DIRECT_PHONE`, then the operations phone |
+
+In hours the client is connected: the desk's details, then "what do you need
+help with". After hours the bot says the desk is back at 9 AM — today or
+tomorrow, whichever is true — and gives the direct number if one is
+configured. Either way a `client_callback` task is logged before the client
+has typed a word, and the ticket is raised as soon as the problem is in hand.
+A number on file is never asked for again.
+
+The older contact sub-routes (booking, tracking, documents) are no longer
+offered from the menu, but a button on an old card still answers.
+
+---
+
 ## Who may see what
 
 A booking reference is short, quotable, and gets forwarded between brokers.
@@ -260,7 +307,7 @@ header and never in a URL.
 npm test
 ```
 
-78 tests, no network, no Telegram token, no model. `tests/helpers/fake-db.mjs`
+212 tests, no network, no Telegram token, no model. `tests/helpers/fake-db.mjs`
 is an in-memory PostgREST that is deliberately strict about the two things the
 concurrency guards are built from: unique violations raise `23505`, and a
 conditional update that matches nothing returns an empty array rather than

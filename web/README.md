@@ -52,11 +52,22 @@ idempotency, and where every business rule actually lives.
 
 ### The three flows
 
-1. **Book my shipment** — chassis check, the basics, MRN choice and documents,
-   the summary and the yes. Four steps, inline buttons throughout.
+1. **Book my shipment** — three steps, as MKY describes it to clients:
+   1. **Your details** — the client name and a mobile number. On Telegram the
+      number arrives verified through the "Share my number" button; on the
+      website it is typed. A number already on file is offered back.
+   2. **The vehicle and its papers** — the chassis check (which runs wherever
+      the chassis appears, including a block pasted at the very first
+      question), make, route, MRN choice, documents.
+   3. **Your booking** — the summary card, the yes, and the booking reference
+      in the reply, with the PDF copy following it.
 2. **Track my shipment** — by chassis or reference, with an ownership check, and
    a Refresh that re-reads the database rather than repeating itself.
-3. **Contact our team** — booking, tracking, documents, or a person.
+3. **Talk to an agent** — straight to a person, no menu in between. The request
+   is logged for the desk and the client is asked what they need; a number
+   given in step 1 of a booking is reused rather than asked for again. After
+   7 PM Cairo time the bot says the desk is back at 9 AM and gives the direct
+   number for anything urgent — only ever a configured one.
 
 Conversation state lives in `conversation_sessions`, so a restart, a redeploy, a
 webhook retry or a second worker all continue the same conversation.
@@ -87,9 +98,9 @@ lib/
     machine.js         one place where every transition is chosen
     states.js          every state, in one list
     store.js           conversation_sessions - state that survives a restart
-    booking.js         steps 1-4, the chassis check through the yes
+    booking.js         steps 1-3, the person, the vehicle, the yes
     tracking.js        lookup with an ownership rule
-    contact.js         the four contact routes
+    contact.js         talk to an agent, hours-aware; the older routes behind it
     keyboards.js       inline keyboards and their callback payloads
     messages.js        every word said to a client, in both languages
   bookings.js        booking rules: duplicates, required fields, submission
@@ -98,7 +109,8 @@ lib/
   operations.js      the work queue + the OperationsNotifier interface
   outbox.js          nothing important is sent from inside a handler
   settings.js        business values MKY can change without a deployment
-  clients.js         Telegram identity, and who may see what
+  phone.js           one stored shape for a phone number, however it was typed
+  clients.js         Telegram identity, the number on file, and who may see what
   audit.js           who did what, redacted
   agent.js           the tool-calling loop and system prompt
   notify.js          booking emails (Resend) + staff Telegram ping
@@ -126,7 +138,7 @@ data/                      demo PDF + Excel (replace with real exports)
 
 ```bash
 npm install
-npm test              # 78 tests: no network, no token, no model
+npm test              # 212 tests: no network, no token, no model
 npm run outbox -- --list       # what is waiting to be sent
 npm run outbox                 # send it now
 npm run gen:data      # regenerate the demo PDF + Excel
@@ -183,7 +195,10 @@ back to Postgres full-text search — worse, but functional.
 - [ ] **Re-register the webhook** (`npm run setup:webhook -- https://…`). The old
       registration did not subscribe to `callback_query`, so every inline button
       is dead until this is run once.
-- [ ] Apply migration 008 (`npm run db:push`)
+- [ ] Apply the migrations (`npm run db:push`) — the latest seeds the desk
+      hours and the direct-number setting behind the after-hours message
+- [ ] Set `DIRECT_PHONE` (or `bot_settings.direct_phone`) to the number a client
+      with something urgent should call after 7 PM
 - [ ] Set `CRON_SECRET` so failed notifications are retried
 - [ ] Fill in `bot_settings.required_mrn_documents` and `acid_required` — both
       are deliberately empty, because inventing a customs requirement is not
@@ -207,5 +222,8 @@ invented phone number would be worse than saying nothing.
 | `bot_settings.required_mrn_documents` | what MKY needs from a client to apply for an MRN on their behalf | the bot collects a free-text description and raises a Customs Documentation task saying the list is undefined |
 | `bot_settings.acid_required` | whether an ACID registration is required from the client at booking time | not asked for |
 | `OPERATIONS_PHONE` (or `bot_settings.operations_phone`) | the number to give a client who asks for a person | the bot logs a callback task and says a number has not been configured, rather than reading out the `.env.example` placeholder |
+| `DIRECT_PHONE` (or `bot_settings.direct_phone`) | the direct line read out after hours for anything urgent | the after-hours message says when the desk is back and gives no number |
 
-Set the first two in the `bot_settings` table; no deployment is needed.
+Set the first two in the `bot_settings` table; no deployment is needed. The
+desk's hours are there too — `support_hours_start` (9), `support_hours_end`
+(19) and `support_timezone` (`Africa/Cairo`) — and can be moved the same way.

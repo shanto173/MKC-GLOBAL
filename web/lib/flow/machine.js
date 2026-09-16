@@ -118,15 +118,26 @@ async function dispatch(session, input, ctx) {
     return { handled: true, ...handled };
   }
 
-  // 3. A shared phone number is an answer to the ticket question, wherever we
-  //    are - Telegram sends it as its own kind of message.
+  // 3. A shared phone number - Telegram sends it as its own kind of message.
+  //    While a booking is being filled in it is the booking's number: the
+  //    answer to step 1 when that is what was asked, and otherwise kept with
+  //    the question that was open asked again. Anywhere else it is the number
+  //    for a ticket.
   if (input.kind === 'contact') {
+    const phone = String(input.phone ?? '').trim();
+    const state = session.current_state;
+    if (state === S.BOOK_CLIENT_PHONE || state === S.BOOK_EDIT_CLIENT_PHONE) {
+      return {
+        handled: true,
+        ...(await booking.handlePhone(session, phone, ctx, { shared: true, editing: state === S.BOOK_EDIT_CLIENT_PHONE })),
+      };
+    }
+    if (session.active_flow === FLOWS.BOOKING && session.active_booking_ref) {
+      return { handled: true, ...(await booking.handlePhone(session, phone, ctx, { shared: true, aside: true })) };
+    }
     // A shared number is a number, not a problem description. Treating it as
     // both raised tickets that told the desk a phone number and nothing else.
-    return {
-      handled: true,
-      ...(await contact.handleSharedPhone(session, input.phone, ctx)),
-    };
+    return { handled: true, ...(await contact.handleSharedPhone(session, phone, ctx)) };
   }
 
   // 4. A file.
@@ -259,7 +270,7 @@ async function handleCallback(session, callback, ctx) {
       case 'track':
         return tracking.askIdentifier(session);
       case 'contact':
-        return contact.contactMenu();
+        return contact.talkToAgent(session, ctx);
       case 'retry':
         return reply(say(M.menu(), kb.mainMenu()), { current_state: S.MAIN_MENU, active_flow: null });
       default:
@@ -339,7 +350,7 @@ async function contactCallback(session, action, arg, ctx) {
     case 'docs':
       if (!arg) return contact.documentsMenu();
       return contact.handleDocumentsChoice(session, arg, ctx);
-    case 'ops': return contact.talkToOperations(session, ctx);
+    case 'ops': return contact.talkToAgent(session, ctx);
     default: return reply(say(M.notUnderstood(), kb.mainMenu()));
   }
 }
@@ -350,9 +361,10 @@ async function contactCallback(session, action, arg, ctx) {
 
 async function handleText(session, text, ctx) {
   switch (session.current_state) {
+    case S.BOOK_CLIENT_NAME: return booking.handleBasicField(session, 'customer_name', text, ctx);
+    case S.BOOK_CLIENT_PHONE: return booking.handlePhone(session, text, ctx);
     case S.BOOK_VIN: return booking.handleVin(session, text, ctx);
     case S.BOOK_MAKE: return booking.handleBasicField(session, 'make', text, ctx);
-    case S.BOOK_CLIENT_NAME: return booking.handleBasicField(session, 'customer_name', text, ctx);
     case S.BOOK_POL: return booking.handleBasicField(session, 'origin_port', text, ctx);
     case S.BOOK_DESTINATION: return booking.handleDestination(session, text, ctx);
     case S.BOOK_MRN_SUPPORTING_INFO: return booking.handleMrnSupportingInfo(session, text, ctx);
@@ -360,6 +372,7 @@ async function handleText(session, text, ctx) {
     case S.BOOK_EDIT_VIN: return booking.handleVin(session, text, ctx, { editing: true });
     case S.BOOK_EDIT_MAKE: return booking.handleBasicField(session, 'make', text, ctx, { editing: true });
     case S.BOOK_EDIT_CLIENT_NAME: return booking.handleBasicField(session, 'customer_name', text, ctx, { editing: true });
+    case S.BOOK_EDIT_CLIENT_PHONE: return booking.handlePhone(session, text, ctx, { editing: true });
     case S.BOOK_EDIT_POL: return booking.handleEditPol(session, text, ctx);
     case S.BOOK_EDIT_DESTINATION: return booking.handleDestination(session, text, ctx, { editing: true });
 
@@ -378,7 +391,7 @@ async function handleText(session, text, ctx) {
 async function startFlow(session, intent, ctx) {
   if (intent === 'book') return booking.startBooking(session, ctx);
   if (intent === 'track') return tracking.askIdentifier(session);
-  if (intent === 'contact') return contact.contactMenu();
+  if (intent === 'contact') return contact.talkToAgent(session, ctx);
   if (intent === 'menu') {
     return reply(say(M.welcome(ctx.userName), kb.mainMenu()), {
       active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
@@ -431,7 +444,7 @@ export function quickIntent(text) {
   // is still on screen from before the upgrade is not left tapping dead buttons.
   if (/book my shipment|احجز شحنة/i.test(s)) return 'book';
   if (/track my shipment|تتبع شحنتي/i.test(s)) return 'track';
-  if (/contact our team|تواصل مع فريقنا/i.test(s)) return 'contact';
+  if (/contact our team|talk to an agent|تواصل مع فريقنا|كلّم موظف|كلم موظف/i.test(s)) return 'contact';
 
   if (/^(book|new booking|i want to book|make a booking)\b/i.test(s)) return 'book';
   if (/^(track|tracking|where is my)\b/i.test(s)) return 'track';

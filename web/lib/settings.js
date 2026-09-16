@@ -33,7 +33,18 @@ const FALLBACK = {
   operations_phone: null,
   operations_email: null,
   human_support_hours: null,
+  // The direct line for anything that cannot wait until the desk opens. Null
+  // means none is read out - a client is never given an invented number.
+  direct_phone: null,
+  // When a person answers: from 9 in the morning until 7 in the evening, Cairo
+  // time. Outside that the bot says when the desk is back.
+  support_hours_start: 9,
+  support_hours_end: 19,
+  support_timezone: 'Africa/Cairo',
 };
+
+/** The number .env.example ships as an illustration. Never read out. */
+const PLACEHOLDER_PHONE = '+20 3 555 0143';
 
 async function load() {
   const { data, error } = await db().from('bot_settings').select('key, value');
@@ -99,14 +110,70 @@ export async function operationsContact() {
   const table = await settings();
   const phone = table.operations_phone || process.env.OPERATIONS_PHONE || '';
   const email = table.operations_email || config.mail.opsEmail || process.env.COMPANY_EMAIL || '';
+  // The direct line, for a client who asks for a person after hours and says
+  // it is urgent. Its own setting, because the number the boss hands out for
+  // that is not necessarily the desk's; it falls back to the desk's number.
+  const direct = table.direct_phone || process.env.DIRECT_PHONE || phone;
   return {
     phone: phone || null,
     email: email || null,
     hours: table.human_support_hours || null,
-    // The .env.example ships +20 3 555 0143 as an illustration. Reading that out
-    // to a customer is worse than saying we cannot connect them right now.
-    configured: Boolean(phone) && phone !== '+20 3 555 0143',
+    // Reading the .env.example illustration out to a customer is worse than
+    // saying we cannot connect them right now.
+    configured: Boolean(phone) && phone !== PLACEHOLDER_PHONE,
+    directPhone: direct && direct !== PLACEHOLDER_PHONE ? direct : null,
   };
+}
+
+/**
+ * Is somebody at the desk right now?
+ *
+ * The rule MKY gave, in two numbers: agents answer from 9 in the morning until
+ * 7 in the evening, Cairo time. Outside that the bot says so, says when they
+ * are back, and gives the direct number for anything that cannot wait.
+ *
+ * Both hours and the timezone live in bot_settings so the desk can move them
+ * without a deployment. A value that is not a whole hour, or a timezone the
+ * runtime does not know, falls back to the default rather than closing the
+ * desk by accident.
+ *
+ * @param {{now?: Date}} [opts] the clock, injectable so a test can be "after 7 PM"
+ */
+export async function supportHours({ now } = {}) {
+  const table = await settings();
+  const start = wholeHour(table.support_hours_start, FALLBACK.support_hours_start);
+  const end = wholeHour(table.support_hours_end, FALLBACK.support_hours_end);
+  const timezone = knownTimezone(table.support_timezone) ?? FALLBACK.support_timezone;
+  const at = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const hour = hourIn(at, timezone);
+
+  // A desk that closes after midnight (say 20 to 4) wraps around.
+  const open = start < end ? hour >= start && hour < end : hour >= start || hour < end;
+
+  return { open, start, end, timezone, hour };
+}
+
+function wholeHour(value, fallback) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : fallback;
+}
+
+function knownTimezone(tz) {
+  if (!tz || typeof tz !== 'string') return null;
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+    return tz;
+  } catch {
+    return null;
+  }
+}
+
+/** The hour of the day, 0-23, that `date` is in the given timezone. */
+function hourIn(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: 'numeric', hourCycle: 'h23' })
+    .formatToParts(date);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  return Number.isInteger(hour) ? hour % 24 : date.getUTCHours();
 }
 
 /**

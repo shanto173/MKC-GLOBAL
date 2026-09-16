@@ -6,34 +6,39 @@
  * conversation that silently falls into a state nothing handles. `isState()`
  * guards the values that come back out of the database, which may have been
  * written by an older deployment.
+ *
+ * The booking is three steps, as MKY describes it to clients:
+ *   1. who is booking       - a name and a number to call
+ *   2. the vehicle           - chassis, make, route, MRN, and the papers
+ *   3. the booking           - the card, the yes, and the reference they keep
  */
 
 export const S = {
   // -- idle ----------------------------------------------------------------
   MAIN_MENU: 'MAIN_MENU',
 
-  // -- booking, step 1: the unit -------------------------------------------
+  // -- booking, step 1: who is booking -------------------------------------
   BOOK_DRAFT_RESUME: 'BOOK_DRAFT_RESUME',
-  BOOK_VIN: 'BOOK_VIN',
-
-  // -- booking, step 2: the basics -----------------------------------------
-  BOOK_MAKE: 'BOOK_MAKE',
   BOOK_CLIENT_NAME: 'BOOK_CLIENT_NAME',
+  BOOK_CLIENT_PHONE: 'BOOK_CLIENT_PHONE',
+
+  // -- booking, step 2: the vehicle and its papers -------------------------
+  BOOK_VIN: 'BOOK_VIN',
+  BOOK_MAKE: 'BOOK_MAKE',
   BOOK_POL: 'BOOK_POL',
   BOOK_DESTINATION: 'BOOK_DESTINATION',
-
-  // -- booking, step 3: MRN and documents ----------------------------------
   BOOK_MRN_CHOICE: 'BOOK_MRN_CHOICE',
   BOOK_DOCUMENTS: 'BOOK_DOCUMENTS',
   BOOK_DOCUMENT_CLASSIFY: 'BOOK_DOCUMENT_CLASSIFY',
   BOOK_MRN_SUPPORTING_INFO: 'BOOK_MRN_SUPPORTING_INFO',
 
-  // -- booking, step 4: confirmation ---------------------------------------
+  // -- booking, step 3: the booking ----------------------------------------
   BOOK_FINAL_CONFIRMATION: 'BOOK_FINAL_CONFIRMATION',
   BOOK_EDIT_MENU: 'BOOK_EDIT_MENU',
   BOOK_EDIT_VIN: 'BOOK_EDIT_VIN',
   BOOK_EDIT_MAKE: 'BOOK_EDIT_MAKE',
   BOOK_EDIT_CLIENT_NAME: 'BOOK_EDIT_CLIENT_NAME',
+  BOOK_EDIT_CLIENT_PHONE: 'BOOK_EDIT_CLIENT_PHONE',
   BOOK_EDIT_POL: 'BOOK_EDIT_POL',
   BOOK_EDIT_DESTINATION: 'BOOK_EDIT_DESTINATION',
   BOOK_CANCEL_CONFIRM: 'BOOK_CANCEL_CONFIRM',
@@ -72,15 +77,17 @@ export const isState = (value) => ALL.has(value);
  * for their name having that name treated as a tracking query.
  */
 export const AWAITING_TEXT = new Set([
+  S.BOOK_CLIENT_NAME,
+  S.BOOK_CLIENT_PHONE,
   S.BOOK_VIN,
   S.BOOK_MAKE,
-  S.BOOK_CLIENT_NAME,
   S.BOOK_POL,
   S.BOOK_DESTINATION,
   S.BOOK_MRN_SUPPORTING_INFO,
   S.BOOK_EDIT_VIN,
   S.BOOK_EDIT_MAKE,
   S.BOOK_EDIT_CLIENT_NAME,
+  S.BOOK_EDIT_CLIENT_PHONE,
   S.BOOK_EDIT_POL,
   S.BOOK_EDIT_DESTINATION,
   S.TRACK_IDENTIFIER,
@@ -101,9 +108,10 @@ export const ACCEPTS_DOCUMENTS = new Set([
 
 /** The order the basics are collected in, and the state that collects each. */
 export const BASIC_FIELDS = [
+  { field: 'customer_name', state: S.BOOK_CLIENT_NAME },
+  { field: 'customer_contact', state: S.BOOK_CLIENT_PHONE },
   { field: 'vin', state: S.BOOK_VIN },
   { field: 'make', state: S.BOOK_MAKE },
-  { field: 'customer_name', state: S.BOOK_CLIENT_NAME },
   { field: 'origin_port', state: S.BOOK_POL },
   { field: 'destination_port', state: S.BOOK_DESTINATION },
 ];

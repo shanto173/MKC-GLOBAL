@@ -12,6 +12,7 @@
  */
 
 import { db } from './supabase.js';
+import { looksLikePhone } from './phone.js';
 
 /**
  * Finds or creates the client behind a Telegram user, refreshing the profile
@@ -55,6 +56,52 @@ export async function upsertTelegramClient(who) {
     return existing ?? null;
   }
   return data;
+}
+
+/**
+ * A number or an email the client gave us, kept on their record.
+ *
+ * The booking holds the contact for THAT booking; this is the person. It is
+ * what lets the next booking say "is +20… still your number?" and lets a
+ * request for an agent go straight to the agent instead of asking for a number
+ * the client gave us last week.
+ */
+export async function rememberClientContact(clientId, { phone = null, email = null } = {}) {
+  if (!clientId) return;
+  const patch = {};
+  if (phone) patch.phone = String(phone).trim();
+  if (email) patch.email = String(email).trim();
+  if (!Object.keys(patch).length) return;
+
+  const { error } = await db()
+    .from('clients')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', clientId);
+  if (error) console.error('client contact update failed:', error.message);
+}
+
+/**
+ * The number we already hold for whoever is in this chat: their client record
+ * first, then the newest booking they gave a number on. Null when there is
+ * none - it is never guessed from a chat id.
+ */
+export async function phoneOnFile({ chatId, clientId = null }) {
+  if (clientId) {
+    const { data } = await db().from('clients').select('phone').eq('id', clientId).maybeSingle();
+    if (looksLikePhone(data?.phone)) return String(data.phone).trim();
+  }
+
+  const { data: bookings } = await db()
+    .from('bookings')
+    .select('customer_contact, created_at')
+    .eq('chat_id', String(chatId))
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  for (const b of bookings ?? []) {
+    if (looksLikePhone(b.customer_contact)) return String(b.customer_contact).trim();
+  }
+  return null;
 }
 
 /** The client behind a web-widget session, which has no Telegram identity. */

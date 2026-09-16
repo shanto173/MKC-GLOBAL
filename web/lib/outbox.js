@@ -200,8 +200,10 @@ export function render(row) {
   const p = row?.payload ?? {};
 
   switch (row.event_type) {
+    // No longer queued - the transport answers the yes directly - but a row
+    // written by an earlier deployment is still delivered rather than dropped.
     case 'booking_request_submitted':
-      return { text: M.submitted(), inline: kb.afterSubmitted() };
+      return { text: M.submitted(p.booking_ref ?? null), inline: kb.afterSubmitted() };
 
     case 'booking_confirmed': {
       if (!p.booking_ref || !p.vin) return null;

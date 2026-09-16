@@ -38,11 +38,18 @@ const rows = (...buttons) => buttons.map((b) => (Array.isArray(b) ? b : [b]));
 
 export const MENU_HOME = cb('🏠 القائمة الرئيسية / Main menu', 'menu:home');
 
+/**
+ * The third button goes straight to a person. "Other question or help = agent
+ * right away" is how MKY put it, and a menu of four things to pick from first
+ * is the opposite of right away.
+ */
+export const TALK_TO_AGENT = cb('💬 كلّم موظف / Talk to an agent', 'menu:contact');
+
 export function mainMenu() {
   return rows(
     cb('📦 احجز شحنة / Book my shipment', 'menu:book'),
     cb('🚚 تتبع شحنتي / Track my shipment', 'menu:track'),
-    cb('💬 تواصل مع فريقنا / Contact our team', 'menu:contact'),
+    TALK_TO_AGENT,
   );
 }
 
@@ -115,12 +122,13 @@ export function confirmBooking() {
 
 export function editMenu() {
   return rows(
-    cb('1️⃣ الشاسيه / Chassis · VIN', 'bk:edit:vin'),
-    cb('2️⃣ الماركة / Make', 'bk:edit:make'),
-    cb('3️⃣ اسم العميل / Client name', 'bk:edit:customer_name'),
-    cb('4️⃣ خط الشحن / Route', 'bk:edit:route'),
-    cb('5️⃣ المستندات / Documents', 'bk:edit:documents'),
-    cb('6️⃣ رجوع للمراجعة / Back to confirmation', 'bk:edit:back'),
+    cb('1️⃣ اسم العميل / Client name', 'bk:edit:customer_name'),
+    cb('2️⃣ رقم الموبايل / Mobile number', 'bk:edit:phone'),
+    cb('3️⃣ الشاسيه / Chassis · VIN', 'bk:edit:vin'),
+    cb('4️⃣ الماركة / Make', 'bk:edit:make'),
+    cb('5️⃣ خط الشحن / Route', 'bk:edit:route'),
+    cb('6️⃣ المستندات / Documents', 'bk:edit:documents'),
+    cb('7️⃣ رجوع للمراجعة / Back to confirmation', 'bk:edit:back'),
   );
 }
 
@@ -151,7 +159,7 @@ export function afterConfirmed() {
 export function trackingNotFound() {
   return rows(
     cb('🔄 جرب تاني / Try again', 'tr:retry'),
-    cb('💬 تواصل مع فريقنا / Contact our team', 'menu:contact'),
+    TALK_TO_AGENT,
     MENU_HOME,
   );
 }
@@ -166,7 +174,7 @@ export function trackingFound(reference) {
   const key = String(reference ?? '').slice(0, 40);
   const buttons = [];
   if (key) buttons.push(cb('🔄 حدّث الحالة / Refresh status', `tr:refresh:${key}`));
-  buttons.push(cb('👨‍💼 تواصل مع العمليات / Contact Operations', 'ct:ops'));
+  buttons.push(TALK_TO_AGENT);
   buttons.push(MENU_HOME);
   return rows(...buttons);
 }
@@ -198,7 +206,7 @@ export function errorRecovery() {
   return rows(
     cb('🔄 جرب تاني / Try again', 'menu:retry'),
     MENU_HOME,
-    cb('💬 تواصل مع فريقنا / Contact our team', 'menu:contact'),
+    TALK_TO_AGENT,
   );
 }
 

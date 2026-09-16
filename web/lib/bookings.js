@@ -14,8 +14,17 @@ import { db } from './supabase.js';
 import { config, DESTINATION_PORTS } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { makeTaskRef } from './operations.js';
+import { looksLikePhone } from './phone.js';
 
-export const BASIC_REQUIRED = ['vin', 'make', 'customer_name', 'origin_port', 'destination_port'];
+/**
+ * What a request needs before it can be booked, in the order it is asked for.
+ *
+ * Step 1 is the person - a name and a number to call. Step 2 is the vehicle
+ * and its route. That order is the workflow MKY asked for: the desk wants to
+ * know who it is talking to before it knows what they are shipping, and a
+ * number on file is what turns "talk to an agent" into one tap later on.
+ */
+export const BASIC_REQUIRED = ['customer_name', 'customer_contact', 'vin', 'make', 'origin_port', 'destination_port'];
 
 /** Statuses in which a booking occupies its chassis. A draft does not. */
 export const LIVE_STATUSES = ['pending_review', 'under_review', 'needs_client_action', 'confirmed'];
@@ -132,9 +141,11 @@ export async function createDraft({ chatId, clientId = null, channel = 'telegram
     client_id: clientId,
     telegram_user_id: telegramUserId,
     status: 'draft',
-    current_step: 'BOOK_VIN',
+    current_step: 'BOOK_CLIENT_NAME',
     // Never our own routing address if we can help it, but a booking has to be
     // reachable somehow and on Telegram the chat is a real way to reach them.
+    // The flow asks for a real number in step 1 and replaces this; a draft the
+    // client walks away from before that still points somewhere.
     customer_contact: `${channel}:${chatId}`,
     raw: {},
   };
@@ -182,9 +193,19 @@ export async function updateDraft(ref, patch, { chatId } = {}) {
   return { ok: true, draft: data[0] };
 }
 
-/** Which of the five basics this request still lacks. */
+/**
+ * Which of the basics this request still lacks, in the order they are asked.
+ *
+ * The contact counts only when it is a number somebody could dial. The
+ * "telegram:…" address a draft starts with is how WE reach the chat; it is not
+ * what the desk asked for, and an email is not a phone number either.
+ */
 export function missingBasics(booking) {
-  return BASIC_REQUIRED.filter((f) => !String(booking?.[f] ?? '').trim());
+  return BASIC_REQUIRED.filter((f) => (
+    f === 'customer_contact'
+      ? !looksLikePhone(booking?.customer_contact)
+      : !String(booking?.[f] ?? '').trim()
+  ));
 }
 
 // ---------------------------------------------------------------------------
