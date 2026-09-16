@@ -185,15 +185,21 @@ because a mismatch is what gets a customs declaration rejected.
 
 ### Several files at once
 
-Three papers sent together are three webhook calls, running at the same time,
-each taking seconds to read. Each records its file the moment it arrives
-(`beginDocument`, marked "still reading"), reads it (`completeDocument`), and
-then looks at what else arrived in the last two minutes. While any sibling is
-still being read it says nothing; the last to finish answers for all of them,
-with the others in `batch`. A caption on any of them is read by every one of
-them, so the details land whichever file speaks. Album items get a moment's
-grace before looking, in case a sibling on a cold instance has not recorded
-itself yet.
+Three papers sent together are three webhook calls. Telegram delivers a
+chat's updates one at a time and waits for each answer before sending the
+next, so a webhook that read the file before answering read the three one
+after another, each getting its own reply. The transport therefore records
+the file (`beginDocument`, marked "still reading"), answers Telegram at once,
+and reads the file in the background - `waitUntil` keeps the function alive
+for it - so the three are read at the same time.
+
+Each, once read (`completeDocument`), looks at what else arrived in the last
+two minutes. While any sibling is still being read it says nothing; the last
+to finish answers for all of them, with the others in `batch`, and a turn that
+says nothing writes nothing back to the session. The caption on any of them is
+read first, before that file's own reading, so the details are on the request
+whichever file ends up speaking. Album items get a moment's grace before
+looking, in case a sibling on a cold instance has not recorded itself yet.
 
 ---
 

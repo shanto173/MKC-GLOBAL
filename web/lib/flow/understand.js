@@ -23,7 +23,7 @@
 
 import { matchPort, looksLikeVin } from '../bookings.js';
 import { westernDigits } from '../phone.js';
-import { findVin, extractField } from './paste.js';
+import { findVin, extractField, makeIn, nameIn } from './paste.js';
 
 const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 const PHONE = /(?:\+|00)?\d[\d\s().-]{7,}\d/;
@@ -223,6 +223,20 @@ export function fieldsIn(text) {
   const from = placeAfter(raw, FROM_WORDS);
   // Nobody loads at an Egyptian discharge port, so a match there is a misread.
   if (from && !matchPort(from)) found.origin_port = from;
+
+  // "Rotterdam to Damietta": a place in front of "to" and one of our ports is
+  // the loading point, even with no "from" in sight. Capitalised, so "a truck
+  // to Alexandria" does not make "truck" a city.
+  if (!found.origin_port && port) {
+    const m = raw.match(/(?:^|[.,;!]\s*)([\p{Lu}][\p{L}'-]{2,}(?:\s+[\p{Lu}][\p{L}'-]{2,})?)\s+(?:to|→)\s+/u);
+    if (m && !matchPort(m[1]) && !looksLikeVin(m[1])) found.origin_port = m[1];
+  }
+
+  // The vehicle, and the client, when the sentence names them.
+  const make = makeIn(raw);
+  if (make) found.make = make;
+  const name = nameIn(raw);
+  if (name) found.customer_name = name;
 
   return found;
 }

@@ -22,9 +22,17 @@
  * started and left to run (lib/background.js) and waited for only at the end.
  * Each was a network round trip in front of the reply, and together they were
  * most of why a tap felt slow.
+ *
+ * A FILE is answered before it is read. Telegram delivers a chat's updates one
+ * at a time and waits for each answer before sending the next, so three papers
+ * sent together used to be read one after another, each getting its own reply.
+ * Now the file is recorded, Telegram gets its 200, and the reading goes on in
+ * the background (waitUntil keeps the function alive for it) - so the three are
+ * read at once, and the last to finish answers for all of them.
  */
 
 import { randomUUID } from 'node:crypto';
+import { waitUntil } from '@vercel/functions';
 import { config } from '../lib/config.js';
 import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
@@ -52,6 +60,18 @@ import { defer, flush } from '../lib/background.js';
 async function answer(res, body) {
   await flush();
   return res.status(200).json(body);
+}
+
+/**
+ * Keeps the function alive for work that outlives the response. Outside
+ * Vercel there is nothing to tell, and the promise simply runs.
+ */
+function keepAlive(promise) {
+  try {
+    waitUntil(promise);
+  } catch {
+    /* not on Vercel: the process stays up on its own */
+  }
 }
 
 export default async function handler(req, res) {
@@ -165,64 +185,84 @@ export default async function handler(req, res) {
       return answer(res, { ok: true, skipped: true });
     }
 
-    await notedPromise;
-    if (input.kind !== 'document') defer(sendTyping(chatId));
-
-    const flow = await runFlow(input, ctx);
-
-    if (flow.handled) {
-      // The card whose button was just pressed has been acted on; leaving the
-      // buttons live invites a second press on a decision already taken. The
-      // buttons come off while the reply goes out, not before it - the client
-      // is waiting for the reply, not for the old card to change.
-      const cleared = callbackQuery?.message?.message_id
-        ? clearButtons(chatId, callbackQuery.message.message_id)
-        : Promise.resolve();
-      for (const m of flow.messages) {
-        await sendMessage(chatId, m.text, {
-          inline: m.inline,
-          keyboard: m.keyboard,
-          oneTime: m.oneTime ?? false,
-        });
-      }
-      await cleared;
-    } else {
-      // Nothing was being asked and the text is not a menu choice, so it is a
-      // question. The assistant answers it; the flow state is untouched, so a
-      // client who asks something mid-booking keeps their booking.
-      //
-      // Loaded here rather than at the top: the assistant and its tool sheet
-      // are the largest thing in this function, and a tap never needs them.
-      const { respond } = await import('../lib/agent.js');
-      const { reply } = await respond(input.text ?? '', ctx);
-      await sendMessage(chatId, reply, { inline: kb.mainMenu() });
+    // A file: recorded, and the rest read in the background. Telegram gets
+    // its answer now, so the next file it is holding can arrive at once.
+    if (input.kind === 'file_recorded') {
+      keepAlive(finishDocument(input, ctx, update, notedPromise));
+      return res.status(200).json({ ok: true, reading: true });
     }
 
-    // Anything the flow queued for this client goes out now rather than waiting
-    // for the next cron tick, so a confirmation follows its trigger immediately.
-    // Failures here are the outbox's problem: it will retry.
-    await drain({ limit: 5 }).catch(() => null);
+    await notedPromise;
+    defer(sendTyping(chatId));
 
-    await finishUpdate(update.update_id, 'processed');
-    logEvent('telegram_update_processed', {
-      update_id: update.update_id, correlation_id: correlationId, state: flow.state, handled: flow.handled,
-    });
+    const flow = await runFlow(input, ctx);
+    await deliver(flow, input, ctx, update, callbackQuery);
     return answer(res, { ok: true });
   } catch (err) {
-    console.error(`telegram handler error [${correlationId}]:`, err);
-    logEvent('telegram_update_failed', {
-      update_id: update.update_id, correlation_id: correlationId, error: err?.message,
-    });
-    // Recorded as failed rather than processed, so the claim can be retried
-    // instead of the update being silently swallowed.
-    await finishUpdate(update.update_id, 'failed', err?.message).catch(() => null);
-
-    try {
-      await sendMessage(chatId, M.recoverableError(correlationId), { inline: kb.errorRecovery() });
-    } catch { /* best effort */ }
-
+    await failed(err, update, chatId, correlationId);
     return answer(res, { ok: true, error: true });
   }
+}
+
+/**
+ * Sends what the flow said - or, when it said nothing, what the assistant
+ * says - then the outbox, then the bookkeeping. Shared by the path that
+ * answers Telegram afterwards and the one that already has.
+ */
+async function deliver(flow, input, ctx, update, callbackQuery) {
+  const { chatId, correlationId } = ctx;
+
+  if (flow.handled) {
+    // The card whose button was just pressed has been acted on; leaving the
+    // buttons live invites a second press on a decision already taken. The
+    // buttons come off while the reply goes out, not before it - the client
+    // is waiting for the reply, not for the old card to change.
+    const cleared = callbackQuery?.message?.message_id
+      ? clearButtons(chatId, callbackQuery.message.message_id)
+      : Promise.resolve();
+    for (const m of flow.messages) {
+      await sendMessage(chatId, m.text, {
+        inline: m.inline,
+        keyboard: m.keyboard,
+        oneTime: m.oneTime ?? false,
+      });
+    }
+    await cleared;
+  } else {
+    // Nothing was being asked and the text is not a menu choice, so it is a
+    // question. The assistant answers it; the flow state is untouched, so a
+    // client who asks something mid-booking keeps their booking.
+    //
+    // Loaded here rather than at the top: the assistant and its tool sheet
+    // are the largest thing in this function, and a tap never needs them.
+    const { respond } = await import('../lib/agent.js');
+    const { reply } = await respond(input.text ?? '', ctx);
+    await sendMessage(chatId, reply, { inline: kb.mainMenu() });
+  }
+
+  // Anything the flow queued for this client goes out now rather than waiting
+  // for the next cron tick, so a confirmation follows its trigger immediately.
+  // Failures here are the outbox's problem: it will retry.
+  await drain({ limit: 5 }).catch(() => null);
+
+  await finishUpdate(update.update_id, 'processed');
+  logEvent('telegram_update_processed', {
+    update_id: update.update_id, correlation_id: correlationId, state: flow.state, handled: flow.handled,
+  });
+}
+
+async function failed(err, update, chatId, correlationId) {
+  console.error(`telegram handler error [${correlationId}]:`, err);
+  logEvent('telegram_update_failed', {
+    update_id: update.update_id, correlation_id: correlationId, error: err?.message,
+  });
+  // Recorded as failed rather than processed, so the claim can be retried
+  // instead of the update being silently swallowed.
+  await finishUpdate(update.update_id, 'failed', err?.message).catch(() => null);
+
+  try {
+    await sendMessage(chatId, M.recoverableError(correlationId), { inline: kb.errorRecovery() });
+  } catch { /* best effort */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +290,7 @@ async function readInput(update, ctx) {
   }
 
   const file = fileFrom(message);
-  if (file) return handleIncomingFile(file, message, ctx);
+  if (file) return recordIncomingFile(file, message, ctx);
 
   const text = (message.text ?? message.caption ?? '').trim();
   if (!text) return { kind: 'ignore' };
@@ -298,20 +338,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const BATCH_WINDOW_MS = 45_000;
 
 /**
- * Validates, records, downloads and files an incoming document.
+ * The quick half of a file: validate it and record that it arrived.
  *
  * Validation happens BEFORE the bytes are fetched, so an oversized or
  * unsupported file costs one Telegram round trip rather than a download and a
- * storage write.
- *
- * Several files sent at once are several calls to this function, running at
- * the same time. Each records its file the moment it arrives (beginDocument),
- * reads it, and then looks at what else has arrived: while any sibling is
- * still being read it says nothing, and the last to finish answers for all of
- * them. Three papers sent together used to get three answers, each with a
- * shorter list of what was missing.
+ * storage write. Recording it first is what lets the files of one album see
+ * each other (lib/documents.js, beginDocument).
  */
-async function handleIncomingFile(file, message, ctx) {
+async function recordIncomingFile(file, message, ctx) {
   const cfg = await settings();
   const check = validateUpload(
     { mimeType: file.mimeType, size: file.size },
@@ -354,61 +388,99 @@ async function handleIncomingFile(file, message, ctx) {
   });
   if (!begun.ok) return { kind: 'rejected', text: M.documentSaveFailed() };
 
-  // "Reading it now" once per batch, not once per file: the first to arrive
-  // says it, and a file whose siblings are already being read stays quiet.
-  const alreadyReading = (await recentUploads(ctx.chatId))
-    .some((d) => d.id !== begun.document.id && stillReading(d));
-  if (!alreadyReading) defer(sendMessage(ctx.chatId, M.documentReading(file.fileName)));
-  defer(sendTyping(ctx.chatId));
-
-  let ingested;
-  try {
-    const { buffer, fileName } = await downloadFile(file.fileId);
-    ingested = await completeDocument(begun.document.id, {
-      buffer,
-      fileName: file.fileName || fileName,
-      mimeType: file.mimeType,
-      chatId: ctx.chatId,
-      bookingRef: open?.booking_ref ?? null,
-      clientId: ctx.clientId ?? null,
-    });
-  } catch (err) {
-    await abandonDocument(begun.document.id, err?.message).catch(() => null);
-    throw err;
-  }
-
-  if (!ingested.ok) {
-    return { kind: 'rejected', text: M.documentSaveFailed() };
-  }
-
-  audit({
-    actor_type: 'client', actor_id: ctx.chatId,
-    action: 'document_received',
-    entity_type: 'booking_document', entity_id: ingested.document?.id,
-    metadata: { doc_type: ingested.document?.doc_type, booking_ref: open?.booking_ref },
-  });
-
-  // An album's items arrive within a second of each other, but a sibling on a
-  // cold instance may not have recorded itself yet. A moment's grace before
-  // looking is what keeps a fast-read first file from answering alone.
-  if (message?.media_group_id) await sleep(1500);
-
-  const recent = await recentUploads(ctx.chatId);
-  const mine = ingested.document;
-  const speak = !recent.some((d) => d.id !== mine.id && stillReading(d));
-  const arrivedAt = new Date(mine.uploaded_at ?? Date.now()).getTime();
-  const batch = recent.filter((d) =>
-    !stillReading(d) && Math.abs(new Date(d.uploaded_at).getTime() - arrivedAt) <= BATCH_WINDOW_MS);
-
   return {
-    kind: 'document',
-    document: ingested,
+    kind: 'file_recorded',
+    file,
+    message,
+    begun,
+    bookingRef: open?.booking_ref ?? null,
     // What was written on the file. Step 2 invites the whole booking in one
     // message with the papers attached; this is where that message is.
     caption: (message?.caption ?? '').trim(),
-    speak,
-    batch,
   };
+}
+
+/**
+ * The slow half, after Telegram has been answered: the caption, the download,
+ * the reading, and - if this is the last of its batch to finish - the reply.
+ */
+async function finishDocument(input, ctx, update, notedPromise) {
+  const { file, message, begun, bookingRef, caption } = input;
+  const { chatId } = ctx;
+
+  try {
+    // "Reading it now" once per batch, not once per file: the first to arrive
+    // says it, and a file whose siblings are already being read stays quiet.
+    const alreadyReading = (await recentUploads(chatId))
+      .some((d) => d.id !== begun.document.id && stillReading(d));
+    if (!alreadyReading) defer(sendMessage(chatId, M.documentReading(file.fileName)));
+    defer(sendTyping(chatId));
+
+    await notedPromise;
+
+    // The details written on the file go onto the request first, before this
+    // file's own reading - so whichever file of a batch ends up speaking, the
+    // details are already there. A chassis in them that is already booked
+    // ends the flow here, and the file is then read for the record only.
+    let ended = false;
+    if (caption) {
+      const absorbed = await runFlow({ kind: 'caption', text: caption }, ctx);
+      if (absorbed.handled && absorbed.messages.length) {
+        for (const m of absorbed.messages) {
+          await sendMessage(chatId, m.text, { inline: m.inline, keyboard: m.keyboard, oneTime: m.oneTime ?? false });
+        }
+        ended = true;
+      }
+    }
+
+    let ingested;
+    try {
+      const { buffer, fileName } = await downloadFile(file.fileId);
+      ingested = await completeDocument(begun.document.id, {
+        buffer,
+        fileName: file.fileName || fileName,
+        mimeType: file.mimeType,
+        chatId,
+        bookingRef,
+        clientId: ctx.clientId ?? null,
+      });
+    } catch (err) {
+      await abandonDocument(begun.document.id, err?.message).catch(() => null);
+      throw err;
+    }
+
+    if (!ingested.ok) {
+      await sendMessage(chatId, M.documentSaveFailed(), { inline: kb.homeOnly() });
+      await finishUpdate(update.update_id, 'processed');
+      return;
+    }
+
+    audit({
+      actor_type: 'client', actor_id: chatId,
+      action: 'document_received',
+      entity_type: 'booking_document', entity_id: ingested.document?.id,
+      metadata: { doc_type: ingested.document?.doc_type, booking_ref: bookingRef },
+    });
+
+    // An album's items arrive within a second of each other, but a sibling on
+    // a cold instance may not have recorded itself yet. A moment's grace before
+    // looking is what keeps a fast-read first file from answering alone.
+    if (message?.media_group_id) await sleep(1500);
+
+    const recent = await recentUploads(chatId);
+    const mine = ingested.document;
+    const speak = !ended && !recent.some((d) => d.id !== mine.id && stillReading(d));
+    const arrivedAt = new Date(mine.uploaded_at ?? Date.now()).getTime();
+    const batch = recent.filter((d) =>
+      !stillReading(d) && Math.abs(new Date(d.uploaded_at).getTime() - arrivedAt) <= BATCH_WINDOW_MS);
+
+    const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx);
+    await deliver(flow, input, ctx, update, null);
+  } catch (err) {
+    await failed(err, update, chatId, ctx.correlationId);
+  } finally {
+    await flush();
+  }
 }
 
 // ---------------------------------------------------------------------------

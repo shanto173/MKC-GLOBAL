@@ -295,7 +295,7 @@ export async function handleVin(session, text, ctx, { editing = false } = {}) {
 
   // "chassis X from Klaipeda going to Alexandria" names three things. Asking
   // for the other two afterwards is what makes a bot tiring to use.
-  if (!editing) await bankFound(session, fieldsIn(text), ctx, { except: 'vin' }).catch(() => null);
+  if (!editing) await bankTheRest(session, text, ctx, { except: 'vin' }).catch(() => null);
 
   const opening = editing
     ? M.editSaved()
@@ -559,6 +559,34 @@ async function bankFound(session, found, ctx, { except = null } = {}) {
 }
 
 /**
+ * Everything else a message said, beyond the answer it was read for.
+ *
+ * The patterns first: a chassis, the ports, a make, a client named in the
+ * sentence. Then, when the message is long enough to be saying more and the
+ * request is still missing something, the model reads it too - and, as
+ * everywhere, only supplies candidates that go through the same checks. Doing
+ * the second part only when the first found nothing was how "DAF XF 480 FT,
+ * client Giza Freight Lines, chassis …" kept its chassis and lost its make.
+ */
+async function bankTheRest(session, text, ctx, { except = null } = {}) {
+  const banked = await bankFound(session, fieldsIn(text), ctx, { except });
+  if (banked.ended) return banked;
+
+  const words = String(text ?? '').trim().split(/\s+/).length;
+  if (words < 5 || !nluAvailable()) return banked;
+
+  const booking = await bookingByRef(session.active_booking_ref);
+  if (!booking || !missingBasics(booking).some((f) => f !== except)) return banked;
+
+  const read = await understand(text).catch(() => null);
+  if (!read?.used || !Object.keys(read.fields).length) return banked;
+
+  const more = await bankFound(session, read.fields, ctx, { except });
+  if (more.ended) return more;
+  return { saved: [...banked.saved, ...more.saved], ended: null };
+}
+
+/**
  * A phone number or an email, said when something else was asked.
  *
  * A number replaces whatever the booking held and goes on the client's record.
@@ -598,7 +626,7 @@ async function noteContact(session, value, ctx) {
  * the case where several are missing at once - after an edit, or after a client
  * pasted a half-filled form - because a wall of questions is what people ignore.
  */
-export async function askNextBasic(booking, ctx, { listMissing = false, notedPhone = null } = {}) {
+export async function askNextBasic(booking, ctx, { listMissing = false, notedPhone = null, intro = true } = {}) {
   const missing = missingBasics(booking);
 
   if (!missing.length) {
@@ -632,7 +660,12 @@ export async function askNextBasic(booking, ctx, { listMissing = false, notedPho
     // message: where they are, that everything may come at once with the
     // papers attached, and the chassis question. A number given in the same
     // breath as the name is read back here rather than in a message of its own.
-    vin: () => say(M.detailsCompleteAskVin(booking.customer_name ?? null, notedPhone), kb.homeOnly()),
+    // Asked again later - after a file arrived first, say - it is just the
+    // question; the client has already read where they are.
+    vin: () => say(
+      intro ? M.detailsCompleteAskVin(booking.customer_name ?? null, notedPhone) : M.askVin(),
+      kb.homeOnly(),
+    ),
     make: () => say(M.askMake(), kb.homeOnly()),
     origin_port: () => say(M.askPol(), kb.homeOnly()),
     destination_port: () => say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()),
@@ -681,19 +714,8 @@ export async function absorbCaption(session, text, ctx) {
     return { ended: false };
   }
 
-  const banked = await bankFound(session, fieldsIn(value), ctx);
+  const banked = await bankTheRest(session, value, ctx);
   if (banked.ended) return { ended: true, reply: banked.ended };
-  if (banked.saved.length) return { ended: false };
-
-  // The patterns made nothing of it. The model reads it - and, as everywhere
-  // else, only supplies candidates that go through the same validation.
-  if (nluAvailable()) {
-    const read = await understand(value).catch(() => null);
-    if (read?.used && Object.keys(read.fields).length) {
-      const more = await bankFound(session, read.fields, ctx);
-      if (more.ended) return { ended: true, reply: more.ended };
-    }
-  }
   return { ended: false };
 }
 
@@ -708,7 +730,7 @@ export async function absorbCaption(session, text, ctx) {
 async function continueFrom(booking, ctx, { leads = [] } = {}) {
   const missing = missingBasics(booking);
   if (missing.length) {
-    const next = await askNextBasic(booking, ctx, { listMissing: true });
+    const next = await askNextBasic(booking, ctx, { listMissing: true, intro: false });
     return reply([...leads, ...next.messages], next.patch);
   }
 

@@ -32,11 +32,12 @@
     "outbox": "node scripts/drain-outbox.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
     "@supabase/supabase-js": "^2.45.4",
+    "@vercel/functions": "^3.9.8",
     "bidi-js": "^1.0.3",
-    "pdfkit": "^0.15.0",
     "pdfjs-dist": "^4.7.76",
-    "@napi-rs/canvas": "^0.1.100"
+    "pdfkit": "^0.15.0"
   },
   "devDependencies": {
     "dotenv": "^16.4.5",

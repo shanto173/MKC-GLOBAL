@@ -716,6 +716,64 @@ test('the details written on a file are read, and the file counted, in one go', 
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
+test('the caption is read ahead of the file, and the file then only counts', async () => {
+  const h = harness();
+  await identify(h);
+
+  // The transport reads the caption the moment the file is recorded.
+  const absorbed = await h.send({
+    kind: 'caption',
+    text: 'Rotterdam to Damietta. DAF XF 480 FT, client Giza Freight Lines, chassis XLRTEH4350G741552',
+  });
+  assert.deepEqual(absorbed.messages, [], 'nothing said yet - the file has not been read');
+
+  const b = h.booking();
+  assert.equal(b.vin, 'XLRTEH4350G741552');
+  assert.equal(b.make, 'DAF');
+  assert.equal(b.model, 'XF 480 FT');
+  assert.equal(b.origin_port, 'Rotterdam');
+  assert.equal(b.destination_port, 'Damietta Port');
+  assert.equal(b.customer_name, 'Giza Freight Lines');
+
+  // Then the three files, the last of which speaks.
+  const docs = ['brief', 'invoice', 'mrn'].map((t) => h.upload(t, { vin: 'XLRTEH4350G741552' }));
+  const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
+  assert.match(said(r), /Received: Brief, Invoice, MRN/);
+  assert.doesNotMatch(said(r), /Make \/ Brand/, 'it was in the caption');
+  assert.doesNotMatch(said(r), /send it all in one message/, 'the step-2 opening is not repeated');
+  assert.match(said(r), /We have everything we need/);
+  assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
+});
+
+test('the same sentence typed at the chassis question fills every field it names', async () => {
+  const h = harness();
+  await identify(h);
+  const r = await h.text('Rotterdam to Damietta. DAF XF 480 FT, client Giza Freight Lines, chassis XLRTEH4350G741552');
+
+  const b = h.booking();
+  assert.equal(b.vin, 'XLRTEH4350G741552');
+  assert.equal(b.make, 'DAF');
+  assert.equal(b.origin_port, 'Rotterdam');
+  assert.equal(b.destination_port, 'Damietta Port');
+  assert.equal(b.customer_name, 'Giza Freight Lines');
+  assert.match(said(r), /Do you already have an MRN/);
+});
+
+test('a make and a client are read out of a sentence, and a place is not made a city by accident', async () => {
+  const { makeIn, nameIn } = await import('../lib/flow/paste.js');
+  const { fieldsIn } = await import('../lib/flow/understand.js');
+  assert.equal(makeIn('DAF XF 480 FT, client Giza Freight Lines'), 'DAF XF 480 FT');
+  assert.equal(makeIn('its a big scania'), 'scania');
+  assert.equal(makeIn('a MAN TGX 18.500 for Nile Cargo Egypt'), 'MAN TGX 18.500');
+  assert.equal(makeIn('Volvo FH 460 Globetrotter from Klaipeda'), 'Volvo FH 460 Globetrotter');
+  assert.equal(makeIn('nothing here'), null);
+  assert.equal(nameIn('client Giza Freight Lines, chassis X'), 'Giza Freight Lines');
+  assert.equal(nameIn('for Nile Cargo Egypt. The chassis is'), null, '"for" alone is too loose');
+  assert.equal(nameIn('consignee: Horus Logistics'), 'Horus Logistics');
+  assert.equal(fieldsIn('Rotterdam to Damietta').origin_port, 'Rotterdam');
+  assert.equal(fieldsIn('I want to book a truck to Alexandria').origin_port, undefined);
+});
+
 test('a chassis written on a file that is already booked ends the flow there', async () => {
   const h = harness({
     bookings: [{

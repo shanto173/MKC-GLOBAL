@@ -76,6 +76,14 @@ export async function runFlow(input, ctx) {
     return { handled: false, messages: [], state: session.current_state };
   }
 
+  // A turn that said nothing and changed nothing - one file of several, read
+  // in parallel with its siblings - writes nothing back. Saving would put a
+  // copy of the session loaded moments ago over whatever the file that speaks
+  // has written since.
+  if (!(result.messages ?? []).length && !Object.keys(result.patch ?? {}).length) {
+    return { handled: true, messages: [], state: session.current_state, offered: session.context?.offered ?? [] };
+  }
+
   // Remember which buttons were offered.
   //
   // Two things need this. The website widget has no inline keyboards, so a
@@ -145,7 +153,29 @@ async function dispatch(session, input, ctx) {
     return { handled: true, ...(await contact.handleSharedPhone(session, phone, ctx)) };
   }
 
-  // 4. A file.
+  // 4. What was written on a file, ahead of the file itself.
+  //
+  // The transport reads the caption the moment a file is recorded, before the
+  // slow part - so that when several files arrive together, whichever of them
+  // speaks finds the details already on the request.
+  if (input.kind === 'caption') {
+    let target = ACCEPTS_DOCUMENTS.has(session.current_state) && session.active_booking_ref ? session : null;
+    if (!target) {
+      const { draft } = await findDraft(ctx.chatId);
+      if (draft) target = { ...session, active_booking_ref: draft.booking_ref };
+    }
+    if (!target) return { handled: true, messages: [], patch: {} };
+
+    const absorbed = await booking.absorbCaption(target, input.text, ctx);
+    if (absorbed?.ended) return { handled: true, ...absorbed.reply };
+    return {
+      handled: true,
+      messages: [],
+      patch: target === session ? {} : { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref },
+    };
+  }
+
+  // 5. A file.
   if (input.kind === 'document') {
     // Which request does it belong to? The one being worked on - or, sent
     // outside the document step, the one this chat has open. Refusing a file
@@ -167,7 +197,10 @@ async function dispatch(session, input, ctx) {
       return { handled: true, ...reply(say(M.notUnderstood(), kb.mainMenu())) };
     }
 
-    const claim = { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref };
+    // Nothing to write when the session already points at this request.
+    const claim = target === session
+      ? {}
+      : { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref };
 
     // Details written on the file are read first, by every one of a batch -
     // the caption travels with one file, and the one that speaks may not be it.
@@ -184,7 +217,7 @@ async function dispatch(session, input, ctx) {
     return { handled: true, messages: handled.messages, patch: { ...handled.patch, ...claim } };
   }
 
-  // 5. Text. Only an answer when something was asked.
+  // 6. Text. Only an answer when something was asked.
   //
   // This comes FIRST, before the numbered-button shortcut below: a client being
   // asked for their company name may perfectly well answer "7", and that is a
@@ -207,7 +240,7 @@ async function dispatch(session, input, ctx) {
     return { handled: true, ...result };
   }
 
-  // 5b. A number standing in for a button. The website widget has no inline
+  // 6b. A number standing in for a button. The website widget has no inline
   // keyboards at all, and this is how a client there answers.
   const picked = pickByNumber(input.text, session.context?.offered);
   if (picked) {
@@ -215,7 +248,7 @@ async function dispatch(session, input, ctx) {
     return { handled: true, ...handled };
   }
 
-  // 6. Text that starts a flow, from the menu or from anywhere idle.
+  // 7. Text that starts a flow, from the menu or from anywhere idle.
   const intent = quickIntent(input.text);
   if (intent) {
     const started = await startFlow(session, intent, ctx);

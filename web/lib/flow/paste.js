@@ -381,6 +381,56 @@ function tidy(text, field) {
   return s.trim().replace(/\s+/g, ' ') || String(text ?? '').trim();
 }
 
+/** Where a make and model stop, in a sentence that goes on to say other things. */
+const AFTER_MAKE_STOPS = new Set([
+  'for', 'from', 'to', 'going', 'with', 'and', 'client', 'customer', 'chassis', 'vin',
+  'loading', 'destination', 'number', 'is', 'the', 'my', 'our', 'in', 'at', 'on', 'via',
+]);
+
+/**
+ * The make and model named in a sentence that also says other things.
+ *
+ * "Rotterdam to Damietta. DAF XF 480 FT, client Giza Freight Lines, chassis …"
+ * names a vehicle in the middle. findMake() below takes everything after the
+ * make, which is right for an answer to the make question and wrong here; this
+ * stops at the first punctuation or the first word that starts the next
+ * thought, and takes at most three words of model.
+ *
+ * @returns {string|null}
+ */
+export function makeIn(text) {
+  const words = String(text ?? '').replace(/[,;:()]/g, ' , ').split(/\s+/).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    const bare = words[i].replace(/[^A-Za-z-]/g, '');
+    if (!bare || !KNOWN_MAKES.has(bare.toLowerCase())) continue;
+    const out = [bare];
+    for (const w of words.slice(i + 1, i + 4)) {
+      if (w === ',' || AFTER_MAKE_STOPS.has(w.toLowerCase())) break;
+      if (!/^[A-Za-z0-9.\-/]+$/.test(w)) break;
+      out.push(w.replace(/[.,;]+$/, ''));
+    }
+    return out.join(' ');
+  }
+  return null;
+}
+
+/**
+ * The client named in a sentence: "client Giza Freight Lines", "for Nile
+ * Cargo Egypt", "consignee: Horus Logistics". Up to the next punctuation.
+ *
+ * @returns {string|null}
+ */
+export function nameIn(text) {
+  const m = String(text ?? '').match(
+    /\b(?:client|customer|consignee|buyer)\s*(?:name)?\s*(?::|is|-|=)?\s+([^,.;:\n]{2,60}?)\s*(?=[,.;:\n]|$|\s+(?:chassis|vin|make|from|to|loading|destination|phone|mobile|number)\b)/i,
+  );
+  if (!m) return null;
+  const name = m[1].trim();
+  // A place is not a client, however it was introduced.
+  if (!name || /^\d/.test(name)) return null;
+  return name;
+}
+
 /**
  * A manufacturer we recognise, and everything after it.
  *
