@@ -130,9 +130,17 @@ export async function bookingByRef(ref) {
  * Starts a request. One draft per conversation: an older one is dropped, so a
  * client cannot end up with two half-finished requests neither of which they
  * can see.
+ *
+ * `replaceExisting: false` skips that sweep. The flow only ever creates a draft
+ * after it has looked for one and found none, so the sweep was a round trip
+ * that never deleted anything - on the tap the client is waiting on.
  */
-export async function createDraft({ chatId, clientId = null, channel = 'telegram', telegramUserId = null }) {
-  await db().from('bookings').delete().eq('chat_id', String(chatId)).eq('status', 'draft');
+export async function createDraft({
+  chatId, clientId = null, channel = 'telegram', telegramUserId = null, replaceExisting = true,
+}) {
+  if (replaceExisting) {
+    await db().from('bookings').delete().eq('chat_id', String(chatId)).eq('status', 'draft');
+  }
 
   const row = {
     booking_ref: makeBookingRef(),
@@ -157,7 +165,9 @@ export async function createDraft({ chatId, clientId = null, channel = 'telegram
   }
 
   logEvent('booking_draft_created', { booking_ref: data.booking_ref, chat_id: String(chatId) });
-  await audit({
+  // Written in the background: the client is waiting for the first question,
+  // not for the log line about it.
+  audit({
     actor_type: 'client', actor_id: chatId,
     action: 'booking_draft_created',
     entity_type: 'booking', entity_id: data.booking_ref,
@@ -392,6 +402,10 @@ export async function findBookingForClient(identifier, viewer) {
  * Safe to call on every inbound message: it matches only requests actually
  * waiting on the client, so an ordinary chat changes nothing.
  *
+ * `clientId` may be a promise. The transport starts this alongside the client
+ * lookup rather than after it, and the id is only needed on the rare path
+ * where a request actually reopens.
+ *
  * @returns {Promise<{reopened: string|null}>}
  */
 export async function noteClientResponse(chatId, { clientId = null } = {}) {
@@ -415,7 +429,7 @@ export async function noteClientResponse(chatId, { clientId = null } = {}) {
   await createTask({
     taskType: 'client_action_response',
     bookingRef: booking.booking_ref,
-    clientId,
+    clientId: (await clientId) ?? null,
     chatId,
     priority: 'high',
     payload: { responded_at: new Date().toISOString() },

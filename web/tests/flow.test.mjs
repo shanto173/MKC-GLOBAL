@@ -88,7 +88,8 @@ function harness(seed = {}) {
     text: (t) => send({ kind: 'text', text: t }),
     tap: (data) => send({ kind: 'callback', callback: { ...parseCallback(data), id: 'cbq' } }),
     command: (c) => send({ kind: 'command', command: c, text: c }),
-    file: (doc) => send({ kind: 'document', document: doc }),
+    /** A file, as the transport hands it over: with a caption, or as one of a batch. */
+    file: (doc, extra = {}) => send({ kind: 'document', document: doc, ...extra }),
     /** Files a document straight into the store, as the transport would. */
     upload(docType, { vin = null, bookingRef = null, fileName = 'f.pdf' } = {}) {
       const row = {
@@ -584,6 +585,147 @@ test('the confirmation card never claims a document is verified', async () => {
   const h = harness();
   const r = await bookUpTo(h);
   assert.doesNotMatch(said(r), /verified/i);
+});
+
+// ---------------------------------------------------------------------------
+// Everything in one message, with the papers attached
+// ---------------------------------------------------------------------------
+
+test('step 2 tells the client they may send it all at once, with the documents attached', async () => {
+  const h = harness();
+  const r = await identify(h);
+  assert.match(said(r), /send it all in one message/i);
+  assert.match(said(r), /attach the documents/i);
+  assert.match(said(r), /VIN \/ Chassis number/);
+  // One message, not an intro and then a question.
+  assert.equal(r.messages.length, 1);
+});
+
+test('the details written on a file are read, and the file counted, in one go', async () => {
+  const h = harness();
+  await identify(h);
+
+  const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }), {
+    caption: 'Chassis: W1T96340310484233\nMake: MAN TGX\nLoading: Hamburg\nDestination: Port Said',
+  });
+
+  const b = h.booking();
+  assert.equal(b.vin, 'W1T96340310484233');
+  assert.equal(b.make, 'MAN');
+  assert.equal(b.origin_port, 'Hamburg');
+  assert.equal(b.destination_port, 'Port Said');
+  assert.match(said(r), /Invoice received/);
+  // Nothing basic is missing any more, so the next question is the MRN one.
+  assert.match(said(r), /Do you already have an MRN/);
+  assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
+
+test('a chassis written on a file that is already booked ends the flow there', async () => {
+  const h = harness({
+    bookings: [{
+      booking_ref: 'MKY-BKG-260907-TAKEN', status: 'confirmed', chat_id: OTHER_CHAT,
+      vin: 'YV2RT40A8FB712905', make: 'Volvo', customer_name: 'Someone Else',
+      origin_port: 'Koper', destination_port: 'Suez Port',
+    }],
+  });
+  await identify(h);
+  const r = await h.file(h.upload('invoice', { vin: 'YV2RT40A8FB712905' }), {
+    caption: 'Chassis: YV2RT40A8FB712905\nMake: Volvo',
+  });
+  assert.match(said(r), /already booked/);
+  assert.match(said(r), /MKY-BKG-260907-TAKEN/);
+  assert.equal(r.state, S.MAIN_MENU);
+});
+
+test('a paper sent before the chassis is kept, and the chassis asked for next', async () => {
+  const h = harness();
+  await identify(h);
+
+  const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
+
+  assert.match(said(r), /Invoice received/);
+  assert.match(said(r), /VIN \/ Chassis number/);
+  assert.equal(r.state, S.BOOK_VIN, 'back to the next thing missing, not stuck at the document step');
+  // And the file is still counted once the chassis is in.
+  await h.text('W1T96340310484233');
+  await h.text('Mercedes-Benz');
+  await h.text('Vilnius');
+  await h.text('Alexandria');
+  const docs = await h.tap('bk:mrn:existing');
+  assert.doesNotMatch(said(docs), /• Invoice/);
+  assert.match(said(docs), /Brief/);
+});
+
+test('three papers sent together get one answer, once all of them are read', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+
+  const invoice = h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'invoice.pdf' });
+  const brief = h.upload('brief', { vin: 'W1T96340310484233', fileName: 'cmr.pdf' });
+  const mrn = h.upload('mrn', { vin: 'W1T96340310484233', fileName: 'mrn.pdf' });
+  const batch = [invoice, brief, mrn].map((d) => ({ ...d.document, file_name: 'x.pdf' }));
+
+  // The first two finished reading while a sibling was still being read: they
+  // say nothing and leave the flow exactly where it was.
+  const quiet = await h.file(invoice, { speak: false, batch: [] });
+  assert.deepEqual(quiet.messages, []);
+  assert.equal(quiet.state, S.BOOK_DOCUMENTS);
+  assert.ok(quiet.offered.length, 'the last buttons offered are remembered, not wiped');
+
+  // The last to finish answers for all three.
+  const r = await h.file(mrn, { speak: true, batch });
+  assert.match(said(r), /Received: Invoice, Brief, MRN/);
+  assert.doesNotMatch(said(r), /Just a little more/);
+  assert.doesNotMatch(said(r), /Almost there/);
+  assert.match(said(r), /We have everything we need/);
+  assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
+});
+
+test('a file that could not be read, among several, is asked about in turn', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+
+  const invoice = h.upload('invoice', { vin: 'W1T96340310484233' });
+  const first = h.upload('other', { vin: 'W1T96340310484233', fileName: 'scan-1.pdf' });
+  const second = h.upload('other', { vin: 'W1T96340310484233', fileName: 'scan-2.pdf' });
+  const batch = [
+    { ...invoice.document, file_name: 'invoice.pdf' },
+    { ...first.document, file_name: 'scan-1.pdf' },
+    { ...second.document, file_name: 'scan-2.pdf' },
+  ];
+
+  const r = await h.file(second, { speak: true, batch });
+  assert.match(said(r), /Received: Invoice/);
+  assert.match(said(r), /I have scan-1\.pdf, but I am not sure what it is/);
+  assert.equal(r.state, S.BOOK_DOCUMENT_CLASSIFY);
+
+  const next = await h.tap('bk:doctype:brief');
+  assert.match(said(next), /Brief received/);
+  assert.match(said(next), /I have scan-2\.pdf, but I am not sure what it is/);
+  assert.equal(next.state, S.BOOK_DOCUMENT_CLASSIFY);
+
+  const done = await h.tap('bk:doctype:mrn');
+  assert.match(said(done), /MRN received/);
+  assert.match(said(done), /We have everything we need/);
+  assert.equal(done.state, S.BOOK_FINAL_CONFIRMATION);
+});
+
+test('an MRN among the papers answers the MRN question', async () => {
+  const h = harness();
+  await identify(h);
+  await h.text('W1T96340310484233');
+  await h.text('Mercedes-Benz');
+  await h.text('Vilnius');
+  const asked = await h.text('Alexandria');
+  assert.equal(asked.state, S.BOOK_MRN_CHOICE);
+
+  const docs = ['invoice', 'brief', 'mrn'].map((t) => h.upload(t, { vin: 'W1T96340310484233' }));
+  const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
+
+  assert.equal(h.booking().mrn_choice, 'existing', 'they sent one, so they have one');
+  assert.doesNotMatch(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /We have everything we need/);
+  assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
 // ---------------------------------------------------------------------------

@@ -82,9 +82,14 @@ export async function runFlow(input, ctx) {
   // client there answers "2" and it has to mean the second button. And a
   // Telegram client whose keyboard has scrolled away types the number too.
   // Recorded from what was actually sent, so it cannot drift from the buttons.
-  const offered = (result.messages ?? [])
-    .flatMap((m) => (m.inline ?? []).flat())
-    .map((b) => ({ label: b.text, data: b.callback_data }));
+  //
+  // A turn that said nothing - one file of several, whose reply another file
+  // gives - leaves the last offer standing rather than forgetting it.
+  const offered = (result.messages ?? []).length
+    ? (result.messages ?? [])
+        .flatMap((m) => (m.inline ?? []).flat())
+        .map((b) => ({ label: b.text, data: b.callback_data }))
+    : (session.context?.offered ?? []);
 
   const patch = { ...(result.patch ?? {}) };
   patch.context = { ...(patch.context ?? session.context ?? {}), offered };
@@ -142,29 +147,41 @@ async function dispatch(session, input, ctx) {
 
   // 4. A file.
   if (input.kind === 'document') {
-    if (ACCEPTS_DOCUMENTS.has(session.current_state)) {
-      return { handled: true, ...(await booking.handleDocumentArrived(session, { ingested: input.document }, ctx)) };
-    }
-
-    // Sent outside the document step. Refusing it outright was wrong: a client
-    // who sends their invoice a day later, from the menu, is sending it for the
-    // request they have open, and being told "I did not follow that" while the
-    // file sits unattached in storage is how paperwork gets lost. If there is a
-    // request it can belong to, it belongs to that one.
-    const { draft } = await findDraft(ctx.chatId);
-    if (draft) {
-      const resumed = { ...session, active_booking_ref: draft.booking_ref };
-      const handled = await booking.handleDocumentArrived(resumed, { ingested: input.document }, ctx);
-      return {
-        handled: true,
-        messages: handled.messages,
-        patch: { ...handled.patch, active_flow: FLOWS.BOOKING, active_booking_ref: draft.booking_ref },
-      };
+    // Which request does it belong to? The one being worked on - or, sent
+    // outside the document step, the one this chat has open. Refusing a file
+    // sent from the menu was wrong: a client who sends their invoice a day
+    // later is sending it for the request they have open, and being told "I
+    // did not follow that" while the file sits unattached in storage is how
+    // paperwork gets lost.
+    let target = ACCEPTS_DOCUMENTS.has(session.current_state) && session.active_booking_ref ? session : null;
+    if (!target) {
+      const { draft } = await findDraft(ctx.chatId);
+      if (draft) target = { ...session, active_booking_ref: draft.booking_ref };
     }
 
     // Nothing it could belong to. Say so rather than filing it against a
-    // booking the client was not thinking about.
-    return { handled: true, ...reply(say(M.notUnderstood(), kb.mainMenu())) };
+    // booking the client was not thinking about - unless this is one of
+    // several files whose reply another of them will give.
+    if (!target) {
+      if (input.speak === false) return { handled: true, messages: [], patch: {} };
+      return { handled: true, ...reply(say(M.notUnderstood(), kb.mainMenu())) };
+    }
+
+    const claim = { active_flow: FLOWS.BOOKING, active_booking_ref: target.active_booking_ref };
+
+    // Details written on the file are read first, by every one of a batch -
+    // the caption travels with one file, and the one that speaks may not be it.
+    if (input.caption) {
+      const absorbed = await booking.absorbCaption(target, input.caption, ctx);
+      if (absorbed?.ended) return { handled: true, ...absorbed.reply };
+    }
+
+    // Several files sent together: only the last to finish being read
+    // answers, for all of them. The others have done their part.
+    if (input.speak === false) return { handled: true, messages: [], patch: claim };
+
+    const handled = await booking.handleDocumentArrived(target, { ingested: input.document, batch: input.batch ?? [] }, ctx);
+    return { handled: true, messages: handled.messages, patch: { ...handled.patch, ...claim } };
   }
 
   // 5. Text. Only an answer when something was asked.

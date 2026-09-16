@@ -97,16 +97,20 @@ export async function startBooking(session, ctx) {
 }
 
 async function newDraft(session, ctx) {
+  // Both callers have just established there is no draft to replace, so the
+  // sweep for one is skipped: it is a round trip on the tap the client is
+  // waiting on, and it never found anything.
   const created = await createDraft({
     chatId: ctx.chatId,
     clientId: ctx.clientId ?? null,
     channel: ctx.channel,
     telegramUserId: ctx.telegramUserId ?? null,
+    replaceExisting: false,
   });
   if (!created.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
   return reply(
-    [say(M.bookingStart()), say(M.askClientName(ctx.userName ?? null), kb.homeOnly())],
+    say(M.bookingStartAskName(ctx.userName ?? null), kb.homeOnly()),
     {
       active_flow: FLOWS.BOOKING,
       current_state: S.BOOK_CLIENT_NAME,
@@ -601,10 +605,6 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
 
   const [next] = missing;
 
-  // Step 2 opens the moment the person is known and the vehicle is not. Said
-  // as the chassis is asked for, so the client can see where they are.
-  const intro = next === 'vin' ? [say(M.detailsComplete(booking.customer_name ?? null))] : [];
-
   // The list of what is outstanding is shown ONCE, on the way into the vehicle
   // questions, so the client knows how much is coming. Repeating it after every
   // answer - which it did - reads as being asked for the same things over and
@@ -623,7 +623,10 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
   const prompts = {
     customer_name: () => say(M.askClientName(ctx.userName ?? null), kb.homeOnly()),
     customer_contact: () => phonePrompt(ctx, M.askPhone(suggestion)),
-    vin: () => say(M.askVin(), kb.homeOnly()),
+    // Step 2 opens the moment the person is known and the vehicle is not. One
+    // message: where they are, that everything may come at once with the
+    // papers attached, and the chassis question.
+    vin: () => say(M.detailsCompleteAskVin(booking.customer_name ?? null), kb.homeOnly()),
     make: () => say(M.askMake(), kb.homeOnly()),
     origin_port: () => say(M.askPol(), kb.homeOnly()),
     destination_port: () => say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()),
@@ -634,7 +637,89 @@ export async function askNextBasic(booking, ctx, { listMissing = false } = {}) {
   await updateDraft(booking.booking_ref, { current_step: states[next] }, { chatId: ctx.chatId })
     .catch(() => null);
 
-  return reply([...intro, ...preface, prompts[next]()], { current_state: states[next] });
+  return reply([...preface, prompts[next]()], { current_state: states[next] });
+}
+
+/**
+ * Details written on a file - the caption under an attachment - read exactly
+ * as a typed message would be, before the file itself is counted.
+ *
+ * "Send it all in one message and attach the papers" is what step 2 invites,
+ * and the caption is where "all" goes. A chassis in it faces the duplicate
+ * check like any other; if the unit is already booked, that is the reply.
+ *
+ * @returns {Promise<{ended: boolean, reply?: object}|null>}
+ */
+export async function absorbCaption(session, text, ctx) {
+  const value = String(text ?? '').trim();
+  const ref = session.active_booking_ref;
+  if (!value || !ref) return null;
+
+  const booking = await bookingByRef(ref);
+  if (!booking || booking.status !== 'draft') return null;
+
+  if (looksLikePaste(value)) {
+    const { patch, vin } = await applyPastedFields(session, value, ctx);
+    if (Object.keys(patch).length) {
+      await updateDraft(ref, patch, { chatId: ctx.chatId }).catch(() => null);
+      logEvent('booking_information_pasted', { booking_ref: ref, fields: Object.keys(patch), via: 'caption' });
+    }
+    if (vin && looksLikeVin(vin)) {
+      const settled = await settleVin(session, vin, ctx);
+      if (!settled.ok && settled.ended) return { ended: true, reply: settled.reply };
+    }
+    return { ended: false };
+  }
+
+  const banked = await bankFound(session, fieldsIn(value), ctx);
+  if (banked.ended) return { ended: true, reply: banked.ended };
+  if (banked.saved.length) return { ended: false };
+
+  // The patterns made nothing of it. The model reads it - and, as everywhere
+  // else, only supplies candidates that go through the same validation.
+  if (nluAvailable()) {
+    const read = await understand(value).catch(() => null);
+    if (read?.used && Object.keys(read.fields).length) {
+      const more = await bankFound(session, read.fields, ctx);
+      if (more.ended) return { ended: true, reply: more.ended };
+    }
+  }
+  return { ended: false };
+}
+
+/**
+ * The next question, from what the request actually has.
+ *
+ * Papers can arrive at any point now - attached to the very message that
+ * gives the chassis - so after a file the flow does not assume it is at the
+ * document step. Whatever is missing first is asked for first: a basic, then
+ * the MRN choice, then the papers; and when nothing is, the card.
+ */
+async function continueFrom(booking, ctx, { leads = [] } = {}) {
+  const missing = missingBasics(booking);
+  if (missing.length) {
+    const next = await askNextBasic(booking, ctx, { listMissing: true });
+    return reply([...leads, ...next.messages], next.patch);
+  }
+
+  if (!booking.mrn_choice) {
+    // A client who has just sent their MRN has answered "do you have one".
+    // Asking anyway is the kind of thing that makes a bot tiring to use.
+    const state = await bookingDocumentState({
+      bookingRef: booking.booking_ref, chatId: ctx.chatId, vin: booking.vin, mrnChoice: 'existing',
+    });
+    if (state.ok && state.received_types.includes('mrn')) {
+      const saved = await updateDraft(booking.booking_ref, { mrn_choice: 'existing', mrn_needed: false }, { chatId: ctx.chatId });
+      if (saved.ok) {
+        const next = await documentPrompt(saved.draft, ctx);
+        return reply([...leads, ...next.messages], next.patch);
+      }
+    }
+    return reply([...leads, say(M.askMrnChoice(), kb.mrnChoice())], { current_state: S.BOOK_MRN_CHOICE });
+  }
+
+  const next = await documentPrompt(booking, ctx);
+  return reply([...leads, ...next.messages], next.patch);
 }
 
 /**
@@ -942,38 +1027,67 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
 }
 
 /**
- * A file arrived while a booking is in progress.
+ * A file arrived while a booking is in progress - or several did, together.
  *
- * The caller has already stored it; this reports what it was and what is left.
- * Only what the database says was stored is acknowledged - "received" is never
- * said on the strength of an upload having been attempted.
+ * The transport has already stored and read it; this reports what it was and
+ * asks the next question. Only what the database says was stored is
+ * acknowledged - "received" is never said on the strength of an upload having
+ * been attempted.
+ *
+ * `batch` is every file that arrived with this one. Three papers sent as one
+ * album are three webhook calls; the transport lets only the last to finish
+ * reading come here, and it brings the others along, so the client gets one
+ * "received: invoice, brief, MRN" and one next question - not three answers,
+ * each with a shorter list of what is missing.
  */
-export async function handleDocumentArrived(session, { ingested }, ctx) {
+export async function handleDocumentArrived(session, { ingested, batch = [] }, ctx) {
   const booking = await bookingByRef(session.active_booking_ref);
   if (!booking) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
-  const type = ingested?.document?.doc_type ?? 'other';
-  const messages = [];
+  const mine = ingested?.document ?? null;
+  const arrived = batch.length ? batch : [mine].filter(Boolean);
+  const known = arrived.filter((d) => d.doc_type && d.doc_type !== 'other');
+  const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
 
-  if (type === 'other') {
-    // We will not guess. The client says what it is, and until they do the
-    // file is stored but counted as nothing.
-    const state = await bookingDocumentState({
-      bookingRef: booking.booking_ref, chatId: ctx.chatId,
-      vin: booking.vin, mrnChoice: booking.mrn_choice ?? 'existing',
-    });
-    const choices = state.ok && state.missing.length ? state.missing : ['invoice', 'brief', 'mrn'];
-    return reply(
-      say(M.documentUnknownType(), kb.classifyDocument(choices)),
-      { current_state: S.BOOK_DOCUMENT_CLASSIFY, context: { ...session.context, pending_document_id: ingested?.document?.id ?? null } },
-    );
+  const leads = [];
+  if (arrived.length === 1 && known.length === 1) {
+    const type = known[0].doc_type;
+    leads.push(say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type)));
+  } else if (known.length) {
+    const types = [...new Set(known.map((d) => d.doc_type))];
+    leads.push(say(M.documentsReceived(
+      types.map((t) => DOC_LABELS[t]?.[0] ?? t),
+      types.map((t) => DOC_LABELS[t]?.[1] ?? t),
+    )));
+  }
+  for (const d of known) logEvent('document_received', { booking_ref: booking.booking_ref, doc_type: d.doc_type });
+
+  // A file we could not tell the type of is not guessed at. The client says
+  // what it is - one at a time when several came together - and until they do
+  // the file is stored but counted as nothing.
+  if (unknown.length) {
+    const [first, ...rest] = unknown;
+    return askWhatItIs(session, booking, ctx, { document: first, remaining: rest.map((d) => d.id), leads });
   }
 
-  messages.push(say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type)));
-  logEvent('document_received', { booking_ref: booking.booking_ref, doc_type: type });
+  return continueFrom(booking, ctx, { leads });
+}
 
-  const next = await documentPrompt(booking, ctx);
-  return reply([...messages, ...next.messages], next.patch);
+async function askWhatItIs(session, booking, ctx, { document, remaining = [], leads = [] }) {
+  const state = await bookingDocumentState({
+    bookingRef: booking.booking_ref, chatId: ctx.chatId,
+    vin: booking.vin, mrnChoice: booking.mrn_choice ?? 'existing',
+  });
+  const choices = state.ok && state.missing.length ? state.missing : ['invoice', 'brief', 'mrn'];
+
+  const context = { ...session.context, pending_document_id: document?.id ?? null };
+  if (remaining.length) context.unclassified_document_ids = remaining;
+  else delete context.unclassified_document_ids;
+
+  return reply(
+    [...leads, say(M.documentUnknownType(document?.file_name ?? null), kb.classifyDocument(choices))],
+    { current_state: S.BOOK_DOCUMENT_CLASSIFY, context },
+  );
 }
 
 /** The client telling us what an unreadable file was. */
@@ -982,20 +1096,30 @@ export async function handleDocumentClassified(session, type, ctx) {
   const booking = await bookingByRef(session.active_booking_ref);
   if (!booking) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
+  const { db } = await import('../supabase.js');
+
   if (id && type && type !== 'other') {
-    const { db } = await import('../supabase.js');
     await db().from('booking_documents').update({ doc_type: type }).eq('id', id);
     logEvent('document_classified_by_client', { booking_ref: booking.booking_ref, doc_type: type });
   }
 
+  const leads = type && type !== 'other'
+    ? [say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type))]
+    : [];
+
+  // The next of the files that came together, if any is still unnamed.
+  const queue = [...(session.context?.unclassified_document_ids ?? [])];
+  if (queue.length) {
+    const [nextId, ...rest] = queue;
+    const { data: doc } = await db().from('booking_documents').select('id, file_name').eq('id', nextId).maybeSingle();
+    return askWhatItIs(session, booking, ctx, { document: doc ?? { id: nextId }, remaining: rest, leads });
+  }
+
   const context = { ...session.context };
   delete context.pending_document_id;
+  delete context.unclassified_document_ids;
 
-  const next = await documentPrompt(booking, ctx, {
-    lead: type && type !== 'other'
-      ? M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type)
-      : null,
-  });
+  const next = await continueFrom(booking, ctx, { leads });
   return reply(next.messages, { ...next.patch, context });
 }
 
@@ -1301,10 +1425,5 @@ export async function resumeDraft(session, decision, ctx) {
   const booking = await bookingByRef(session.active_booking_ref);
   if (!booking || booking.status !== 'draft') return newDraft(session, ctx);
 
-  const missing = missingBasics(booking);
-  if (missing.length) return askNextBasic(booking, ctx, { listMissing: true });
-  if (!booking.mrn_choice) {
-    return reply(say(M.askMrnChoice(), kb.mrnChoice()), { current_state: S.BOOK_MRN_CHOICE });
-  }
-  return backToConfirmation(session, ctx);
+  return continueFrom(booking, ctx);
 }

@@ -51,15 +51,14 @@ export const M = {
   ),
 
   // -- booking, step 1: who is booking ---------------------------------------
-  bookingStart: () => both(
-    '📦 تمام، يلا نبدأ الحجز.\n\n1️⃣ الخطوة الأولى من 3 - بياناتك.',
-    '📦 Let us start your booking.\n\nStep 1 of 3 — your details.',
+  // The opening and the first question are one message, not two: a second
+  // message is a second round trip to Telegram before the client sees anything.
+  bookingStartAskName: (suggestion) => both(
+    '📦 تمام، يلا نبدأ الحجز.\n\n1️⃣ الخطوة الأولى من 3 - بياناتك.\n\n' + askNameAr(suggestion),
+    '📦 Let us start your booking.\n\nStep 1 of 3 — your details.\n\n' + askNameEn(suggestion),
   ),
 
-  askClientName: (suggestion) => both(
-    `👤 الحجز هيتسجل باسم مين؟${suggestion ? `\n(لو "${suggestion}" مظبوط ابعت "تمام")` : ''}`,
-    `👤 What client name should we use for this booking?${suggestion ? `\n(If "${suggestion}" is right, reply "yes".)` : ''}`,
-  ),
+  askClientName: (suggestion) => both(askNameAr(suggestion), askNameEn(suggestion)),
 
   // Telegram hands over a verified number through the reply-keyboard button;
   // typing works too, and so does saying yes to the number we already hold.
@@ -92,16 +91,25 @@ export const M = {
     `Noted — I have ${email} as your email.\n\nI still need a mobile number we can call you on.`,
   ),
 
-  detailsComplete: (name) => both(
-    `✅ تمام${name ? ` يا ${name}` : ''}.\n\n2️⃣ الخطوة التانية من 3 - العربية وأوراقها.`,
-    `✅ Thank you${name ? `, ${name}` : ''}.\n\nStep 2 of 3 — the vehicle and its papers.`,
+  // Step 2 opens with the choice MKY wants the client to have: everything in
+  // one message with the papers attached, or one question at a time. One
+  // message, ending in the first question.
+  detailsCompleteAskVin: (name) => both(
+    `✅ تمام${name ? ` يا ${name}` : ''}.\n\n` +
+    '2️⃣ الخطوة التانية من 3 - العربية وأوراقها.\n\n' +
+    'تقدر تبعت كل حاجة في رسالة واحدة: رقم الشاسيه والماركة وميناء الشحن وميناء الوصول - ' +
+    'وارفق المستندات (الفاتورة، مستند النقل، الـ MRN) مع نفس الرسالة. أو واحدة واحدة، نبدأ من هنا:\n\n' +
+    ASK_VIN_AR,
+    `✅ Thank you${name ? `, ${name}` : ''}.\n\n` +
+    'Step 2 of 3 — the vehicle and its papers.\n\n' +
+    'You can send it all in one message: the chassis number, make, loading port and destination — ' +
+    'and attach the documents (invoice, transport document, MRN) to the same message. ' +
+    'Or one at a time, starting here:\n\n' +
+    ASK_VIN_EN,
   ),
 
   // -- booking, step 2: the vehicle -------------------------------------------
-  askVin: () => both(
-    '🚘 ابعتلي رقم الشاسيه / VIN بتاع الوحدة.',
-    '🚘 Please send your VIN / Chassis number.',
-  ),
+  askVin: () => both(ASK_VIN_AR, ASK_VIN_EN),
 
   vinTooShort: () => both(
     '⚠️ الرقم ده شكله مش رقم شاسيه كامل. ابعته تاني من فضلك، زي W1T96340310484233.',
@@ -214,14 +222,25 @@ What I need right now is ${needEn}.`,
     `✅ ${labelEn} received.`,
   ),
 
+  // Several files sent together are acknowledged together, once they have all
+  // been read - not one at a time with a shrinking list after each.
+  documentsReceived: (labelsAr, labelsEn) => both(
+    `✅ وصلنا: ${labelsAr.join('، ')}.`,
+    `✅ Received: ${labelsEn.join(', ')}.`,
+  ),
+
   documentReading: (fileName) => both(
     `استلمت ${fileName}، بقرأه دلوقتي…`,
     `Got ${fileName} — reading it now…`,
   ),
 
-  documentUnknownType: () => both(
-    '📄 وصلني الملف بس مش متأكد نوعه. هو إيه؟',
-    '📄 I have the file, but I am not sure what it is. Which document is it?',
+  documentUnknownType: (fileName = null) => both(
+    fileName
+      ? `📄 وصلني ${fileName} بس مش متأكد نوعه. هو إيه؟`
+      : '📄 وصلني الملف بس مش متأكد نوعه. هو إيه؟',
+    fileName
+      ? `📄 I have ${fileName}, but I am not sure what it is. Which document is it?`
+      : '📄 I have the file, but I am not sure what it is. Which document is it?',
   ),
 
   documentRejectedType: (mime, allowed) => both(
@@ -480,6 +499,17 @@ What I need right now is ${needEn}.`,
     'This account is on hold with us. Please contact our Operations Team.',
   ),
 };
+
+const ASK_VIN_AR = '🚘 ابعتلي رقم الشاسيه / VIN بتاع الوحدة.';
+const ASK_VIN_EN = '🚘 Please send your VIN / Chassis number.';
+
+function askNameAr(suggestion) {
+  return `👤 الحجز هيتسجل باسم مين؟${suggestion ? `\n(لو "${suggestion}" مظبوط ابعت "تمام")` : ''}`;
+}
+
+function askNameEn(suggestion) {
+  return `👤 What client name should we use for this booking?${suggestion ? `\n(If "${suggestion}" is right, reply "yes".)` : ''}`;
+}
 
 /** "9 AM", "7 PM" - the hours the desk keeps, said the way people say them. */
 function hourEn(h) {

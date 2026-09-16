@@ -183,6 +183,30 @@ A document whose own chassis number disagrees with the booking is neither
 received nor missing — it is its own problem, reported before anything else,
 because a mismatch is what gets a customs declaration rejected.
 
+### Several files at once
+
+Three papers sent together are three webhook calls, running at the same time,
+each taking seconds to read. Each records its file the moment it arrives
+(`beginDocument`, marked "still reading"), reads it (`completeDocument`), and
+then looks at what else arrived in the last two minutes. While any sibling is
+still being read it says nothing; the last to finish answers for all of them,
+with the others in `batch`. A caption on any of them is read by every one of
+them, so the details land whichever file speaks. Album items get a moment's
+grace before looking, in case a sibling on a cold instance has not recorded
+itself yet.
+
+---
+
+## Where the time goes
+
+The bot runs in Frankfurt (`regions` in `vercel.json`), next to its database.
+Every database call from the default Washington region crossed the Atlantic,
+and a tap makes several. Nothing that does not change the reply — the button
+acknowledgement, the typing indicator, the audit row, the pinned card — is
+waited for before the reply goes out; `lib/background.js` holds them and the
+transport waits for all of them just before it returns, because a promise
+still in flight when a serverless function answers may never complete.
+
 ---
 
 ## Nothing important is sent from a handler

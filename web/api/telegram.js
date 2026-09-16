@@ -16,11 +16,16 @@
  * The state machine runs FIRST and the model runs second. That is the whole
  * architecture in one line: business decisions are made from database rows, and
  * the model is there to answer questions and read values out of sentences.
+ *
+ * Everything that does not change what the client is told - the button
+ * acknowledgement, the typing indicator, the audit row, the pinned card - is
+ * started and left to run (lib/background.js) and waited for only at the end.
+ * Each was a network round trip in front of the reply, and together they were
+ * most of why a tap felt slow.
  */
 
 import { randomUUID } from 'node:crypto';
 import { config } from '../lib/config.js';
-import { respond, splitLanguages } from '../lib/agent.js';
 import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import {
@@ -33,12 +38,21 @@ import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
 import { upsertTelegramClient } from '../lib/clients.js';
 import { noteClientResponse } from '../lib/bookings.js';
-import { ingestDocument } from '../lib/documents.js';
+import {
+  beginDocument, completeDocument, abandonDocument, recentUploads, stillReading,
+} from '../lib/documents.js';
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
 import { audit, logEvent } from '../lib/audit.js';
 import { refreshPinSafely } from '../lib/pinned.js';
 import { drain } from '../lib/outbox.js';
+import { defer, flush } from '../lib/background.js';
+
+/** Answers Telegram - after everything left running has finished. */
+async function answer(res, body) {
+  await flush();
+  return res.status(200).json(body);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -62,12 +76,8 @@ export default async function handler(req, res) {
   // A tapped button is acknowledged before anything that can be slow or can
   // fail. Telegram spins for a few seconds and then shows the client a dead
   // button, and that happens whether or not the work behind it succeeded.
-  //
-  // Sent, not waited for: nothing below depends on Telegram's answer, and
-  // waiting for it put a whole round trip in front of every reply to a tap.
-  // answerCallback never throws; it is awaited at the end so the function does
-  // not return with the request still in flight.
-  const acknowledged = callbackQuery ? answerCallback(callbackQuery.id) : Promise.resolve();
+  // Sent, not waited for: nothing below depends on Telegram's answer.
+  if (callbackQuery) defer(answerCallback(callbackQuery.id));
 
   // The client record is refreshed on every update and the refresh is
   // idempotent, so it goes out in the same breath as the claim below rather
@@ -81,6 +91,15 @@ export default async function handler(req, res) {
         lastName: from.last_name,
       }).catch((err) => { console.error('client upsert failed:', err?.message); return null; })
     : Promise.resolve(null);
+  defer(clientPromise);
+
+  // Anything the client sends while we are waiting on them brings the request
+  // back to the desk. Started now, alongside the claim, and waited for before
+  // the flow runs, so the status the flow reads is already the reopened one.
+  const notedPromise = noteClientResponse(chatId, {
+    clientId: clientPromise.then((c) => c?.id ?? null),
+  }).catch(() => null);
+  defer(notedPromise);
 
   // Claimed in one statement, so two workers handling the same retried update
   // cannot both proceed. A crashed worker's claim becomes reclaimable after a
@@ -88,8 +107,7 @@ export default async function handler(req, res) {
   const claimed = await claimUpdate(update.update_id, chatId);
   if (!claimed) {
     logEvent('telegram_update_duplicate', { update_id: update.update_id, correlation_id: correlationId });
-    await acknowledged;
-    return res.status(200).json({ ok: true, duplicate: true });
+    return answer(res, { ok: true, duplicate: true });
   }
 
   logEvent('telegram_update_received', {
@@ -114,8 +132,7 @@ export default async function handler(req, res) {
     if (client?.is_blocked) {
       await sendMessage(chatId, M.blocked());
       await finishUpdate(update.update_id, 'processed');
-      await acknowledged;
-      return res.status(200).json({ ok: true, blocked: true });
+      return answer(res, { ok: true, blocked: true });
     }
 
     const input = await readInput(update, ctx);
@@ -125,8 +142,7 @@ export default async function handler(req, res) {
     if (input.kind === 'command' && input.command === '/reset') {
       await handleReset(ctx);
       await finishUpdate(update.update_id, 'processed');
-      await acknowledged;
-      return res.status(200).json({ ok: true });
+      return answer(res, { ok: true });
     }
 
     // /start and /menu are the moments a client puts the chat back in order, so
@@ -135,30 +151,22 @@ export default async function handler(req, res) {
     // anything else - a booking removed outside the flow, a chat restored on a
     // new device - stays at the top advertising something that is over.
     if (input.kind === 'command' && (input.command === '/start' || input.command === '/menu')) {
-      refreshPinSafely(ctx.chatId).catch(() => null);
+      defer(refreshPinSafely(ctx.chatId));
     }
 
     if (input.kind === 'rejected') {
       await sendMessage(chatId, input.text, { inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
-      await acknowledged;
-      return res.status(200).json({ ok: true });
+      return answer(res, { ok: true });
     }
 
     if (input.kind === 'ignore') {
       await finishUpdate(update.update_id, 'processed');
-      await acknowledged;
-      return res.status(200).json({ ok: true, skipped: true });
+      return answer(res, { ok: true, skipped: true });
     }
 
-    // Anything the client sends while we are waiting on them brings the request
-    // back to the desk. Done before the flow runs, so the status the flow reads
-    // is already the reopened one. The typing indicator goes out alongside it;
-    // neither waits for the other.
-    await Promise.all([
-      noteClientResponse(chatId, { clientId: ctx.clientId }).catch(() => null),
-      sendTyping(chatId).catch(() => null),
-    ]);
+    await notedPromise;
+    if (input.kind !== 'document') defer(sendTyping(chatId));
 
     const flow = await runFlow(input, ctx);
 
@@ -182,6 +190,10 @@ export default async function handler(req, res) {
       // Nothing was being asked and the text is not a menu choice, so it is a
       // question. The assistant answers it; the flow state is untouched, so a
       // client who asks something mid-booking keeps their booking.
+      //
+      // Loaded here rather than at the top: the assistant and its tool sheet
+      // are the largest thing in this function, and a tap never needs them.
+      const { respond } = await import('../lib/agent.js');
       const { reply } = await respond(input.text ?? '', ctx);
       await sendMessage(chatId, reply, { inline: kb.mainMenu() });
     }
@@ -195,8 +207,7 @@ export default async function handler(req, res) {
     logEvent('telegram_update_processed', {
       update_id: update.update_id, correlation_id: correlationId, state: flow.state, handled: flow.handled,
     });
-    await acknowledged;
-    return res.status(200).json({ ok: true });
+    return answer(res, { ok: true });
   } catch (err) {
     console.error(`telegram handler error [${correlationId}]:`, err);
     logEvent('telegram_update_failed', {
@@ -210,8 +221,7 @@ export default async function handler(req, res) {
       await sendMessage(chatId, M.recoverableError(correlationId), { inline: kb.errorRecovery() });
     } catch { /* best effort */ }
 
-    await acknowledged;
-    return res.status(200).json({ ok: true, error: true });
+    return answer(res, { ok: true, error: true });
   }
 }
 
@@ -282,12 +292,24 @@ function fileFrom(message) {
   return null;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Files that arrived close enough together to have been sent together. */
+const BATCH_WINDOW_MS = 45_000;
+
 /**
- * Validates, downloads and files an incoming document.
+ * Validates, records, downloads and files an incoming document.
  *
  * Validation happens BEFORE the bytes are fetched, so an oversized or
  * unsupported file costs one Telegram round trip rather than a download and a
  * storage write.
+ *
+ * Several files sent at once are several calls to this function, running at
+ * the same time. Each records its file the moment it arrives (beginDocument),
+ * reads it, and then looks at what else has arrived: while any sibling is
+ * still being read it says nothing, and the last to finish answers for all of
+ * them. Three papers sent together used to get three answers, each with a
+ * shorter list of what was missing.
  */
 async function handleIncomingFile(file, message, ctx) {
   const cfg = await settings();
@@ -305,9 +327,6 @@ async function handleIncomingFile(file, message, ctx) {
     };
   }
 
-  await sendMessage(ctx.chatId, M.documentReading(file.fileName));
-  await sendTyping(ctx.chatId);
-
   // Which request do these papers belong to? The one this conversation is
   // working on. Attaching them by chat rather than guessing from the content is
   // what stopped an invoice being filed against another vehicle's booking.
@@ -320,12 +339,10 @@ async function handleIncomingFile(file, message, ctx) {
     .limit(1)
     .maybeSingle();
 
-  const { buffer, fileName } = await downloadFile(file.fileId);
-
-  const ingested = await ingestDocument({
-    buffer,
-    fileName: file.fileName || fileName,
+  const begun = await beginDocument({
+    fileName: file.fileName,
     mimeType: file.mimeType,
+    size: file.size,
     chatId: ctx.chatId,
     channel: 'telegram',
     bookingRef: open?.booking_ref ?? null,
@@ -335,19 +352,63 @@ async function handleIncomingFile(file, message, ctx) {
     telegramMessageId: message?.message_id ?? null,
     uploadedBy: ctx.userName ?? null,
   });
+  if (!begun.ok) return { kind: 'rejected', text: M.documentSaveFailed() };
+
+  // "Reading it now" once per batch, not once per file: the first to arrive
+  // says it, and a file whose siblings are already being read stays quiet.
+  const alreadyReading = (await recentUploads(ctx.chatId))
+    .some((d) => d.id !== begun.document.id && stillReading(d));
+  if (!alreadyReading) defer(sendMessage(ctx.chatId, M.documentReading(file.fileName)));
+  defer(sendTyping(ctx.chatId));
+
+  let ingested;
+  try {
+    const { buffer, fileName } = await downloadFile(file.fileId);
+    ingested = await completeDocument(begun.document.id, {
+      buffer,
+      fileName: file.fileName || fileName,
+      mimeType: file.mimeType,
+      chatId: ctx.chatId,
+      bookingRef: open?.booking_ref ?? null,
+      clientId: ctx.clientId ?? null,
+    });
+  } catch (err) {
+    await abandonDocument(begun.document.id, err?.message).catch(() => null);
+    throw err;
+  }
 
   if (!ingested.ok) {
     return { kind: 'rejected', text: M.documentSaveFailed() };
   }
 
-  await audit({
+  audit({
     actor_type: 'client', actor_id: ctx.chatId,
     action: 'document_received',
     entity_type: 'booking_document', entity_id: ingested.document?.id,
     metadata: { doc_type: ingested.document?.doc_type, booking_ref: open?.booking_ref },
   });
 
-  return { kind: 'document', document: ingested };
+  // An album's items arrive within a second of each other, but a sibling on a
+  // cold instance may not have recorded itself yet. A moment's grace before
+  // looking is what keeps a fast-read first file from answering alone.
+  if (message?.media_group_id) await sleep(1500);
+
+  const recent = await recentUploads(ctx.chatId);
+  const mine = ingested.document;
+  const speak = !recent.some((d) => d.id !== mine.id && stillReading(d));
+  const arrivedAt = new Date(mine.uploaded_at ?? Date.now()).getTime();
+  const batch = recent.filter((d) =>
+    !stillReading(d) && Math.abs(new Date(d.uploaded_at).getTime() - arrivedAt) <= BATCH_WINDOW_MS);
+
+  return {
+    kind: 'document',
+    document: ingested,
+    // What was written on the file. Step 2 invites the whole booking in one
+    // message with the papers attached; this is where that message is.
+    caption: (message?.caption ?? '').trim(),
+    speak,
+    batch,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +451,7 @@ async function finishUpdate(updateId, status, error = null) {
 // ---------------------------------------------------------------------------
 
 async function handleReset(ctx) {
+  const { splitLanguages } = await import('../lib/agent.js');
   const { drafts } = await forgetConversation(ctx.channel, ctx.chatId);
   await clearSession(ctx.channel, ctx.chatId);
   await sweepChat(ctx.chatId, ctx.messageId, 400);

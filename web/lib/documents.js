@@ -33,42 +33,35 @@ export const DOC_LABELS_AR = {
 };
 
 /**
- * Full path for one incoming file: store, read, extract, record.
+ * Records that a file has arrived, before anything slow happens to it.
  *
- * @param {{buffer: Buffer, fileName: string, mimeType: string,
- *          chatId: string|number, channel: string, bookingRef?: string}} file
+ * Reading a document takes seconds - a model reads a scan - and three papers
+ * sent together are three separate webhook calls running at once. Until each
+ * had a row the others could not know it existed, and each answered on its
+ * own: "invoice received, two still missing", then "brief received, one
+ * missing", then the card. So the row goes in first, marked as still being
+ * read, and completeDocument() fills it in when the reading is done. The
+ * transport uses stillReading() over recentUploads() to let only the last of
+ * them speak.
+ *
+ * @returns {Promise<{ok: true, document: object, replaced: boolean}|{ok: false, error: string}>}
  */
-export async function ingestDocument({
-  buffer, fileName, mimeType, chatId, channel = 'telegram', bookingRef = null,
+export async function beginDocument({
+  fileName, mimeType, size = 0, chatId, channel = 'telegram', bookingRef = null,
   telegramFileId = null, telegramFileUniqueId = null, telegramMessageId = null,
-  clientId = null, uploadedBy = null, docTypeHint = null,
+  clientId = null, uploadedBy = null,
 }) {
-  const stored = await storeDocument({ chatId, fileName, mimeType, buffer, bookingRef, clientId });
-
-  const read = await readDocument({ buffer, mimeType, fileName });
-  const extracted = read.text
-    ? await extractDocument(read.text, { fileName })
-    : { ok: false, needs_ocr: true, doc_type: 'other', message: read.error };
-
-  // What the flow ASKED for beats what the reader guessed, but only when the
-  // reader could not tell. A hint must never overwrite a confident reading: a
-  // client who sends the MRN while we are asking for the invoice has sent the
-  // MRN, and filing it as an invoice would then report both wrongly.
-  const readType = extracted.doc_type && extracted.doc_type !== 'other' ? extracted.doc_type : null;
-  const docType = readType ?? docTypeHint ?? 'other';
-
   const row = {
     booking_ref: bookingRef,
     chat_id: String(chatId),
     client_id: clientId,
     channel,
-    vin: extracted.vin ?? null,
-    doc_type: docType,
+    vin: null,
+    doc_type: 'other',
     file_name: fileName,
-    storage_path: stored.path ?? null,
-    storage_bucket: stored.bucket ?? null,
+    storage_path: null,
     mime_type: mimeType,
-    size_bytes: buffer.length,
+    size_bytes: size,
     telegram_file_id: telegramFileId,
     telegram_file_unique_id: telegramFileUniqueId,
     telegram_message_id: telegramMessageId,
@@ -76,9 +69,10 @@ export async function ingestDocument({
     // Received. NOT verified - that word belongs to Operations, and the
     // difference is the whole point of having two columns.
     status: 'received',
-    extracted: { ...extracted, read_via: read.source, type_from: readType ? 'reader' : docTypeHint ? 'client' : 'unknown' },
-    extraction_ok: Boolean(extracted.ok),
-    needs_ocr: read.source === 'none',
+    extracted: { pending: true },
+    extraction_ok: false,
+    needs_ocr: false,
+    uploaded_at: new Date().toISOString(),
   };
 
   // The same file sent again is the same document. Customers resend after a
@@ -91,7 +85,7 @@ export async function ingestDocument({
     .eq('chat_id', String(chatId))
     .limit(1);
   if (telegramFileUniqueId) dedupe.eq('telegram_file_unique_id', telegramFileUniqueId);
-  else dedupe.eq('file_name', fileName).eq('size_bytes', buffer.length);
+  else dedupe.eq('file_name', fileName).eq('size_bytes', size);
   const { data: already } = await dedupe.maybeSingle();
 
   const write = already
@@ -101,6 +95,67 @@ export async function ingestDocument({
   const { data, error } = await write.select().single();
   if (error) {
     console.error('booking_documents insert failed:', error.message);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, document: data, replaced: Boolean(already) };
+}
+
+/**
+ * The slow half: store the bytes, read the file, work out what it is, and
+ * fill in the row beginDocument() wrote. Whatever happens, the row stops
+ * being "still reading" when this returns - a file that could not be read is
+ * a file that arrived, not one that is arriving forever.
+ */
+export async function completeDocument(documentId, {
+  buffer, fileName, mimeType, chatId, bookingRef = null, clientId = null, docTypeHint = null,
+}) {
+  let stored = { path: null, bucket: null, error: null };
+  let read;
+  let extracted;
+  try {
+    stored = await storeDocument({ chatId, fileName, mimeType, buffer, bookingRef, clientId });
+    read = await readDocument({ buffer, mimeType, fileName });
+    extracted = read.text
+      ? await extractDocument(read.text, { fileName })
+      : { ok: false, needs_ocr: true, doc_type: 'other', message: read.error };
+  } catch (err) {
+    await abandonDocument(documentId, err?.message);
+    throw err;
+  }
+
+  // What the flow ASKED for beats what the reader guessed, but only when the
+  // reader could not tell. A hint must never overwrite a confident reading: a
+  // client who sends the MRN while we are asking for the invoice has sent the
+  // MRN, and filing it as an invoice would then report both wrongly.
+  const readType = extracted.doc_type && extracted.doc_type !== 'other' ? extracted.doc_type : null;
+  const docType = readType ?? docTypeHint ?? 'other';
+
+  const patch = {
+    vin: extracted.vin ?? null,
+    doc_type: docType,
+    file_name: fileName,
+    storage_path: stored.path ?? null,
+    storage_bucket: stored.bucket ?? null,
+    size_bytes: buffer.length,
+    extracted: {
+      ...extracted,
+      pending: false,
+      read_via: read.source,
+      type_from: readType ? 'reader' : docTypeHint ? 'client' : 'unknown',
+    },
+    extraction_ok: Boolean(extracted.ok),
+    needs_ocr: read.source === 'none',
+  };
+
+  const { data, error } = await db()
+    .from('booking_documents')
+    .update(patch)
+    .eq('id', documentId)
+    .select()
+    .single();
+  if (error) {
+    console.error('booking_documents update failed:', error.message);
+    await abandonDocument(documentId, error.message);
     return { ok: false, error: error.message, extracted };
   }
 
@@ -119,6 +174,54 @@ export async function ingestDocument({
     bookingRef: attachedTo,
     storageError: stored.error,
   };
+}
+
+/** A file whose reading failed part-way is no longer "still reading". */
+export async function abandonDocument(documentId, reason = null) {
+  if (!documentId) return;
+  await db()
+    .from('booking_documents')
+    .update({ extracted: { pending: false, ok: false, doc_type: 'other', message: reason ?? 'reading failed' } })
+    .eq('id', documentId);
+}
+
+/**
+ * Full path for one incoming file: record, store, read, extract, fill in.
+ *
+ * @param {{buffer: Buffer, fileName: string, mimeType: string,
+ *          chatId: string|number, channel: string, bookingRef?: string}} file
+ */
+export async function ingestDocument(file) {
+  const begun = await beginDocument({ ...file, size: file.buffer?.length ?? 0 });
+  if (!begun.ok) return { ok: false, error: begun.error, extracted: {} };
+  return completeDocument(begun.document.id, file);
+}
+
+/** Is this row a file that has arrived but has not finished being read? */
+export function stillReading(doc) {
+  return doc?.extracted?.pending === true;
+}
+
+/**
+ * Files from this chat that arrived in the last couple of minutes, oldest
+ * first - the ones that could be part of the same batch as a file arriving
+ * now. The window bounds the damage a row stuck "still reading" can do.
+ */
+export async function recentUploads(chatId, { withinMs = 120_000 } = {}) {
+  const since = new Date(Date.now() - withinMs).toISOString();
+  const { data, error } = await db()
+    .from('booking_documents')
+    .select('id, doc_type, file_name, vin, extracted, uploaded_at, booking_ref, telegram_message_id')
+    .eq('chat_id', String(chatId))
+    .gte('uploaded_at', since)
+    .is('deleted_at', null)
+    .order('uploaded_at', { ascending: true })
+    .limit(20);
+  if (error) {
+    console.error('recent uploads read failed:', error.message);
+    return [];
+  }
+  return data ?? [];
 }
 
 /**

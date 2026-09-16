@@ -202,6 +202,28 @@ Tap **📦 Book my shipment**, then paste any kit block from above at the very
 first question. It goes straight to the MRN question. Leave the `Mobile` line
 out and it asks for the number, then goes to the MRN question.
 
+**With the papers attached — the one to film.** Answer the name and number,
+then, in Telegram, select `takeA-invoice.pdf`, `takeA-cmr-transport.pdf` and
+`takeA-mrn-export-declaration.pdf` together and write this as the caption:
+
+```
+Chassis: WMA06XZZ8KM745219
+Make: MAN TGX 18.500
+Loading: Hamburg
+Destination: Port Said
+```
+
+One reply: *Received: Invoice, Brief, MRN* — then straight to the summary
+card. The details on the caption are read, the three files are read, and
+because an MRN is among them the MRN question is not asked.
+
+## 1c′. Several files at once
+
+Send three PDFs together at any point. Each is read, and **one** answer comes
+back once the last of them is done — not three answers, each listing fewer
+missing documents than the one before. A file the bot cannot classify is asked
+about by name, one at a time, after the ones it could.
+
 ## 1c. Talking normally — no fixed phrases
 
 Start a fresh booking and send these, one message at a time:

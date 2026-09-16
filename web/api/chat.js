@@ -22,6 +22,7 @@ import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
 import { parseCallback } from '../lib/flow/keyboards.js';
 import { logEvent } from '../lib/audit.js';
+import { flush } from '../lib/background.js';
 
 const MAX_MESSAGE_CHARS = 1500;
 
@@ -79,15 +80,20 @@ export default async function handler(req, res) {
         : '';
 
       logEvent('web_flow_handled', { session: sessionId, state: flow.state, correlation_id: correlationId });
+      // Audit rows and the like are written in the background; they finish
+      // before the function returns, not after it has been frozen.
+      await flush();
       return res.status(200).json({ reply: body + numbered, options, state: flow.state, toolsUsed: [] });
     }
 
     // Nothing was being asked and it is not a menu choice: a question for the
     // knowledge assistant.
     const { reply, toolsUsed } = await respond(text, ctx);
+    await flush();
     return res.status(200).json({ reply, options: [], toolsUsed });
   } catch (err) {
     console.error(`chat handler error [${correlationId}]:`, err);
+    await flush().catch(() => null);
     return res.status(500).json({
       error: 'The assistant is unavailable right now. Please try again shortly.',
       ref: correlationId,

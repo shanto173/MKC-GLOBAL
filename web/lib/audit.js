@@ -11,6 +11,7 @@
  */
 
 import { db } from './supabase.js';
+import { defer } from './background.js';
 
 /** Keys that must never reach the log, whatever a caller passes. */
 const FORBIDDEN = /(token|secret|key|password|authorization|cookie|buffer|content|base64|file_bytes)/i;
@@ -43,11 +44,19 @@ export function redact(metadata) {
 }
 
 /**
+ * Records an event. Awaiting the result is optional: the write is registered
+ * with lib/background.js, so a caller on a hot path may fire it and move on,
+ * and the transport waits for it before the function returns.
+ *
  * @param {{actor_type: 'client'|'operator'|'system', actor_id?: string|number,
  *          action: string, entity_type?: string, entity_id?: string|number,
  *          metadata?: object}} event
  */
-export async function audit(event) {
+export function audit(event) {
+  return defer(writeAudit(event));
+}
+
+async function writeAudit(event) {
   try {
     const { error } = await db().from('audit_logs').insert({
       actor_type: event.actor_type ?? 'system',
