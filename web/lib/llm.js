@@ -1,6 +1,13 @@
 /**
- * Thin provider adapter over OpenAI and Anthropic, using plain fetch so the
- * deployed function stays dependency-light.
+ * Thin provider adapter over OpenAI, Groq and Anthropic, using plain fetch so
+ * the deployed function stays dependency-light.
+ *
+ * Groq speaks OpenAI's request format, so it shares OpenAI's code. With
+ * LLM_PROVIDER=groq it is asked first and OpenAI answers whenever Groq cannot -
+ * a rate limit, an outage, a tool call it fumbled - so the customer gets an
+ * answer rather than an apology. Groq is given less time and fewer retries than
+ * a lone provider would be: a serverless function has 60 seconds, and a Groq
+ * call that used 45 of them would leave OpenAI none.
  *
  * Internal message shape (provider independent):
  *   { role: 'user',      content: string }
@@ -35,9 +42,10 @@ function retryAfterMs(res, text, attempt) {
   return Math.min(1200 * 2 ** attempt, 20_000);
 }
 
-async function postJson(url, headers, body, attempt = 0) {
+async function postJson(url, headers, body, attempt = 0, limits = {}) {
+  const { timeoutMs = TIMEOUT_MS, retries = 3, maxWaitMs = 20_000 } = limits;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -50,12 +58,16 @@ async function postJson(url, headers, body, attempt = 0) {
     // 429 is "wait, then ask again", not a failure. 500 and 503 are the
     // provider having a moment; both are worth one more try before the
     // customer is told anything.
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    if ((res.status === 429 || res.status >= 500) && attempt < retries) {
       const wait = retryAfterMs(res, text, attempt);
-      console.warn(`llm ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1})`);
-      clearTimeout(timer);
-      await new Promise((r) => setTimeout(r, wait));
-      return postJson(url, headers, body, attempt + 1);
+      // A wait longer than allowed is not worth making: with a fallback behind
+      // this provider, asking the fallback now is quicker than waiting here.
+      if (wait <= maxWaitMs) {
+        console.warn(`llm ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1})`);
+        clearTimeout(timer);
+        await new Promise((r) => setTimeout(r, wait));
+        return postJson(url, headers, body, attempt + 1, limits);
+      }
     }
 
     if (!res.ok) {
@@ -71,13 +83,17 @@ async function postJson(url, headers, body, attempt = 0) {
 // OpenAI
 // ---------------------------------------------------------------------------
 
-function toOpenAiMessages(system, messages) {
+function toOpenAiMessages(system, messages, { plainImages = false } = {}) {
   const out = [{ role: 'system', content: system }];
   for (const m of messages) {
     // Content may be an array of parts when the message carries an image; pass
-    // it through untouched so scans and photographs reach the model.
+    // it through so scans and photographs reach the model. OpenAI's "detail"
+    // hint is OpenAI's own, and is left off for anyone else.
     if (Array.isArray(m.content) && m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      const content = plainImages
+        ? m.content.map((p) => (p?.type === 'image_url' ? { type: 'image_url', image_url: { url: p.image_url?.url } } : p))
+        : m.content;
+      out.push({ role: 'user', content });
     } else if (m.role === 'tool') {
       out.push({ role: 'tool', tool_call_id: m.tool_call_id, content: m.content });
     } else if (m.role === 'assistant' && m.tool_calls?.length) {
@@ -97,11 +113,16 @@ function toOpenAiMessages(system, messages) {
   return out;
 }
 
-async function openaiChat({ system, messages, tools, fast = false }) {
+/**
+ * One chat completion against an endpoint that speaks OpenAI's format: OpenAI
+ * itself, or Groq. `extra` carries provider-specific body fields.
+ */
+async function compatibleChat({ url, key, model, system, messages, tools, limits = {}, plainImages = false, extra = {} }) {
   const body = {
-    model: fast ? config.llm.openaiFastModel : config.llm.openaiModel,
-    messages: toOpenAiMessages(system, messages),
+    model,
+    messages: toOpenAiMessages(system, messages, { plainImages }),
     temperature: 0.2,
+    ...extra,
   };
   if (tools?.length) {
     body.tools = tools.map((t) => ({
@@ -111,17 +132,16 @@ async function openaiChat({ system, messages, tools, fast = false }) {
     body.tool_choice = 'auto';
   }
 
-  const url = 'https://api.openai.com/v1/chat/completions';
-  const headers = { authorization: `Bearer ${config.llm.openaiKey}` };
+  const headers = { authorization: `Bearer ${key}` };
 
   let data;
   try {
-    data = await postJson(url, headers, body);
+    data = await postJson(url, headers, body, 0, limits);
   } catch (err) {
     // Reasoning models (the gpt-5 family) reject an explicit temperature.
     if (/temperature/i.test(err.message)) {
       delete body.temperature;
-      data = await postJson(url, headers, body);
+      data = await postJson(url, headers, body, 0, limits);
     } else {
       throw err;
     }
@@ -133,7 +153,55 @@ async function openaiChat({ system, messages, tools, fast = false }) {
     name: c.function?.name,
     args: safeParse(c.function?.arguments),
   }));
-  return { content: choice.content || '', toolCalls };
+  return { content: withoutThinking(choice.content || ''), toolCalls };
+}
+
+/**
+ * A reasoning model's working-out, when it arrives inline as <think>…</think>.
+ * Hidden by request (reasoning_format), and stripped here in case it is not: a
+ * transcription that opened with the model talking to itself would be read as
+ * the document.
+ */
+function withoutThinking(text) {
+  return String(text).replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+}
+
+async function openaiChat({ system, messages, tools, fast = false }) {
+  return compatibleChat({
+    url: 'https://api.openai.com/v1/chat/completions',
+    key: config.llm.openaiKey,
+    model: fast ? config.llm.openaiFastModel : config.llm.openaiModel,
+    system, messages, tools,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Groq
+// ---------------------------------------------------------------------------
+
+const carriesImage = (messages) => messages.some(
+  (m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'),
+);
+
+/** The model this request goes to: one that sees, for a scan; the fast one for bulk work. */
+export function groqModelFor({ messages, fast = false }) {
+  if (carriesImage(messages)) return config.llm.groqVisionModel;
+  return fast ? config.llm.groqFastModel : config.llm.groqModel;
+}
+
+async function groqChat({ system, messages, tools, fast = false }) {
+  const model = groqModelFor({ messages, fast });
+  return compatibleChat({
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    key: config.llm.groqKey,
+    model,
+    system, messages, tools,
+    plainImages: true,
+    // Qwen thinks out loud unless told not to show it.
+    extra: /qwen/i.test(model) ? { reasoning_format: 'hidden' } : {},
+    // OpenAI is behind Groq: a short leash, so a slow Groq leaves OpenAI time.
+    limits: config.llm.openaiKey ? { timeoutMs: 20_000, retries: 1, maxWaitMs: 4_000 } : {},
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +272,25 @@ async function anthropicChat({ system, messages, tools }) {
 // Public API
 // ---------------------------------------------------------------------------
 
-/** One turn of chat completion, possibly returning tool calls to execute. */
+/**
+ * One turn of chat completion, possibly returning tool calls to execute.
+ *
+ * With LLM_PROVIDER=groq, Groq answers and OpenAI stands behind it: anything
+ * Groq cannot do - a rate limit past its short wait, an outage, a malformed
+ * tool call (Groq refuses those with a 400) - is asked of OpenAI instead.
+ */
 export async function chat({ system, messages, tools, fast = false }) {
-  return config.llm.provider === 'anthropic'
-    ? anthropicChat({ system, messages, tools })
-    : openaiChat({ system, messages, tools, fast });
+  if (config.llm.provider === 'anthropic') return anthropicChat({ system, messages, tools });
+  if (config.llm.provider === 'groq' && config.llm.groqKey) {
+    try {
+      return await groqChat({ system, messages, tools, fast });
+    } catch (err) {
+      if (!config.llm.openaiKey) throw err;
+      console.warn(`llm: groq failed, answering with openai instead: ${String(err?.message ?? err).slice(0, 300)}`);
+      return openaiChat({ system, messages, tools, fast });
+    }
+  }
+  return openaiChat({ system, messages, tools, fast });
 }
 
 /**

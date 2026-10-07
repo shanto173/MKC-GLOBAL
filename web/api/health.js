@@ -73,7 +73,9 @@ async function healthView(req, res) {
     // Surfaced so branding can be checked without messaging the bot.
     company: config.companyName,
     reference_prefix: config.refPrefix,
-    model: config.llm.provider === 'anthropic' ? config.llm.anthropicModel : config.llm.openaiModel,
+    model: config.llm.provider === 'anthropic' ? config.llm.anthropicModel
+      : config.llm.provider === 'groq' && config.llm.groqKey ? config.llm.groqModel
+        : config.llm.openaiModel,
   };
 
   const checks = {
@@ -82,7 +84,11 @@ async function healthView(req, res) {
     telegram_token: Boolean(config.telegram.token),
     telegram_webhook_secret: Boolean(config.telegram.webhookSecret),
     llm_provider: config.llm.provider,
-    llm_key: config.llm.provider === 'anthropic' ? Boolean(config.llm.anthropicKey) : Boolean(config.llm.openaiKey),
+    llm_key: config.llm.provider === 'anthropic' ? Boolean(config.llm.anthropicKey)
+      : config.llm.provider === 'groq' ? Boolean(config.llm.groqKey || config.llm.openaiKey)
+        : Boolean(config.llm.openaiKey),
+    // Who answers when Groq cannot.
+    ...(config.llm.provider === 'groq' ? { llm_fallback: config.llm.openaiKey ? 'openai' : 'none', groq_key: Boolean(config.llm.groqKey) } : {}),
     embeddings: Boolean(config.llm.openaiKey),
   };
 
@@ -173,7 +179,10 @@ async function healthView(req, res) {
   if (!checks.supabase_key) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!checks.telegram_token) missing.push('TELEGRAM_BOT_TOKEN');
   if (!checks.telegram_webhook_secret) missing.push('TELEGRAM_WEBHOOK_SECRET');
-  if (!checks.llm_key) missing.push(config.llm.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  if (!checks.llm_key) {
+    missing.push(config.llm.provider === 'anthropic' ? 'ANTHROPIC_API_KEY'
+      : config.llm.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY');
+  }
   if (missing.length) checks.missing_env = missing;
 
   const booking_engine = {

@@ -90,6 +90,15 @@ export const config = {
     anthropicKey: env.ANTHROPIC_API_KEY || '',
     anthropicModel: env.ANTHROPIC_MODEL || 'claude-sonnet-5',
     embeddingModel: env.EMBEDDING_MODEL || 'text-embedding-3-small',
+    // Groq: OpenAI's request format on fast hardware, asked first when
+    // LLM_PROVIDER=groq. OpenAI stays behind it - a Groq refusal, rate limit or
+    // outage is answered by OpenAI rather than with an apology - and remains
+    // the only source of embeddings, which Groq does not offer.
+    groqKey: env.GROQ_API_KEY || '',
+    groqModel: env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    groqFastModel: env.GROQ_MODEL_FAST || 'openai/gpt-oss-20b',
+    // Reading a scan or a photograph needs a model that sees images.
+    groqVisionModel: env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b',
   },
 };
 
@@ -128,6 +137,7 @@ export function assertConfig({ needLlm = true } = {}) {
   if (!config.supabase.serviceRoleKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (needLlm) {
     if (config.llm.provider === 'openai' && !config.llm.openaiKey) missing.push('OPENAI_API_KEY');
+    if (config.llm.provider === 'groq' && !config.llm.groqKey && !config.llm.openaiKey) missing.push('GROQ_API_KEY');
     if (config.llm.provider === 'anthropic' && !config.llm.anthropicKey) missing.push('ANTHROPIC_API_KEY');
   }
   if (missing.length) {

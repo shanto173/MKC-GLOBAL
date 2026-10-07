@@ -66,9 +66,10 @@ Examples.
 
 /** Is a model configured at all? Without one this layer simply does not run. */
 export function nluAvailable() {
-  return config.llm.provider === 'anthropic'
-    ? Boolean(config.llm.anthropicKey)
-    : Boolean(config.llm.openaiKey);
+  if (config.llm.provider === 'anthropic') return Boolean(config.llm.anthropicKey);
+  // Groq first, OpenAI behind it: either one is enough to read a message.
+  if (config.llm.provider === 'groq') return Boolean(config.llm.groqKey || config.llm.openaiKey);
+  return Boolean(config.llm.openaiKey);
 }
 
 /**
