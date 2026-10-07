@@ -8,7 +8,9 @@
  * wait - instead of letting the operator believe it went as written.
  */
 
-import { h, clear, icon, api, debounce } from './ui.js';
+import {
+  h, icon, api, debounce, fill, lines,
+} from './ui.js';
 
 const VIA_TONE = { chat: 'gray', template: 'amber', waiting: 'amber', none: 'red' };
 
@@ -18,7 +20,7 @@ const VIA_TONE = { chat: 'gray', template: 'amber', waiting: 'amber', none: 'red
  */
 export function previewBox(params, { empty = 'The message appears here as you type.' } = {}) {
   const label = h('p', { class: 'preview-label' }, 'What the customer will receive');
-  const bubble = h('div', { class: 'preview-bubble', dir: 'auto' }, empty);
+  const bubble = h('div', { class: 'preview-bubble' }, empty);
   const delivery = h('p', { class: 'preview-delivery' });
   const el = h('div', { class: 'preview', 'aria-live': 'polite' }, label, bubble, delivery);
   let seq = 0;
@@ -36,10 +38,10 @@ export function previewBox(params, { empty = 'The message appears here as you ty
       const r = await api({ view: 'preview', ...p });
       if (mine !== seq) return;   // a newer keystroke already asked again
       label.textContent = `What ${r.customer_name || 'the customer'} will receive · ${r.language === 'ar' ? 'in Arabic' : r.language === 'en' ? 'in English' : 'in both languages (they have not chosen one yet)'}`;
-      bubble.textContent = r.text || '—';
+      fill(bubble, lines(r.text || '—'));
       bubble.classList.remove('is-empty');
       const tone = VIA_TONE[r.delivery?.via] ?? 'gray';
-      clear(delivery).append(icon(tone === 'gray' ? 'send' : 'alert', { size: 13 }), h('span', {}, r.delivery?.words ?? ''));
+      fill(delivery, icon(tone === 'gray' ? 'send' : 'alert', { size: 13 }), h('span', {}, r.delivery?.words ?? ''));
       delivery.className = `preview-delivery tone-text-${tone}`;
       delivery.hidden = !r.delivery?.words;
     } catch (err) {

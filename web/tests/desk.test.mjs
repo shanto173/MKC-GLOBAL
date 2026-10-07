@@ -39,10 +39,11 @@ function fakeChannels({ open = true, result = { ok: true, status: 'sent', provid
     calls,
     api: {
       async sendToChat(target, message, opts) { calls.send.push({ target, message, opts }); return typeof result === 'function' ? result() : result; },
+      // Shapes as lib/channels.js returns them.
       async windowState() {
         return open
-          ? { applies: true, open: true, lastClientMessageAt: new Date(Date.now() - 3 * 3600_000).toISOString(), closesAt: new Date(Date.now() + 21 * 3600_000).toISOString() }
-          : { applies: true, open: false, lastClientMessageAt: new Date(Date.now() - 50 * 3600_000).toISOString(), closesAt: new Date(Date.now() - 26 * 3600_000).toISOString() };
+          ? { applies: true, open: true, known: true, lastClientMessageAt: new Date(Date.now() - 3 * 3600_000).toISOString(), closesAt: new Date(Date.now() + 21 * 3600_000).toISOString() }
+          : { applies: true, open: false, known: true, lastClientMessageAt: new Date(Date.now() - 50 * 3600_000).toISOString(), closesAt: new Date(Date.now() - 26 * 3600_000).toISOString() };
       },
       async sendReopenTemplate(target, opts) { calls.reopen.push({ target, opts }); return { ok: true, status: 'sent' }; },
     },
@@ -174,7 +175,8 @@ async function call({ method = 'GET', query = {}, body, secret = SECRET, operato
 
 const get = (query, operator = 'Sara') => call({ query, operator });
 const post = (body, operator = 'Sara') => call({ method: 'POST', body, operator });
-const rows = (name) => db._tables[name] ?? [];
+/** A table's rows - created if nothing has written to it yet, so a test can seed it. */
+const rows = (name) => (db._tables[name] ??= []);
 
 // ---------------------------------------------------------------------------
 // Who may do what
@@ -594,6 +596,61 @@ test('the chats list: both channels, newest first, failures counted', async () =
   assert.ok(r.body.chats.some((c) => c.channel === 'telegram'), 'a chat with no messages logged yet still appears');
   const found = await get({ view: 'chats', q: '1005551234' });
   assert.deepEqual(found.body.chats.map((c) => c.chat_id), [WA], 'found by phone digits');
+});
+
+test('a tapped button shows what was tapped, never the engine’s payload', async () => {
+  rows('chat_messages').push(
+    { id: 50, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'button_reply', body: 'lang:ar', payload: { title: 'العربية' }, status: 'received', created_at: iso(60_000) },
+    { id: 51, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'text', body: 'bk:phone:use', payload: {}, status: 'received', created_at: iso(50_000) },
+    { id: 52, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'text', body: 'VIN: YV2RT40A8FB712905', payload: {}, status: 'received', created_at: iso(40_000) },
+  );
+  const r = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  const byId = Object.fromEntries(r.body.messages.map((m) => [m.id, m]));
+  assert.equal(byId[50].body, 'Tapped “العربية”');
+  assert.equal(byId[50].kind, 'tap');
+  assert.equal(byId[51].body, 'Tapped a button');
+  assert.equal(byId[52].body, 'VIN: YV2RT40A8FB712905', 'what a customer typed is never taken for a button');
+});
+
+test('where the customer is with the bot, and a language not chosen yet, in words', async () => {
+  rows('conversation_sessions').find((s) => s.id === 'telegram:555').current_state = 'CHOOSE_LANGUAGE';
+  const r = await get({ view: 'chat', channel: 'telegram', chat_id: '555' });
+  assert.equal(r.body.customer.bot_state_words, 'Choosing a language');
+  assert.equal(r.body.customer.language, null);
+  assert.equal(r.body.customer.language_words, 'Not chosen yet');
+});
+
+test('a notification held because the customer wrote STOP is a problem', async () => {
+  rows('notification_outbox').push({
+    id: 77, channel: 'whatsapp', chat_id: 'wa:201007770000', client_id: 3, event_type: 'shipment_update', entity_type: 'shipment',
+    entity_id: 'MKY-26001', payload: { reference: 'MKY-26001' }, status: 'pending', delivery_status: 'opted_out',
+    idempotency_key: 'held-1', created_at: iso(3600_000), updated_at: iso(3600_000),
+  });
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const held = r.body.items.find((i) => i.id === 'outbox:77');
+  assert.ok(held);
+  assert.match(held.sentence, /wrote STOP/);
+});
+
+test('answering a customer who wrote STOP and then wrote again is allowed, and says so to the channel', async () => {
+  const fake = fakeChannels();
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  rows('clients').find((c) => c.id === 3).opted_out_at = iso(5 * 3600_000);
+  rows('conversation_sessions').find((s) => s.client_id === 3).last_client_message_at = iso(600_000);
+  const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: 'wa:201007770000', text: 'Hello again', action_key: 'k-wa-answer01' });
+  assert.equal(r.status, 200);
+  assert.equal(fake.calls.send[0].opts.answering, true);
+});
+
+test('a WhatsApp window that cannot be read lets the operator write, and says WhatsApp decides', async () => {
+  const fake = fakeChannels();
+  fake.api.windowState = async () => ({ applies: true, open: true, known: false, lastClientMessageAt: null, closesAt: null });
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  const r = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  assert.equal(r.body.composer.mode, 'text');
+  assert.match(r.body.composer.note, /WhatsApp will refuse/);
 });
 
 // ---------------------------------------------------------------------------

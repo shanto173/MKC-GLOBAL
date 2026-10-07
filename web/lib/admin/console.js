@@ -46,7 +46,7 @@ import shipmentsApi from '../../api/admin/shipments.js';
 import mrnApi from './mrn.js';
 import {
   readiness, canTransition, statusLabel, statusWords, statusTone, canTransitionRequest, requestStatusLabel,
-  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, DOC_LABEL, OPEN_STATUSES,
+  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES,
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
@@ -61,7 +61,7 @@ import {
   sendToCustomer, savedReplies,
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
-import { replacementRequest, shipmentUpdateText } from './desk-messages.js';
+import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,14 @@ export default async function handler(req, res) {
     if (req.method === 'POST') return await act(req, res);
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
+    // A server with no database settings is a setup problem, not a crash:
+    // the desk shows a page naming what is missing.
+    if (/Supabase is not configured/.test(String(err?.message))) {
+      return res.status(503).json({
+        error: 'The desk is not configured: the database settings are not set on the server.',
+        setup: 'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
+      });
+    }
     // Never the raw Postgres error. An operator can do nothing with
     // "PGRST116"; the reference is what they quote when they call us.
     const ref = `ERR-${Date.now().toString(36).toUpperCase().slice(-6)}`;
@@ -503,7 +511,9 @@ async function reviewDocument(req, res, who, verify, ctx) {
       chatId: booking?.chat_id ?? doc.chat_id,
       clientId: booking?.client_id ?? null,
       channel: booking?.channel ?? 'telegram',
-      eventType: 'missing_information_requested',
+      // Its own event, so on WhatsApp outside the 24 hours the template that
+      // carries it says "send a new document", not "we need information".
+      eventType: 'document_rejected',
       entityType: 'booking',
       entityId: doc.booking_ref,
       language: customer.language,
@@ -904,11 +914,13 @@ async function shipmentUpdate(req, res, who) {
     const channel = s?.channel ?? b?.channel ?? 'telegram';
     const chatId = s?.chat_id ?? b?.chat_id ?? null;
     const customer = await customerFor({ clientId: b?.client_id, channel, chatId, name: s?.customer_name });
+    const said = { status: changes.status, eta: changes.eta, note: body.note };
     told = await sendToCustomer({
       who, channel, chatId, clientId: customer.client_id,
-      text: shipmentUpdateText(s, { status: changes.status, eta: changes.eta, note: body.note }, customer.language),
+      text: shipmentUpdateText(s, said, customer.language),
       actionKey: actionKeyOf(body), bookingRef: s?.booking_ref ?? null, entityType: 'shipment', entityId: body.shipment_id,
       language: customer.language, eventType: 'shipment_update', allowTemplate: true,
+      templatePayload: shipmentUpdatePayload(s, said, customer.language),
     });
   }
   return res.status(200).json({ ...result.payload, customer_told: told });
@@ -946,7 +958,7 @@ async function search(req, res) {
       .or(like(['booking_ref', 'vin', 'customer_name', 'customer_contact']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''))
       .neq('status', 'draft').order('created_at', { ascending: false }).limit(10).then((r) => r.data ?? []),
     db().from('shipments').select('shipment_id, booking_ref, status, vin, customer_name, vessel, eta')
-      .or(like(['shipment_id', 'booking_ref', 'customer_name']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''))
+      .or(like(['shipment_id', 'booking_ref', 'customer_name', 'vin']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''))
       .limit(10).then((r) => r.data ?? []),
     clientsQuery(),
     db().from('mrn_requests').select('request_ref, booking_ref, status, vin, mrn_number')

@@ -13,8 +13,7 @@
  */
 
 import {
-  h, clear, icon, api, post, toast, chip, timeEl, ago, when, emptyState, errorState, skeleton, actionButton,
-  dialog, draft, session,
+  h, clear, icon, api, post, toast, chip, timeEl, ago, when, emptyState, errorState, skeleton, actionButton, dialog, draft, session, add, fill, lines,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
 import { openViewer } from './viewer.js';
@@ -35,36 +34,51 @@ const DETAIL_LABELS = {
 export function renderCase({ route, main, refreshCounts }) {
   const [type, ref] = route.parts;
   if (!['booking', 'request', 'mrn'].includes(type) || !ref) {
-    main.append(emptyState('There is nothing to show here.', null, h('a', { class: 'btn', href: '#/inbox' }, 'Back to the inbox')));
+    add(main, emptyState('There is nothing to show here.', null, h('a', { class: 'btn', href: '#/inbox' }, 'Back to the inbox')));
     return null;
   }
 
   const target = type === 'booking' ? { booking_ref: ref } : type === 'request' ? { ticket_ref: ref } : { request_ref: ref };
   let data = null;
+  let drawnAs = null;      // what the page was last drawn from, to redraw only on change
   let convo = null;
   let openedDoc = false;
 
   const root = h('div', { class: 'case' }, skeleton(10));
-  main.append(root);
+  add(main, root);
 
   const headEl = h('header', { class: 'case-head' });
-  const mainCol = h('div', { class: 'case-main' });
+  const mainCol = h('div', { class: 'case-sections' });
   const side = h('aside', { class: 'case-side', id: 'conversation', 'aria-label': 'Conversation with the customer' });
   const sticky = h('div', { class: 'sticky-bar' });
 
-  async function load({ quiet = false } = {}) {
+  /**
+   * @param {{quiet?: boolean, own?: boolean}} opts
+   *   quiet - a background refresh: no skeleton, no error page
+   *   own   - after this operator's own action: redraw at once, and do not
+   *           announce as news a change they just made themselves
+   */
+  async function load({ quiet = false, own = false } = {}) {
     let fresh;
     try {
       fresh = await api({ view: 'case', type, ref });
     } catch (err) {
-      if (!quiet) clear(root).append(errorState(err.status === 404 ? err.message : (err.message || 'We could not load this case.'), err.status === 404 ? null : () => load()));
+      if (!quiet) fill(root, errorState(err.status === 404 ? err.message : (err.message || 'We could not load this case.'), err.status === 404 ? null : () => load()));
       return null;
     }
-    const changed = !data || fresh.version !== data.version;
-    const byOther = data && changed && fresh.last_change && fresh.last_change.who !== session.name;
+    // Two different questions. Did the CASE change (its version: what a
+    // decision rests on)? That is worth telling the operator about if a
+    // colleague did it. Did anything SHOWN change (a note, the history)?
+    // That only needs redrawing.
+    const changedCase = data && fresh.version !== data.version;
+    const byOther = changedCase && fresh.last_change && fresh.last_change.who !== session.name;
+    const shown = JSON.stringify(fresh);
+    const changed = shown !== drawnAs;
     data = fresh;
     if (!root.contains(headEl)) {
-      clear(root).append(headEl, h('div', { class: 'case-grid' }, mainCol, side), sticky);
+      // The header sits in the left column so the conversation can run the
+      // full height on the right, its composer in view without scrolling.
+      fill(root, h('div', { class: 'case-grid' }, h('div', { class: 'case-main' }, headEl, mainCol), side), sticky);
       convo = mountConversation(side, {
         channel: data.conversation.channel,
         chatId: data.conversation.chat_id,
@@ -72,8 +86,20 @@ export function renderCase({ route, main, refreshCounts }) {
         draftKey: `chat:${type}:${ref}`,
       });
     }
-    if (changed) draw();
-    if (byOther && quiet) toast(`Updated: ${fresh.last_change.who} ${fresh.last_change.what}.`, 'info');
+    if (changed) {
+      // Not while somebody is typing in the page: a redraw would take the
+      // field away mid-word. It happens as soon as they leave the field.
+      const typing = quiet && !own && mainCol.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+      if (typing) {
+        mainCol.addEventListener('focusout', () => setTimeout(() => {
+          if (!mainCol.contains(document.activeElement)) { drawnAs = JSON.stringify(data); draw(); }
+        }, 0), { once: true });
+      } else {
+        drawnAs = shown;
+        draw();
+      }
+    }
+    if (byOther && quiet && !own) toast(`Updated: ${fresh.last_change.who} ${fresh.last_change.what}.`, 'info');
     if (!openedDoc && route.query.doc && type === 'booking') {
       openedDoc = true;
       openDoc(Number(route.query.doc));
@@ -84,14 +110,14 @@ export function renderCase({ route, main, refreshCounts }) {
   /** After an action: reload, recount, and say what happened. */
   async function after(message, tone = 'ok') {
     if (message) toast(message, tone);
-    await load({ quiet: true });
+    await load({ quiet: true, own: true });
     refreshCounts();
   }
 
   /** A refusal because the case moved on: say who did what, and show the latest. */
   async function stale(err) {
     toast(err.message, 'info', { timeout: 9000 });
-    await load({ quiet: true });
+    await load({ quiet: true, own: true });
   }
 
   // -------------------------------------------------------------------------
@@ -100,7 +126,7 @@ export function renderCase({ route, main, refreshCounts }) {
 
   function draw() {
     drawHead();
-    clear(mainCol).append(
+    fill(mainCol, 
       nextStepCard(),
       warnings(),
       type === 'booking' ? documentsCard() : null,
@@ -123,7 +149,7 @@ export function renderCase({ route, main, refreshCounts }) {
       hd.submitted_at ? h('span', {}, 'Came in ', timeEl(hd.submitted_at, ago(hd.submitted_at))) : null,
     ].filter(Boolean);
 
-    clear(headEl).append(
+    fill(headEl, 
       h('a', { class: 'back', href: '#/inbox' }, icon('back', { size: 16 }), 'Inbox'),
       h('div', { class: 'case-title-row' },
         h('h1', { class: 'case-ref' }, hd.ref),
@@ -239,7 +265,7 @@ export function renderCase({ route, main, refreshCounts }) {
     const r = data.request;
     return h('section', { class: 'card', 'aria-labelledby': 'asked-title' },
       h('div', { class: 'card-head' }, h('h2', { id: 'asked-title' }, 'What the customer asked')),
-      h('p', { class: 'said-block', dir: 'auto' }, r.summary || 'They did not say.'),
+      h('div', { class: 'said-block' }, lines(r.summary || 'They did not say.')),
       h('dl', { class: 'details' },
         row('Call them on', r.contact ? h('a', { href: `tel:${r.contact.replace(/[^\d+]/g, '')}` }, h('bdi', {}, r.contact)) : 'No number given — reply in the chat'),
         row('Department', r.department),
@@ -268,7 +294,7 @@ export function renderCase({ route, main, refreshCounts }) {
   function detailsCard() {
     const b = data.booking;
     const dl = h('dl', { class: 'details details-edit' });
-    for (const [field, label] of Object.entries(DETAIL_LABELS)) dl.append(...detailRow(field, label, b[field]));
+    for (const [field, label] of Object.entries(DETAIL_LABELS)) add(dl, ...detailRow(field, label, b[field]));
     return h('section', { class: 'card', 'aria-labelledby': 'details-title' },
       h('div', { class: 'card-head' },
         h('h2', { id: 'details-title' }, 'Details'),
@@ -281,7 +307,7 @@ export function renderCase({ route, main, refreshCounts }) {
     const dt = h('dt', {}, label);
     const dd = h('dd', {});
     const show = () => {
-      clear(dd).append(
+      fill(dd, 
         h('bdi', { class: field === 'vin' ? 'mono' : '' }, value || '—'),
         data.booking.editable ? h('button', { class: 'link-btn', type: 'button', onclick: edit, 'aria-label': `Correct ${label.toLowerCase()}` }, 'Correct') : null);
     };
@@ -305,7 +331,7 @@ export function renderCase({ route, main, refreshCounts }) {
       };
       save.addEventListener('click', submit);
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') show(); });
-      clear(dd).append(h('span', { class: 'inline-edit' }, input, save, cancel), err);
+      fill(dd, h('span', { class: 'inline-edit' }, input, save, cancel), err);
       input.focus();
       input.select();
     };
@@ -344,7 +370,7 @@ export function renderCase({ route, main, refreshCounts }) {
       session.can('notes') ? h('div', { class: 'note-compose' }, ta, save) : null,
       notes.length ? h('ul', { class: 'note-list' }, notes.map((n) => h('li', { class: 'note' },
         h('p', { class: 'note-meta' }, h('strong', {}, n.author), ' · ', timeEl(n.at, when(n.at))),
-        h('p', { class: 'note-body', dir: 'auto' }, n.body)))) : h('p', { class: 'muted' }, 'No notes yet.'));
+        h('div', { class: 'note-body' }, lines(n.body))))) : h('p', { class: 'muted' }, 'No notes yet.'));
   }
 
   function historyCard() {
@@ -353,7 +379,7 @@ export function renderCase({ route, main, refreshCounts }) {
     const list = h('ol', { class: 'timeline' });
     const toggle = h('button', { class: 'link-btn', type: 'button' });
     const paint = () => {
-      clear(list).append(...(showAll ? items : items.slice(0, 8)).map((a) => h('li', {},
+      fill(list, ...(showAll ? items : items.slice(0, 8)).map((a) => h('li', {},
         timeEl(a.at, when(a.at)), h('span', {}, h('strong', {}, a.who), ` ${a.what}`))));
       toggle.textContent = showAll ? 'Show less' : `Show all (${items.length})`;
       toggle.hidden = items.length <= 8;
@@ -365,10 +391,22 @@ export function renderCase({ route, main, refreshCounts }) {
       items.length ? [list, toggle] : h('p', { class: 'muted' }, 'Nothing recorded yet.'));
   }
 
-  /** On a phone the primary action stays in reach at the bottom of the screen. */
+  /**
+   * On a phone the primary action stays in reach at the bottom of the screen -
+   * shown once the Next step card itself has scrolled out of view.
+   */
+  let watcher = null;
   function drawSticky() {
+    watcher?.disconnect();
+    const card = mainCol.querySelector('.next');
+    if (card && 'IntersectionObserver' in window) {
+      watcher = new IntersectionObserver(([e]) => sticky.classList.toggle('is-visible', !e.isIntersecting));
+      watcher.observe(card);
+    } else {
+      sticky.classList.add('is-visible');
+    }
     const p = data.next_step.primary;
-    clear(sticky).append(
+    fill(sticky, 
       p ? actionButton(p, () => run(p), { cls: 'btn-block' }) : h('span', { class: 'sticky-words' }, data.next_step.title),
       data.conversation.chat_id ? h('a', { class: 'btn', href: '#conversation', onclick: (e) => { e.preventDefault(); side.scrollIntoView({ behavior: 'smooth' }); } }, icon('chats', { size: 16 }), 'Chat') : null);
   }
@@ -431,7 +469,7 @@ export function renderCase({ route, main, refreshCounts }) {
       caseRef: ref,
       docId: id,
       getData: () => data,
-      reload: () => load({ quiet: true }),
+      reload: () => load({ quiet: true, own: true }),
       onStale: stale,
       refreshCounts,
     });
@@ -662,6 +700,9 @@ export function renderCase({ route, main, refreshCounts }) {
       await load({ quiet: true });
       await convo?.refresh();
     },
-    dispose() { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); },
+    dispose() {
+      watcher?.disconnect();
+      document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+    },
   };
 }

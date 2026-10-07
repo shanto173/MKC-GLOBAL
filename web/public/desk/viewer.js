@@ -11,7 +11,9 @@
  * person type what it says - kept apart from the bot's reading, with their name.
  */
 
-import { h, clear, icon, api, post, toast, chip, when, dialog } from './ui.js';
+import {
+  h, icon, api, post, toast, chip, when, dialog, add, fill,
+} from './ui.js';
 import { previewBox } from './preview.js';
 
 const TYPABLE_LABELS = {
@@ -60,7 +62,7 @@ export function openViewer(ctx) {
     const list = allDocs();
     const i = list.findIndex((d) => d.id === docId);
     dlg.el.querySelector('.dialog-title').textContent = `${doc.label} · ${ctx.caseRef}`;
-    clear(nav).append(
+    fill(nav, 
       h('button', { class: 'btn btn-small btn-quiet', type: 'button', disabled: i <= 0, onclick: () => step(-1) }, icon('left', { size: 14 }), 'Previous'),
       h('span', { class: 'viewer-count' }, `${i + 1} of ${list.length}`),
       h('button', { class: 'btn btn-small btn-quiet', type: 'button', disabled: i >= list.length - 1, onclick: () => step(1) }, 'Next', icon('right', { size: 14 })));
@@ -70,16 +72,16 @@ export function openViewer(ctx) {
 
   // -- the file ----------------------------------------------------------------
   async function loadFile(doc) {
-    clear(fileArea).append(h('p', { class: 'viewer-loading' }, 'Opening the file…'));
+    fill(fileArea, h('p', { class: 'viewer-loading' }, 'Opening the file…'));
     if (!doc.has_file) {
-      clear(fileArea).append(h('div', { class: 'viewer-nofile' }, icon('file', { size: 32 }),
+      fill(fileArea, h('div', { class: 'viewer-nofile' }, icon('file', { size: 32 }),
         h('p', {}, 'The file itself was not stored — only what was read from it.')));
       return;
     }
     try {
       urlInfo = await api({ view: 'document_url', id: doc.id });
     } catch (err) {
-      clear(fileArea).append(h('div', { class: 'viewer-nofile' }, h('p', {}, err.message),
+      fill(fileArea, h('div', { class: 'viewer-nofile' }, h('p', {}, err.message),
         h('button', { class: 'btn', type: 'button', onclick: () => loadFile(doc) }, 'Try again')));
       return;
     }
@@ -90,7 +92,7 @@ export function openViewer(ctx) {
   /** The signed link expired before the browser used it: fetch a fresh one, once. */
   function expired(doc) {
     if (retriedUrl) {
-      clear(fileArea).append(h('div', { class: 'viewer-nofile' }, h('p', {}, 'The file would not open.'),
+      fill(fileArea, h('div', { class: 'viewer-nofile' }, h('p', {}, 'The file would not open.'),
         h('button', { class: 'btn', type: 'button', onclick: () => { retriedUrl = false; loadFile(doc); } }, 'Try again')));
       return;
     }
@@ -114,7 +116,7 @@ export function openViewer(ctx) {
     // A link fetched earlier than its expiry minus a margin is still good; past
     // it, ask again rather than show a broken frame.
     if (urlInfo.expires_at && new Date(urlInfo.expires_at) < new Date()) return expired(doc);
-    clear(fileArea).append(frame, h('div', { class: 'viewer-file-bar' },
+    fill(fileArea, frame, h('div', { class: 'viewer-file-bar' },
       h('span', { class: 'muted small' }, doc.file_name ?? ''), open));
   }
 
@@ -124,7 +126,7 @@ export function openViewer(ctx) {
     const actions = d.document_actions;
     const mismatch = doc.checks.filter((c) => !c.match);
 
-    clear(info).append(
+    fill(info, 
       h('div', { class: 'viewer-status' },
         chip(doc.status_words, doc.tone),
         h('span', { class: 'muted small' }, `Arrived ${when(doc.uploaded_at)}`)),
@@ -160,7 +162,7 @@ export function openViewer(ctx) {
     const form = h('form', { class: 'type-in' },
       h('div', { class: 'callout callout-amber' }, icon('alert', { size: 16 }),
         h('p', {}, h('strong', {}, 'The bot couldn’t read this file. '), 'It is a scan or a photo without readable text. Type what you see — only what matters for this booking.')),
-      actions.typable.map((k) => {
+      (doc.typable ?? actions.typable).map((k) => {
         inputs[k] = h('input', { class: `input${k === 'vin' || k === 'mrn' ? ' mono' : ''}`, id: `type-${k}`, autocomplete: 'off', spellcheck: 'false' });
         return h('div', { class: 'field' }, h('label', { for: `type-${k}`, class: 'label' }, TYPABLE_LABELS[k] ?? k), inputs[k]);
       }),
@@ -220,8 +222,8 @@ export function openViewer(ctx) {
       askForNew(doc, actions);
     });
 
-    box.append(ok, bad);
-    if (!actions.verify.enabled && actions.verify.reason) box.append(h('p', { class: 'reason' }, actions.verify.reason));
+    add(box, ok, bad);
+    if (!actions.verify.enabled && actions.verify.reason) add(box, h('p', { class: 'reason' }, actions.verify.reason));
     return box;
   }
 
@@ -262,7 +264,7 @@ export function openViewer(ctx) {
       }
     });
 
-    clear(info).append(
+    fill(info, 
       h('h3', { class: 'viewer-h' }, `Ask for a new ${doc.label}`),
       reasons,
       h('label', { class: 'label' }, 'Note to the customer'), note,

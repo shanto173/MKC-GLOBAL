@@ -421,3 +421,43 @@ test('the model layer stands aside when nothing is configured', async () => {
   assert.equal(r.used, false);
   assert.deepEqual(r.fields, {});
 });
+
+// ---------------------------------------------------------------------------
+// The desk's door to the channel code, and the old console's addresses
+// ---------------------------------------------------------------------------
+
+test('the desk finds lib/channels.js through its bridge, and never throws trying', async () => {
+  process.env.SUPABASE_URL ||= 'http://localhost';
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test';
+  const { channels } = await import('../lib/admin/channels-bridge.js');
+  const mod = await channels();
+  // Present on this branch; the bridge answers null - not an exception - on a
+  // deploy where it is not, and the desk degrades on that answer.
+  assert.ok(mod === null || typeof mod.sendToChat === 'function');
+  assert.equal(await channels(), mod, 'loaded once, then remembered');
+});
+
+test('an old console link opens the same thing in the desk', async () => {
+  const { legacyTarget } = await import('../public/desk/legacy.js');
+  assert.equal(legacyTarget('#/booking/MKY-BKG-260908-A1'), '/desk/#/case/booking/MKY-BKG-260908-A1');
+  assert.equal(legacyTarget('#/request/MKY-TKT-1'), '/desk/#/case/request/MKY-TKT-1');
+  assert.equal(legacyTarget('#/shipment/MKY-26001'), '/desk/#/shipments/MKY-26001');
+  assert.equal(legacyTarget('#/queue/mrn'), '/desk/#/inbox?filter=mrn');
+  assert.equal(legacyTarget('#/requests'), '/desk/#/inbox?filter=callbacks');
+  assert.equal(legacyTarget('#/tasks'), '/desk/#/inbox?filter=mine');
+  assert.equal(legacyTarget('#/confirmed'), '/desk/#/inbox?tab=done');
+  assert.equal(legacyTarget('#/dashboard'), '/desk/#/inbox');
+  assert.equal(legacyTarget(''), '/desk/#/inbox');
+  // A reference is a path segment, never a way to write a different address.
+  assert.equal(legacyTarget('#/booking/a%2F..%2F..%2Fsettings'), '/desk/#/case/booking/a%2F..%2F..%2Fsettings');
+});
+
+test('/ops/ and /ops.html forward to the desk', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ops = readFileSync(new URL('../public/ops/index.html', import.meta.url), 'utf8');
+  const old = readFileSync(new URL('../public/ops.html', import.meta.url), 'utf8');
+  assert.match(ops, /legacyTarget\(location\.hash\)/);
+  assert.match(ops, /url=\/desk\//, 'forwards without JavaScript too');
+  assert.match(old, /location\.replace\('\/desk\//);
+  assert.match(old, /url=\/desk\//);
+});

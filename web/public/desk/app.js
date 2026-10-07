@@ -9,7 +9,7 @@
  */
 
 import {
-  h, $, clear, icon, session, api, safeSet, safeGet, SKEY, NKEY, on,
+  h, $, clear, icon, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
 } from './ui.js';
 import { renderInbox } from './inbox.js';
 import { renderCase } from './case.js';
@@ -77,15 +77,15 @@ function drawNav(active) {
       String(counts.needs_us), h('span', { class: 'sr-only' }, ' need a person'))
     : null);
 
-  clear($('#nav')).append(...items.map((n) => h('li', {},
+  fill($('#nav'), ...items.map((n) => h('li', {},
     h('a', { href: n.href, class: 'nav-link', 'aria-current': n.key === active ? 'page' : null },
       icon(n.icon, { size: 18 }), h('span', {}, n.label), badge(n)))));
 
-  clear($('#tabbar')).append(...items.map((n) => h('a', {
+  fill($('#tabbar'), ...items.map((n) => h('a', {
     href: n.href, class: 'tab-link', 'aria-current': n.key === active ? 'page' : null,
   }, icon(n.icon, { size: 20 }), h('span', {}, n.label), badge(n))));
 
-  clear($('#me')).append(
+  fill($('#me'), 
     h('div', { class: 'me-who' }, icon('user', { size: 16 }), h('div', {},
       h('div', { class: 'me-name' }, session.name), h('div', { class: 'me-role' }, session.role_words ?? ''))),
     h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: signOut }, icon('logout', { size: 15 }), 'Sign out'));
@@ -124,7 +124,7 @@ function showSignIn(message = '', extra = null) {
   err.textContent = message;
   err.hidden = !message;
   clear($('#signinExtra'));
-  if (extra) $('#signinExtra').append(extra);
+  if (extra) add($('#signinExtra'), extra);
   $('#who').value = session.name || '';
   ($('#who').value ? $('#secret') : $('#who')).focus();
 }
@@ -133,7 +133,7 @@ function showSignIn(message = '', extra = null) {
 function showNotConfigured(setting) {
   $('#app').hidden = true;
   $('#signin').hidden = false;
-  clear($('#signin')).append(h('div', { class: 'signin-card' },
+  fill($('#signin'), h('div', { class: 'signin-card' },
     h('div', { class: 'signin-brand', 'aria-hidden': 'true' }, 'M'),
     h('h1', {}, 'The desk is not set up yet'),
     h('p', {}, 'The server is missing the setting ', h('code', {}, setting), '.'),
@@ -210,7 +210,7 @@ $('#signinForm').addEventListener('submit', (e) => {
   signIn();
 });
 
-$('#searchIcon').append(icon('search', { size: 16 }));
+add($('#searchIcon'), icon('search', { size: 16 }));
 $('#searchForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('#q').value.trim();

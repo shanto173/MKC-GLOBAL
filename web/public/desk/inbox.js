@@ -7,13 +7,13 @@
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, chip, channelBadge, timeEl, emptyState, errorState, skeleton, session,
+  h, clear, icon, api, post, newKey, toast, chip, channelBadge, timeEl, emptyState, errorState, skeleton, session, add, fill,
 } from './ui.js';
 
 const TABS = [
-  ['needs_us', 'Needs us'],
-  ['waiting', 'Waiting on customer'],
-  ['done', 'Done today'],
+  ['needs_us', 'Needs us', 'Needs us'],
+  ['waiting', 'Waiting on customer', 'Waiting'],
+  ['done', 'Done today', 'Done'],
 ];
 const FILTERS = [
   ['all', 'All'], ['bookings', 'Bookings'], ['mrn', 'MRN'], ['callbacks', 'Call-backs'], ['problems', 'Problems'], ['mine', 'Mine'],
@@ -52,7 +52,7 @@ export function renderInbox({ route, main, refreshCounts }) {
   const chipsEl = h('nav', { class: 'filters', 'aria-label': 'Show only' });
   const listEl = h('div', { class: 'list-wrap' }, skeleton(7));
 
-  main.append(
+  add(main, 
     h('div', { class: 'page-head' },
       h('div', {},
         h('h1', {}, 'Inbox'),
@@ -64,7 +64,7 @@ export function renderInbox({ route, main, refreshCounts }) {
     try {
       data = await api({ view: 'inbox', tab, filter, limit });
     } catch (err) {
-      if (!quiet) clear(listEl).append(errorState(err.message || 'We could not load the inbox.', () => load()));
+      if (!quiet) fill(listEl, errorState(err.message || 'We could not load the inbox.', () => load()));
       return;
     }
     draw();
@@ -72,11 +72,13 @@ export function renderInbox({ route, main, refreshCounts }) {
 
   function draw() {
     const c = data.counts;
-    clear(tabsEl).append(...TABS.map(([k, label]) => h('a', {
-      href: href(k, filter), class: 'tab', 'aria-current': k === tab ? 'page' : null,
-    }, label, h('span', { class: 'tab-count' }, String(c.tabs[k] ?? 0)))));
+    // A phone gets the short word, but a screen reader always hears the full one.
+    fill(tabsEl, ...TABS.map(([k, label, short]) => h('a', {
+      href: href(k, filter), class: 'tab', 'aria-current': k === tab ? 'page' : null, 'aria-label': `${label}, ${c.tabs[k] ?? 0}`,
+    }, h('span', { class: 'long' }, label), h('span', { class: 'short', 'aria-hidden': 'true' }, short),
+    h('span', { class: 'tab-count' }, String(c.tabs[k] ?? 0)))));
 
-    clear(chipsEl).append(...FILTERS.map(([k, label]) => h('a', {
+    fill(chipsEl, ...FILTERS.map(([k, label]) => h('a', {
       href: href(tab, k), class: `filter${k === 'problems' && c.filters.problems ? ' filter-alert' : ''}`,
       'aria-current': k === filter ? 'true' : null,
     }, label, h('span', { class: 'filter-count' }, String(c.filters[k] ?? 0)))));
@@ -88,13 +90,13 @@ export function renderInbox({ route, main, refreshCounts }) {
       const [title, detail] = filter === 'all'
         ? EMPTY[tab]
         : [`No ${FILTERS.find(([k]) => k === filter)[1].toLowerCase()} here.`, 'Other kinds of work may still be waiting.'];
-      listEl.append(emptyState(title, detail, filter !== 'all' ? h('a', { class: 'btn', href: href(tab, 'all') }, 'Show everything') : null));
+      add(listEl, emptyState(title, detail, filter !== 'all' ? h('a', { class: 'btn', href: href(tab, 'all') }, 'Show everything') : null));
       return;
     }
-    listEl.append(h('ul', { class: 'rows', 'aria-label': TABS.find(([k]) => k === tab)[1] },
+    add(listEl, h('ul', { class: 'rows', 'aria-label': TABS.find(([k]) => k === tab)[1] },
       data.items.map((item) => h('li', {}, row(item)))));
     if (data.has_more) {
-      listEl.append(h('div', { class: 'more' }, h('button', {
+      add(listEl, h('div', { class: 'more' }, h('button', {
         class: 'btn', type: 'button', onclick: () => { limit += 50; load(); },
       }, `Show more (${data.total - data.items.length} more)`)));
     }
@@ -112,19 +114,20 @@ export function renderInbox({ route, main, refreshCounts }) {
       : item.assigned_to ? h('span', { class: 'owner' }, icon('user', { size: 13 }), item.assigned_to)
         : item.tab === 'needs_us' ? h('span', { class: 'owner owner-none' }, 'Nobody yet') : null;
 
-    const link = h('a', { class: 'row-link', href: linkFor(item.link) },
+    // The whole row is clickable through the title link (stretched over the
+    // row in CSS), while Retry and Set aside stay their own buttons - a link
+    // cannot contain buttons, and the row should not need two targets.
+    return h('div', { class: `row${item.kind === 'problem' ? ' row-problem' : ''}` },
       h('span', { class: `row-mark tone-${item.kind === 'problem' ? 'red' : item.tone}`, 'aria-hidden': 'true' }),
-      h('span', { class: 'row-main' },
-        h('span', { class: 'row-title' }, item.sentence),
+      h('div', { class: 'row-main' },
+        h('a', { class: 'row-title', href: linkFor(item.link) }, item.sentence),
         h('span', { class: 'row-sub' },
           h('bdi', { class: 'row-who' }, item.who),
-          item.detail ? h('span', { class: 'row-detail' }, ' · ', h('bdi', {}, item.detail)) : null)),
-      h('span', { class: 'row-meta' },
+          item.detail ? h('span', { class: 'row-detail' }, ' · ', h('bdi', {}, item.detail)) : null),
+        item.problem ? problemActions(item) : null),
+      h('div', { class: 'row-meta' },
         h('span', { class: 'row-chips' }, meta),
         h('span', { class: 'row-side' }, owner, channelBadge(item.channel, { compact: true }), timeEl(item.since))));
-
-    return h('div', { class: `row${item.kind === 'problem' ? ' row-problem' : ''}` }, link,
-      item.problem ? problemActions(item) : null);
   }
 
   /** Retry and set aside, right on the row: a failed message should not need three clicks. */
@@ -139,11 +142,11 @@ export function renderInbox({ route, main, refreshCounts }) {
       retry.addEventListener('click', () => act(retry, p.type === 'message'
         ? { action: 'retry_message', message_id: p.id, action_key: key }
         : { action: 'retry_outbox', outbox_id: p.id }, 'Sent again.'));
-      box.append(retry);
+      add(box, retry);
     }
     const aside = h('button', { class: 'btn btn-small btn-quiet', type: 'button', disabled: !can }, 'Set aside');
     aside.addEventListener('click', () => act(aside, { action: 'dismiss_problem', problem_id: `${p.type}:${p.id}` }, 'Set aside. It will not come back.'));
-    box.append(aside);
+    add(box, aside);
     return box;
   }
 

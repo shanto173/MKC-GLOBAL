@@ -8,7 +8,9 @@
  * read what, because nothing would use it except this dot.
  */
 
-import { h, clear, icon, api, channelBadge, chip, timeEl, emptyState, errorState, skeleton, debounce } from './ui.js';
+import {
+  h, clear, icon, api, channelBadge, chip, timeEl, emptyState, errorState, skeleton, debounce, add, fill,
+} from './ui.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
 
@@ -16,6 +18,7 @@ export function renderChats({ route, main }) {
   const [channel, chatId] = route.parts;
   const open = Boolean(channel && chatId);
   let q = route.query.q ?? '';
+  let limit = 50;
   let convo = null;
 
   const listEl = h('div', { class: 'chat-list' }, skeleton(8));
@@ -23,7 +26,7 @@ export function renderChats({ route, main }) {
   const pane = h('section', { class: 'chat-pane', 'aria-label': 'Conversation' });
   const notice = h('p', { class: 'convo-notice', hidden: true });
 
-  main.append(h('div', { class: `chats${open ? ' chats-open' : ''}` },
+  add(main, h('div', { class: `chats${open ? ' chats-open' : ''}` },
     h('div', { class: 'chats-side' },
       h('div', { class: 'page-head page-head-tight' }, h('h1', {}, 'Chats')),
       h('div', { class: 'chats-search' }, search),
@@ -34,9 +37,9 @@ export function renderChats({ route, main }) {
   async function loadList({ quiet = false } = {}) {
     let data;
     try {
-      data = await api({ view: 'chats', q });
+      data = await api({ view: 'chats', q, limit });
     } catch (err) {
-      if (!quiet) clear(listEl).append(errorState(err.message, () => loadList()));
+      if (!quiet) fill(listEl, errorState(err.message, () => loadList()));
       return;
     }
     notice.hidden = !data.notice;
@@ -47,11 +50,16 @@ export function renderChats({ route, main }) {
 
     clear(listEl);
     if (!chats.length) {
-      listEl.append(emptyState(q ? 'No chat matches that.' : 'No conversations yet.',
+      add(listEl, emptyState(q ? 'No chat matches that.' : 'No conversations yet.',
         q ? 'Try a phone number without spaces, or a booking reference.' : 'Chats appear here when customers write to the bot.'));
       return;
     }
-    listEl.append(h('ul', { class: 'chat-rows' }, chats.map((c) => h('li', {}, chatRow(c)))));
+    add(listEl, h('ul', { class: 'chat-rows' }, chats.map((c) => h('li', {}, chatRow(c)))));
+    if (data.has_more) {
+      add(listEl, h('div', { class: 'more' }, h('button', {
+        class: 'btn btn-small', type: 'button', onclick: () => { limit += 50; loadList(); },
+      }, `Show more (${data.total - data.chats.length} more)`)));
+    }
   }
 
   function chatRow(c) {
@@ -76,7 +84,7 @@ export function renderChats({ route, main }) {
   if (open) {
     const bookingsEl = h('div', { class: 'chat-bookings' });
     const convoEl = h('div', { class: 'chat-convo' });
-    pane.append(
+    add(pane, 
       h('a', { class: 'back back-mobile', href: '#/chats' }, icon('back', { size: 16 }), 'All chats'),
       bookingsEl, convoEl);
     // Their bookings, so a question about "my truck" is one click from its case.
@@ -84,7 +92,7 @@ export function renderChats({ route, main }) {
       clear(bookingsEl);
       const requests = (d.requests ?? []).filter((r) => r.open);
       if (!d.bookings?.length && !requests.length) return;
-      bookingsEl.append(h('p', { class: 'chat-bookings-title' }, 'Their bookings and requests'),
+      add(bookingsEl, h('p', { class: 'chat-bookings-title' }, 'Their bookings and requests'),
         h('div', { class: 'chat-bookings-list' },
           d.bookings.map((b) => h('a', { class: 'pill', href: linkFor({ type: 'booking', ref: b.booking_ref }) },
             h('span', { class: 'mono' }, b.booking_ref), chip(b.status_words, b.tone))),
@@ -97,7 +105,7 @@ export function renderChats({ route, main }) {
       onLoad: drawBookings,
     });
   } else {
-    pane.append(emptyState('Pick a conversation.', 'Customers on WhatsApp and Telegram are listed together, with new messages first.'));
+    add(pane, emptyState('Pick a conversation.', 'Customers on WhatsApp and Telegram are listed together, with new messages first.'));
   }
 
   search.addEventListener('input', debounce(() => { q = search.value.trim(); loadList(); }, 300));

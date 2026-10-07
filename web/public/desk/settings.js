@@ -8,7 +8,9 @@
  * back a sentence per field; those sentences appear beside the field.
  */
 
-import { h, clear, icon, api, post, toast, emptyState, errorState, skeleton, session, ago } from './ui.js';
+import {
+  h, icon, api, post, toast, emptyState, errorState, skeleton, session, ago, add, fill,
+} from './ui.js';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
@@ -17,11 +19,11 @@ const TIMEZONES = ['Africa/Cairo', 'Europe/Vilnius', 'Europe/Berlin', 'Europe/Lo
 
 export function renderSettings({ main }) {
   if (!session.can('settings')) {
-    main.append(emptyState('Only an administrator can change settings.', 'Ask an administrator if something here needs changing.'));
+    add(main, emptyState('Only an administrator can change settings.', 'Ask an administrator if something here needs changing.'));
     return null;
   }
   const root = h('div', { class: 'settings' }, skeleton(10));
-  main.append(
+  add(main, 
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Settings'),
       h('p', { class: 'page-sub' }, 'Changes reach the bot within a minute. Every change is recorded with your name.'))),
@@ -32,10 +34,10 @@ export function renderSettings({ main }) {
     try {
       data = await api({ view: 'settings' });
     } catch (err) {
-      clear(root).append(errorState(err.message, () => load()));
+      fill(root, errorState(err.message, () => load()));
       return;
     }
-    clear(root).append(
+    fill(root, 
       h('nav', { class: 'jump', 'aria-label': 'Settings sections' },
         [['team', 'Team'], ['hours', 'Hours and phone'], ['docs', 'Documents'], ['whatsapp', 'WhatsApp'], ['replies', 'Saved replies']]
           .map(([id, label]) => h('a', { href: `#/settings`, onclick: (e) => { e.preventDefault(); document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth' }); } }, label))),
@@ -161,7 +163,7 @@ export function renderSettings({ main }) {
         human_support_hours: sentence.value, direct_phone: direct.value, operations_phone: desk.value,
       }, button);
     });
-    c.append(form);
+    add(c, form);
     return c;
   }
 
@@ -194,7 +196,7 @@ export function renderSettings({ main }) {
         acid_required: acid.checked,
       }, button);
     });
-    c.append(form);
+    add(c, form);
     return c;
   }
 
@@ -211,7 +213,7 @@ export function renderSettings({ main }) {
         h('td', {}, inputs[event]),
         h('td', { class: 'muted small' }, (t.params ?? []).length ? (t.params ?? []).join(', ') : '—'));
     });
-    const hours = h('input', { class: 'input input-small', id: 's-window', type: 'number', min: '1', max: '24', value: v.whatsapp_window_hours ?? 24 });
+    const hours = h('input', { class: 'input input-small input-narrow', id: 's-window', type: 'number', min: '1', max: '24', value: v.whatsapp_window_hours ?? 24 });
     const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save WhatsApp settings');
     const c = card('whatsapp', 'WhatsApp templates',
       'After 24 hours without a message from the customer, WhatsApp only delivers approved templates. Names must match WhatsApp Manager exactly; the same name is used in English and Arabic.');
@@ -231,7 +233,7 @@ export function renderSettings({ main }) {
       }
       save(c, { whatsapp_templates: next, whatsapp_window_hours: Number(hours.value) }, button);
     });
-    c.append(form);
+    add(c, form);
     return c;
   }
 
@@ -243,7 +245,7 @@ export function renderSettings({ main }) {
     const c = card('replies', 'Saved replies', 'Ready-made answers in the composer. Each is inserted in the customer’s language.');
 
     const paint = () => {
-      clear(holder).append(...list.map((r, i) => {
+      fill(holder, ...list.map((r, i) => {
         const title = h('input', { class: 'input', value: r.title, 'aria-label': `Title of reply ${i + 1}`, maxlength: '40' });
         const en = h('textarea', { class: 'input', rows: '2', dir: 'ltr', 'aria-label': `English text of reply ${i + 1}` });
         en.value = r.en;
@@ -270,7 +272,7 @@ export function renderSettings({ main }) {
       list = list.filter((r) => r.title.trim() || r.en.trim() || r.ar.trim());
       save(c, { saved_replies: list }, button);
     });
-    c.append(form);
+    add(c, form);
     return c;
   }
 

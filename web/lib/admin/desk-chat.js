@@ -54,7 +54,9 @@ export async function windowFor({ channel, chatId, customer }) {
         open: Boolean(w?.open),
         last_client_message_at: w?.lastClientMessageAt ?? null,
         closes_at: w?.closesAt ?? null,
-        known: true,
+        // false: the clock could not be read, so free text is allowed and
+        // WhatsApp itself decides - the composer says exactly that.
+        known: w?.known !== false,
       };
     } catch (err) {
       console.error('windowState failed:', err?.message);
@@ -119,9 +121,15 @@ export function composerState({ channel, chatId, customer, window: win, connecte
     mode: 'text',
     can_send: true,
     reason: null,
-    note: channel === 'telegram' ? 'Telegram · no time limit' : null,
+    note: channel === 'telegram' ? 'Telegram · no time limit'
+      : win?.known === false ? 'We cannot tell when they last wrote. If 24 hours have passed, WhatsApp will refuse and you will see why.'
+        : null,
   };
 }
+
+/** A customer who wrote STOP and has written again since: answering them is allowed. */
+export const answeringAfterStop = (customer) => Boolean(customer?.opted_out_at && customer.last_client_message_at
+  && new Date(customer.last_client_message_at) > new Date(customer.opted_out_at));
 
 /** Everything a conversation panel needs to draw its composer. */
 export async function composerFor({ channel, chatId, customer }) {
@@ -167,6 +175,7 @@ export async function sendToCustomer({
   who, channel, chatId, clientId = null, text, actionKey = null,
   bookingRef = null, entityType = 'chat', entityId = null,
   language = null, eventType = 'operations_message', allowTemplate = false,
+  templatePayload = null, answering = false,
 }) {
   const body = String(text ?? '').trim();
   if (!body) return { ok: false, status: 'empty', words: 'The message is empty.' };
@@ -178,7 +187,8 @@ export async function sendToCustomer({
   if (!chan && !viaOutbox) return { ok: false, status: 'not_connected', words: failureWords('not connected') };
 
   const key = `desk:${actionKey ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`}`;
-  const payload = { text: body, via: 'desk', staff: who.name, booking_ref: bookingRef };
+  // staff_name: the outbox logs a queued row carrying it as that person's message.
+  const payload = { text: body, via: 'desk', staff_name: who.name, booking_ref: bookingRef };
   const entity = entityId ?? `${channel}:${chatId}`;
 
   if (viaOutbox) {
@@ -214,7 +224,11 @@ export async function sendToCustomer({
     result = await chan.sendToChat(
       { channel, chatId: String(chatId), clientId },
       { text: body },
-      { author: 'staff', staffName: who.name, bookingRef, language, eventType, allowTemplate },
+      {
+        author: 'staff', staffName: who.name, bookingRef, language, eventType, allowTemplate, answering,
+        // What a template would be filled with if the window has closed.
+        payload: { ...(templatePayload ?? {}), text: body, message: body, reference: templatePayload?.reference ?? bookingRef ?? entity },
+      },
     );
   } catch (err) {
     result = { ok: false, status: 'failed', error: err?.message ?? 'send threw' };
@@ -288,6 +302,7 @@ export async function sendMessage(req, res, who) {
     who, channel: target.channel, chatId: target.chatId, clientId: customer.client_id ?? target.clientId,
     text: body.text, actionKey: actionKeyOf(body), bookingRef: target.bookingRef,
     entityType: target.entityType, entityId: target.entityId, language: customer.language,
+    answering: answeringAfterStop(customer),
   });
 
   if (sent.ok && !sent.duplicate) {
@@ -388,6 +403,7 @@ export async function retryMessage(req, res, who) {
     who, channel: m.channel, chatId: m.chat_id, clientId: m.client_id, text: m.body,
     actionKey: actionKeyOf(req.body) ?? `retry-${id}-${Date.now().toString(36)}`,
     bookingRef: m.booking_ref ?? null, entityType: 'chat', entityId: `${m.channel}:${m.chat_id}`, language: customer.language,
+    answering: answeringAfterStop(customer),
   });
   if (!outcome.ok) return res.status(httpFor(outcome)).json({ error: outcome.words, ...outcome });
   await markRetried(who, id);
@@ -471,7 +487,9 @@ export function displayBody(m) {
   const tapped = m.direction === 'in' && (TAP_KINDS.has(m.kind) || PAYLOAD.test(body.trim()));
   if (!tapped) return { kind: m.kind ?? 'text', body };
   const title = m.payload?.title ?? m.payload?.button_title ?? m.payload?.text ?? null;
-  return { kind: 'tap', body: title ? `Tapped “${title}”` : 'Tapped a button' };
+  // The title separately as well, so the desk can isolate an Arabic title
+  // from the English around it instead of letting the two scripts reorder.
+  return { kind: 'tap', body: title ? `Tapped “${title}”` : 'Tapped a button', tap_title: title };
 }
 
 const messageOut = (m, retried) => ({
@@ -566,7 +584,8 @@ export async function conversationFor({ channel, chatId, before = null, limit = 
  */
 export async function chatsView(req, res) {
   const q = String(req.query.q ?? '').trim().toLowerCase();
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  // "Show more" asks for 50 more each time; the list is grouped in memory anyway.
+  const limit = Math.min(Number(req.query.limit) || 50, 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
   const [{ data: msgs, error: msgErr }, { data: sessions }] = await Promise.all([

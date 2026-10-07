@@ -80,6 +80,20 @@ const READ_FIELDS = [
 /** The fields a person may type in when the bot could not read a file. */
 export const TYPABLE = ['vin', 'mrn', 'acid', 'eur1', 'make', 'model', 'document_date'];
 
+/**
+ * Which of those matter for each kind of paper - so the form for an unreadable
+ * MRN asks for the MRN and the chassis, not for seven boxes most of which do
+ * not apply.
+ */
+const TYPABLE_BY_TYPE = {
+  invoice: ['vin', 'make', 'model', 'document_date'],
+  brief: ['vin', 'document_date'],
+  mrn: ['mrn', 'vin', 'document_date'],
+  acid: ['acid', 'vin'],
+  eur1: ['eur1', 'vin', 'document_date'],
+};
+export const typableFor = (docType) => TYPABLE_BY_TYPE[docType] ?? TYPABLE;
+
 const DOC_WORDS = {
   received: ['Received, not checked', 'blue'],
   pending_verification: ['Received, not checked', 'blue'],
@@ -139,6 +153,7 @@ export function documentOut(d, booking) {
     has_file: Boolean(d.storage_path),
     reading: x.pending === true,
     unreadable: unreadable(d),
+    typable: typableFor(d.doc_type),
     typed_by: x.typed_by ?? null,
     bot_message: x.message ?? null,
     read,
@@ -167,7 +182,7 @@ export function checklistFor(required, docs) {
     if (doc) return { type, label, state: 'received', words: 'Received, not checked', tone: 'blue', document_id: doc.id };
     if (asked) {
       const why = REPLACEMENT_REASONS.find((r) => r.code === asked.rejection_code)?.words?.toLowerCase();
-      return { type, label, state: 'replacement', words: `New copy asked for${why ? ` (${why})` : ''}`, tone: 'amber', document_id: asked.id };
+      return { type, label, state: 'replacement', words: `New copy asked for${why ? ` — ${why}` : ''}`, tone: 'amber', document_id: asked.id };
     }
     return { type, label, state: 'missing', words: 'Not received', tone: 'amber', document_id: null };
   });
@@ -368,6 +383,13 @@ export async function bookingCase(req, res, who) {
   });
 }
 
+/** Internal notes on a call-back or an MRN application (bookings read theirs by booking_ref). */
+async function notesFor(entityId) {
+  const { data } = await db().from('internal_notes').select('*').eq('entity_id', entityId)
+    .order('created_at', { ascending: false }).limit(50);
+  return (data ?? []).map((n) => ({ id: n.id, author: n.author, body: n.body, at: n.created_at }));
+}
+
 /** Taking a case is everyone's right; taking it from a colleague is a supervisor's. */
 function takeButton(who, assignedTo, open) {
   if (!open) return null;
@@ -425,12 +447,13 @@ export async function requestCase(req, res, who) {
     if (t.assigned_to) secondary.push(button(who, 'request_assign', 'Give to someone else', { perm: 'assign_others', more: true }));
   }
 
-  const [auditQ, bookingsQ] = await Promise.all([
+  const [auditQ, bookingsQ, notes] = await Promise.all([
     db().from('audit_logs').select('*').eq('entity_id', ref).order('created_at', { ascending: false }).limit(40),
     t.chat_id
       ? db().from('bookings').select('booking_ref, status, vin, make, created_at').eq('chat_id', String(t.chat_id))
         .neq('status', 'draft').order('created_at', { ascending: false }).limit(5)
       : { data: [] },
+    notesFor(ref),
   ]);
   const customer = await customerFor({
     clientId: t.client_id, channel: t.channel ?? 'telegram', chatId: t.chat_id, name: t.customer || t.client_display_name, contact: phone,
@@ -463,6 +486,7 @@ export async function requestCase(req, res, who) {
     },
     take: open && t.assigned_to ? takeButton(who, t.assigned_to, true) : null,
     bookings: (bookingsQ.data ?? []).map((b) => ({ ...b, status_words: statusWords(b.status), tone: statusTone(b.status) })),
+    notes,
     history: (auditQ.data ?? []).map(describeActivity),
     last_change: (auditQ.data ?? [])[0] ? describeActivity(auditQ.data[0]) : null,
     conversation: { channel: t.channel ?? 'telegram', chat_id: t.chat_id ?? null },
@@ -491,8 +515,11 @@ export async function mrnCase(req, res, who) {
     secondary.push(button(who, 'mrn_reject', 'Reject the application', { perm: 'mrn', kind: 'danger', more: true }));
   }
 
-  const { data: auditRows } = await db().from('audit_logs').select('*')
-    .in('entity_id', [ref, m.booking_ref].filter(Boolean)).order('created_at', { ascending: false }).limit(40);
+  const [{ data: auditRows }, notes] = await Promise.all([
+    db().from('audit_logs').select('*')
+      .in('entity_id', [ref, m.booking_ref].filter(Boolean)).order('created_at', { ascending: false }).limit(40),
+    notesFor(ref),
+  ]);
   const customer = await customerFor({
     clientId: m.client_id ?? booking?.client_id, channel: booking?.channel ?? 'telegram', chatId: m.chat_id ?? booking?.chat_id,
     name: booking?.customer_name, contact: booking?.customer_contact,
@@ -520,6 +547,7 @@ export async function mrnCase(req, res, who) {
       detail: open ? 'Type the MRN exactly as issued. It is never generated here.' : (m.mrn_number ? `MRN ${m.mrn_number}` : null),
       primary, secondary,
     },
+    notes,
     history: (auditRows ?? []).map(describeActivity),
     last_change: (auditRows ?? [])[0] ? describeActivity(auditRows[0]) : null,
     conversation: { channel: booking?.channel ?? 'telegram', chat_id: m.chat_id ?? booking?.chat_id ?? null },
@@ -586,8 +614,8 @@ export async function previewView(req, res) {
   const kind = String(q.kind ?? '');
 
   let target = null;
-  let text = null;
   let eventType = 'operations_message';
+  let make = null;   // (language, channel) => the text, rendered the way it will be sent
 
   const forBooking = async (ref) => {
     const { data: b } = await db().from('bookings').select('*').eq('booking_ref', String(ref ?? '')).maybeSingle();
@@ -602,59 +630,58 @@ export async function previewView(req, res) {
     if (!d) return res.status(404).json({ error: 'That document is no longer here.' });
     const b = await forBooking(d.booking_ref);
     target = targetOf(b ?? d, b?.customer_name, b?.customer_contact);
-    eventType = 'missing_information_requested';
-    const lang = (await customerFor({ ...target })).language;
-    text = renderEvent(eventType, { booking_ref: d.booking_ref, ...replacementRequest(d.doc_type, String(q.reason_code ?? 'other'), q.note) }, lang);
+    eventType = 'document_rejected';
+    const payload = { booking_ref: d.booking_ref, ...replacementRequest(d.doc_type, String(q.reason_code ?? 'other'), q.note) };
+    make = (lang, ch) => renderEvent(eventType, payload, lang, ch);
   } else if (kind === 'request_info') {
     const b = await forBooking(q.booking_ref);
     if (!b) return res.status(404).json({ error: 'No such booking.' });
     target = targetOf(b, b.customer_name, b.customer_contact);
     eventType = 'missing_information_requested';
-    const lang = (await customerFor({ ...target })).language;
-    text = renderEvent(eventType, { booking_ref: b.booking_ref, requested: String(q.requested ?? '').trim() || '…' }, lang);
+    make = (lang, ch) => renderEvent(eventType, { booking_ref: b.booking_ref, requested: String(q.requested ?? '').trim() || '…' }, lang, ch);
   } else if (kind === 'confirm' || kind === 'reject') {
     const b = await forBooking(q.booking_ref);
     if (!b) return res.status(404).json({ error: 'No such booking.' });
     target = targetOf(b, b.customer_name, b.customer_contact);
     eventType = kind === 'confirm' ? 'booking_confirmed' : 'booking_rejected';
-    const lang = (await customerFor({ ...target })).language;
-    text = renderEvent(eventType, {
+    make = (lang, ch) => renderEvent(eventType, {
       booking_ref: b.booking_ref, vin: b.vin, make: [b.make, b.model].filter(Boolean).join(' ') || b.make,
       origin_port: b.origin_port, destination_port: b.destination_port,
       // The shipment number does not exist until the confirmation creates it.
       shipment_id: kind === 'confirm' ? '(new shipment number)' : null,
       reason: String(q.note ?? '').trim() || null,
-    }, lang);
+    }, lang, ch);
   } else if (kind === 'issue_mrn' || kind === 'mrn_need_info') {
     const { data: m } = await db().from('mrn_requests').select('*').eq('request_ref', String(q.request_ref ?? '')).maybeSingle();
     if (!m) return res.status(404).json({ error: 'No such MRN application.' });
     const b = await forBooking(m.booking_ref);
     target = targetOf({ ...(b ?? {}), chat_id: m.chat_id ?? b?.chat_id, client_id: m.client_id ?? b?.client_id }, b?.customer_name, b?.customer_contact);
-    const lang = (await customerFor({ ...target })).language;
     eventType = kind === 'issue_mrn' ? 'mrn_issued' : 'missing_information_requested';
-    text = kind === 'issue_mrn'
-      ? renderEvent(eventType, { mrn_number: String(q.mrn_number ?? '').trim() || '…', booking_ref: m.booking_ref }, lang)
-      : renderEvent(eventType, { booking_ref: m.booking_ref, requested: String(q.requested ?? '').trim() || '…' }, lang);
+    make = (lang, ch) => (kind === 'issue_mrn'
+      ? renderEvent(eventType, { mrn_number: String(q.mrn_number ?? '').trim() || '…', booking_ref: m.booking_ref }, lang, ch)
+      : renderEvent(eventType, { booking_ref: m.booking_ref, requested: String(q.requested ?? '').trim() || '…' }, lang, ch));
   } else if (kind === 'shipment_update') {
     const { data: s } = await db().from('shipments').select('*').eq('shipment_id', String(q.shipment_id ?? '')).maybeSingle();
     if (!s) return res.status(404).json({ error: 'No such shipment.' });
     const b = s.booking_ref ? await forBooking(s.booking_ref) : null;
     target = targetOf({ channel: s.channel ?? b?.channel, chat_id: s.chat_id ?? b?.chat_id, client_id: b?.client_id }, s.customer_name);
-    const lang = (await customerFor({ ...target })).language;
     eventType = 'shipment_update';
-    text = shipmentUpdateText(s, { status: q.status || null, eta: q.eta || null, note: q.note ?? '' }, lang);
+    make = (lang) => shipmentUpdateText(s, { status: q.status || null, eta: q.eta || null, note: q.note ?? '' }, lang);
   } else if (kind === 'request_resolve') {
     const { data: t } = await db().from('support_tickets').select('*').eq('ticket_ref', String(q.ticket_ref ?? '')).maybeSingle();
     if (!t) return res.status(404).json({ error: 'No such request.' });
     target = targetOf(t, t.customer, t.contact);
-    const lang = (await customerFor({ ...target })).language;
     eventType = 'ticket_resolved';
-    text = ticketResolvedText(t, q.note ?? '', lang);
+    // Telegram is told inline by notify.js; WhatsApp through the outbox.
+    make = (lang, ch) => (ch === 'whatsapp'
+      ? renderEvent(eventType, { ticket_ref: t.ticket_ref, department: t.department ?? null, note: String(q.note ?? '').trim() || null }, lang, ch)
+      : ticketResolvedText(t, q.note ?? '', lang));
   } else {
     return res.status(400).json({ error: `Unknown preview "${kind}"` });
   }
 
   const customer = await customerFor({ ...target });
+  const text = make(customer.language, target.channel);
   const delivery = await deliveryNote({ channel: target.channel, chatId: target.chatId, customer, eventType });
   return res.status(200).json({
     text: text ?? '',

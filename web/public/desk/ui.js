@@ -44,6 +44,24 @@ function append(el, children) {
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const clear = (el) => { el.replaceChildren(); return el; };
 
+/**
+ * Appends children the way h() does: arrays flattened, null and false
+ * skipped. The DOM's own append() would print a skipped child as "null".
+ */
+export const add = (el, ...children) => { append(el, children); return el; };
+/** Replaces everything inside an element with these children. */
+export const fill = (el, ...children) => { el.replaceChildren(); append(el, children); return el; };
+
+/**
+ * Text a customer or the bot wrote, one line per element, each with its own
+ * dir="auto". The bot's messages stack Arabic over English; given one
+ * direction for the whole block, the English half is laid out right to left
+ * and its full stops and colons land on the wrong side.
+ */
+export const lines = (text) => String(text ?? '').split('\n').map((line) => (line.trim()
+  ? h('div', { dir: 'auto' }, line)
+  : h('div', { class: 'line-gap', 'aria-hidden': 'true' })));
+
 /** A visually hidden label for screen readers, beside something that is only an icon. */
 export const sr = (text) => h('span', { class: 'sr-only' }, text);
 
@@ -294,6 +312,12 @@ export function toast(message, tone = 'ok', { timeout } = {}) {
     h('span', {}, message),
     h('button', { class: 'toast-close', type: 'button', 'aria-label': 'Dismiss', onclick: () => t.remove() }, icon('x', { size: 14 })));
   region.append(t);
+  // A modal dialog lives in the browser's top layer, above everything else on
+  // the page - including toasts. Shown as a popover, the region is put back on
+  // top each time, so "Sent" is visible over the dialog that sent it.
+  if (typeof region.showPopover === 'function') {
+    try { if (region.matches(':popover-open')) region.hidePopover(); region.showPopover(); } catch { /* not supported */ }
+  }
   setTimeout(() => t.remove(), timeout ?? (tone === 'bad' ? 9000 : 4500));
 }
 

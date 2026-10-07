@@ -14,7 +14,7 @@
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, chip, channelBadge, clock, dayLabel, draft, session, safeGet, safeSet, errorState, skeleton,
+  h, clear, icon, api, post, newKey, toast, chip, channelBadge, clock, dayLabel, draft, session, safeGet, safeSet, errorState, skeleton, add, fill, lines,
 } from './ui.js';
 
 const STATUS_MARK = {
@@ -42,7 +42,7 @@ export const seen = {
  */
 export function mountConversation(container, { channel, chatId, target, draftKey, onSent = null, onLoad = null }) {
   let data = null;
-  let signature = '';
+  let signature = null;   // null, not '': an empty conversation must still be drawn once
   let composerMode = '';
   let pendingKey = null;
 
@@ -51,20 +51,20 @@ export function mountConversation(container, { channel, chatId, target, draftKey
   const transcript = h('div', { class: 'transcript', role: 'log', 'aria-label': 'Conversation', tabindex: '0' });
   const pill = h('button', { class: 'new-pill', type: 'button', hidden: true, onclick: () => toEnd() }, 'New messages', icon('down', { size: 14 }));
   const composer = h('div', { class: 'composer' });
-  container.append(head, notice, h('div', { class: 'transcript-wrap' }, transcript, pill), composer);
+  add(container, head, notice, h('div', { class: 'transcript-wrap' }, transcript, pill), composer);
 
   if (!chatId) {
-    head.append(h('h2', { class: 'convo-title' }, 'Conversation'));
-    transcript.append(h('p', { class: 'convo-empty' }, 'This customer has no chat linked, so there is no conversation to show or answer.'));
+    add(head, h('h2', { class: 'convo-title' }, 'Conversation'));
+    add(transcript, h('p', { class: 'convo-empty' }, 'This customer has no chat linked, so there is no conversation to show or answer.'));
     return { refresh() {}, dispose() {} };
   }
-  transcript.append(skeleton(4));
+  add(transcript, skeleton(4));
 
   async function load({ quiet = false } = {}) {
     try {
       data = await api({ view: 'chat', channel, chat_id: chatId });
     } catch (err) {
-      if (!quiet) clear(transcript).append(errorState(err.message || 'We could not load the conversation.', () => load()));
+      if (!quiet) fill(transcript, errorState(err.message || 'We could not load the conversation.', () => load()));
       return;
     }
     drawHead();
@@ -96,7 +96,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
   // -- header ---------------------------------------------------------------
   function drawHead() {
     const c = data.customer;
-    clear(head).append(
+    fill(head, 
       h('div', { class: 'convo-who' },
         h('h2', { class: 'convo-title' }, h('bdi', {}, c.name)),
         h('div', { class: 'convo-chips' },
@@ -116,17 +116,17 @@ export function mountConversation(container, { channel, chatId, target, draftKey
   function drawTranscript() {
     clear(transcript);
     if (!data.messages.length) {
-      transcript.append(h('p', { class: 'convo-empty' }, data.available
+      add(transcript, h('p', { class: 'convo-empty' }, data.available
         ? 'No messages yet.'
         : 'Earlier messages are not shown here.'));
       return;
     }
-    if (data.has_more) transcript.append(h('p', { class: 'convo-older' }, 'Older messages are not shown.'));
+    if (data.has_more) add(transcript, h('p', { class: 'convo-older' }, 'Older messages are not shown.'));
     let day = '';
     for (const m of data.messages) {
       const d = dayLabel(m.at);
-      if (d !== day) { day = d; transcript.append(h('div', { class: 'day' }, h('span', {}, d))); }
-      transcript.append(message(m));
+      if (d !== day) { day = d; add(transcript, h('div', { class: 'day' }, h('span', {}, d))); }
+      add(transcript, message(m));
     }
   }
 
@@ -135,13 +135,15 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     // A tapped button is an action, not words: a small line, not a bubble.
     if (m.kind === 'tap') {
       return h('div', { class: 'msg msg-in msg-tap' },
-        h('span', { class: 'tap' }, m.body, ' · ', h('time', { datetime: m.at }, clock(m.at))));
+        h('span', { class: 'tap' },
+          m.tap_title ? ['Tapped ', h('bdi', {}, `“${m.tap_title}”`)] : m.body,
+          h('time', { class: 'tap-time', datetime: m.at }, clock(m.at))));
     }
     const who = m.author === 'client' ? null
       : m.author === 'bot' ? 'Bot'
         : m.author === 'staff' ? (m.staff_name || 'Staff') : 'Notification';
     const text = m.body || (m.kind && m.kind !== 'text' ? `[${KIND_WORDS[m.kind] ?? m.kind}]` : '');
-    const body = h('div', { class: 'bubble-body', dir: 'auto' }, text);
+    const body = h('div', { class: 'bubble-body' }, lines(text));
     const long = text.length > 700 || text.split('\n').length > 14;
     let toggle = null;
     if (long) {
@@ -196,7 +198,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     clear(composer);
 
     if (!session.can('chat')) {
-      composer.append(h('p', { class: 'composer-note' }, 'Your role is read only: you can read the conversation, but not write in it.'));
+      add(composer, h('p', { class: 'composer-note' }, 'Your role is read only: you can read the conversation, but not write in it.'));
       return;
     }
 
@@ -250,7 +252,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     }
     sendBtn.addEventListener('click', send);
 
-    composer.append(
+    add(composer, 
       status,
       c.mode !== 'text' ? blocked(c) : null,
       ta,
@@ -291,7 +293,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
           b.textContent = 'Send the “please reply” template';
         }
       });
-      box.append(b);
+      add(box, b);
     }
     return box;
   }

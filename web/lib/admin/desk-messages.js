@@ -11,7 +11,7 @@
  */
 
 import { render } from '../outbox.js';
-import { withLanguage } from '../lang.js';
+import { withTurn } from '../lang.js';
 import { both } from '../flow/messages.js';
 import { splitLanguages } from '../agent.js';
 import { DOC_LABEL } from '../ops/workflow.js';
@@ -67,13 +67,15 @@ export function replacementRequest(docType, code, note = '') {
 // ---------------------------------------------------------------------------
 
 /**
- * The text the outbox will send for this event, in this customer's language.
- * null when the outbox has no renderer for it - which the caller reports
- * rather than inventing a stand-in.
+ * The text the outbox will send for this event, in this customer's language
+ * and worded for their channel - rendered inside the same kind of turn the
+ * outbox's drain renders it in (lib/outbox.js: withTurn({ lang, channel })).
+ * null when the outbox has no renderer for it, which the caller reports rather
+ * than inventing a stand-in.
  */
-export function renderEvent(eventType, payload, language = null) {
-  const row = { event_type: eventType, payload, language };
-  const out = withLanguage(language, () => render(row));
+export function renderEvent(eventType, payload, language = null, channel = null) {
+  const row = { event_type: eventType, payload, language, channel };
+  const out = withTurn({ lang: language, channel }, () => render(row));
   return out?.text ?? null;
 }
 
@@ -108,10 +110,12 @@ export function shipmentUpdateText(shipment, { status = null, eta = null, note =
   const when = eta || shipment?.eta || null;
   const said = String(note ?? '').trim();
 
+  // A date inside Arabic text is isolated (LRI … PDI): left to the bidi
+  // algorithm, 2026-10-12 is shown as 12-10-2026 in a right-to-left line.
   const ar = [
     `تحديث على شحنتك ${id}${vin ? ` (شاسيه ${vin})` : ''}:`,
     said || MILESTONE_AR[milestone] || milestone,
-    when ? `الوصول المتوقع: ${when}` : null,
+    when ? `الوصول المتوقع: ⁦${when}⁩` : null,
   ].filter(Boolean).join('\n');
   const en = [
     `Update on your shipment ${id}${vin ? ` (chassis ${vin})` : ''}:`,
@@ -122,11 +126,28 @@ export function shipmentUpdateText(shipment, { status = null, eta = null, note =
 }
 
 /**
+ * The same update as the parameters of WhatsApp's "shipment update" template,
+ * for when the 24-hour window has closed and only the template can carry it.
+ */
+export function shipmentUpdatePayload(shipment, { status = null, eta = null, note = '' } = {}, language = null) {
+  const said = String(note ?? '').trim();
+  const milestone = status || shipment?.status || '';
+  return {
+    reference: shipment?.shipment_id ?? null,
+    shipment_id: shipment?.shipment_id ?? null,
+    vin: shipment?.vin ?? null,
+    eta: eta || shipment?.eta || null,
+    update: said || (language === 'ar' ? MILESTONE_AR[milestone] || milestone : milestone),
+  };
+}
+
+/**
  * The message a customer gets when their request is marked resolved.
  *
- * Mirrors notifyTicketResolved in lib/notify.js, which is what actually sends
- * it; a test compares the two, so if that wording changes the preview cannot
- * quietly go on promising the old one.
+ * Mirrors notifyTicketResolved in lib/notify.js, which sends this inline on
+ * Telegram (WhatsApp goes through the outbox's ticket_resolved renderer, and
+ * its preview is rendered from there). A test compares the two, so if that
+ * wording changes the preview cannot quietly go on promising the old one.
  */
 export function ticketResolvedText(ticket, note = '', language = null) {
   const said = String(note ?? '').trim();

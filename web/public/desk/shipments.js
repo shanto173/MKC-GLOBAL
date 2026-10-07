@@ -7,7 +7,7 @@
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, chip, channelBadge, timeEl, when, emptyState, errorState, skeleton, debounce,
+  h, clear, icon, api, post, newKey, toast, chip, channelBadge, timeEl, when, emptyState, errorState, skeleton, debounce, add, fill,
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -25,7 +25,7 @@ function renderList({ route, main }) {
   const listEl = h('div', { class: 'list-wrap' }, skeleton(6));
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Find by shipment, booking, customer or chassis', 'aria-label': 'Find a shipment' });
 
-  main.append(
+  add(main, 
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Shipments'),
       h('p', { class: 'page-sub' }, 'Confirmed bookings on their way. Open one to update it and tell the customer.'))),
@@ -41,20 +41,21 @@ function renderList({ route, main }) {
     try {
       data = await api({ view: 'shipments', filter, q });
     } catch (err) {
-      if (!quiet) clear(listEl).append(errorState(err.message, () => load()));
+      if (!quiet) fill(listEl, errorState(err.message, () => load()));
       return;
     }
     clear(listEl);
     if (!data.rows.length) {
-      listEl.append(emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',
+      add(listEl, emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',
         q ? null : 'A shipment opens when a booking is confirmed.'));
       return;
     }
-    listEl.append(h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
+    add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
       h('thead', {}, h('tr', {},
         ['Shipment', 'Customer', 'Vehicle', 'Route', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)))),
       h('tbody', {}, data.rows.map((s) => h('tr', {},
-        h('td', { 'data-label': 'Shipment' }, h('a', { href: linkFor({ type: 'shipment', id: s.shipment_id }), class: 'mono strong' }, s.shipment_id)),
+        // The link stretches over its row: the whole row opens the shipment.
+        h('td', { 'data-label': 'Shipment' }, h('a', { href: linkFor({ type: 'shipment', id: s.shipment_id }), class: 'mono strong stretch' }, s.shipment_id)),
         h('td', { 'data-label': 'Customer' }, h('bdi', {}, s.customer_name ?? '—'), ' ', channelBadge(s.channel, { compact: true })),
         h('td', { 'data-label': 'Vehicle' }, s.vehicle ?? '—', s.vin ? h('div', { class: 'mono muted small' }, s.vin) : null),
         h('td', { 'data-label': 'Route' }, s.route),
@@ -71,14 +72,14 @@ function renderList({ route, main }) {
 function renderShipment({ main }, id) {
   let data = null;
   const root = h('div', { class: 'shipment' }, skeleton(8));
-  main.append(root);
+  add(main, root);
 
   async function load({ quiet = false } = {}) {
     let fresh;
     try {
       fresh = await api({ view: 'shipment', id });
     } catch (err) {
-      if (!quiet) clear(root).append(errorState(err.message, err.status === 404 ? null : () => load()));
+      if (!quiet) fill(root, errorState(err.message, err.status === 404 ? null : () => load()));
       return;
     }
     if (data && fresh.version === data.version) return;
@@ -91,7 +92,7 @@ function renderShipment({ main }, id) {
 
   function draw() {
     const s = data.shipment;
-    clear(root).append(
+    fill(root, 
       h('a', { class: 'back', href: '#/shipments' }, icon('back', { size: 16 }), 'Shipments'),
       h('header', { class: 'case-head' },
         h('div', { class: 'case-title-row' }, h('h1', { class: 'case-ref' }, s.shipment_id), chip(s.status, s.tone)),

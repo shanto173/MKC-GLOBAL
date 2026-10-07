@@ -25,10 +25,10 @@
       <div class="signin-brand" aria-hidden="true">M</div>
       <h1>MKY Desk</h1>
       <p class="signin-sub">Sign in with your name and the desk password.</p>
-      <label for="who">Your name</label>
-      <input id="who" name="who" autocomplete="username" required />
-      <label for="secret">Desk password</label>
-      <input id="secret" name="secret" type="password" autocomplete="current-password" required />
+      <label class="label" for="who">Your name</label>
+      <input class="input" id="who" name="who" autocomplete="username" required />
+      <label class="label" for="secret">Desk password</label>
+      <input class="input" id="secret" name="secret" type="password" autocomplete="current-password" required />
       <p class="field-hint">Ask your administrator if you do not have it.</p>
       <p id="signinError" class="form-error" role="alert" hidden></p>
       <div id="signinExtra"></div>
@@ -59,7 +59,7 @@
     <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
   </div>
 
-  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="toasts" class="toasts" aria-live="polite" popover="manual"></div>
   <noscript><p class="noscript">The MKY Desk needs JavaScript turned on.</p></noscript>
   <script type="module" src="./app.js"></script>
 </body>

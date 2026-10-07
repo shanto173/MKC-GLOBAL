@@ -246,13 +246,13 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   const status = booking.status;
 
   if (status === 'confirmed') {
-    return { code: 'NONE', label: 'Nothing outstanding', owner: 'none', detail: 'Booked and the client has been told.', action: null };
+    return { code: 'NONE', label: 'Nothing outstanding', owner: 'none', detail: 'Booked, and the customer has been told.', action: null };
   }
   if (['rejected', 'cancelled', 'expired'].includes(status)) {
     return { code: 'NONE', label: 'Closed', owner: 'none', detail: `This request was ${statusLabel(status).toLowerCase()}.`, action: null };
   }
   if (status === 'draft') {
-    return { code: 'WAIT_CLIENT', label: 'Client is still filling it in', owner: 'client', detail: 'Nothing has been sent to us yet.', action: null };
+    return { code: 'WAIT_CLIENT', label: 'The customer is still filling it in', owner: 'client', detail: 'Nothing has been sent to us yet.', action: null };
   }
 
   const ready = readiness(booking, documents, mrn);
@@ -261,7 +261,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   if (missingBasics.length) {
     return {
       code: 'REVIEW_INFORMATION',
-      label: 'Ask the client for missing details',
+      label: 'Ask the customer for the missing details',
       owner: 'ops',
       detail: `Still missing: ${missingBasics.map((i) => i.label).join(', ')}.`,
       action: 'request_info',
@@ -331,7 +331,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
     code: 'CONFIRM_BOOKING',
     label: 'Confirm the booking',
     owner: 'ops',
-    detail: 'Confirming tells the client and opens the shipment.',
+    detail: 'Confirming tells the customer and opens the shipment.',
     action: 'confirm_booking',
   };
 }
@@ -498,7 +498,7 @@ export function requestNextAction(request = {}) {
   const s = request.status;
   if (s === 'resolved') return { label: 'Resolved — close it when you are done', owner: 'none', action: 'close' };
   if (s === 'closed') return { label: 'Closed', owner: 'none', action: null };
-  if (s === 'waiting_client') return { label: 'Waiting for the client to come back', owner: 'client', action: 'reply' };
+  if (s === 'waiting_client') return { label: 'Waiting for the customer to come back', owner: 'client', action: 'reply' };
   if (!request.assigned_to) return { label: 'Nobody owns this — take it', owner: 'ops', action: 'assign' };
   if (!request.contact || /^(telegram|web):/i.test(request.contact)) {
     return { label: 'No phone number — reply in the chat', owner: 'ops', action: 'reply' };

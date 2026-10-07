@@ -339,9 +339,11 @@ async function problemItems({ since, handled }) {
     // The desk's own sends are recorded here too, but the operator saw those
     // fail as they pressed Send; listing them again would be noise.
     if (o.payload?.via === 'desk') continue;
+    // Held rows stay 'pending' in the outbox; delivery_status says why.
     const needsTemplate = o.delivery_status === 'needs_template';
+    const stopped = o.delivery_status === 'opted_out';
     const dead = ['dead', 'failed'].includes(o.status);
-    if (!needsTemplate && !dead) continue;
+    if (!needsTemplate && !stopped && !dead) continue;
     const pid = `outbox:${o.id}`;
     if (handled.has(pid)) continue;
     const name = await nameFor(o.channel, o.chat_id, o.client_id);
@@ -354,11 +356,13 @@ async function problemItems({ since, handled }) {
       tone: 'red',
       sentence: needsTemplate
         ? `Waiting for a WhatsApp template — ${name} hasn’t written in 24 h`
-        : `The ${what} didn’t reach ${name}`,
+        : stopped ? `Not sent — ${name} wrote STOP`
+          : `The ${what} didn’t reach ${name}`,
       who: name,
       detail: needsTemplate
-        ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. Send the “please reply” template, or set one up in Settings.`
-        : failureWords(o.last_error, { template: o.template_name ?? null }),
+        ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
+        : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
+          : failureWords(o.last_error, { template: o.template_name ?? null }),
       ref: o.entity_id ?? null,
       link: o.entity_type === 'booking' ? { type: 'booking', ref: o.entity_id }
         : o.entity_type === 'support_ticket' ? { type: 'request', ref: o.entity_id }

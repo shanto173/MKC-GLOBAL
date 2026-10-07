@@ -4,7 +4,7 @@
  *   /api/admin/tasks      ->  ?resource=tasks      the Operations work queue
  *   /api/admin/mrn        ->  ?resource=mrn        MRN applications
  *   /api/admin/read-test  ->  ?resource=read-test  why a document would not read
- *   /api/ops/*            ->  ?resource=console    the operations console's API
+ *   ?resource=console                              the MKY Desk's API (public/desk/)
  *   /api/cron/outbox      ->  ?resource=outbox     drain queued notifications
  *
  * WHY THIS IS ONE FILE AND NOT FOUR.
