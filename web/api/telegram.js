@@ -29,6 +29,12 @@
  * Now the file is recorded, Telegram gets its 200, and the reading goes on in
  * the background (waitUntil keeps the function alive for it) - so the three are
  * read at once, and the last to finish answers for all of them.
+ *
+ * Each update runs in the client's chosen language (lib/lang.js), so what is
+ * said outside the machine - the blocked notice, an error, a refused file, the
+ * assistant's answer - matches what the machine says. Every message in and out
+ * is written to chat_messages (lib/chatlog.js) for the desk. A client who never
+ * chose a language sees exactly what they saw before.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -37,18 +43,22 @@ import { config } from '../lib/config.js';
 import { forgetConversation } from '../lib/session.js';
 import { db } from '../lib/supabase.js';
 import {
-  sendMessage, sendTyping, downloadFile, sweepChat, answerCallback, clearButtons,
+  sendTyping, downloadFile, sweepChat, answerCallback, clearButtons,
 } from '../lib/telegram.js';
 import { parseCallback } from '../lib/flow/keyboards.js';
 import * as kb from '../lib/flow/keyboards.js';
 import { M } from '../lib/flow/messages.js';
 import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
+import { storedLanguage } from '../lib/flow/language.js';
+import { withLanguage } from '../lib/lang.js';
 import { upsertTelegramClient } from '../lib/clients.js';
 import { noteClientResponse } from '../lib/bookings.js';
 import {
-  beginDocument, completeDocument, abandonDocument, recentUploads, stillReading, claimReply,
+  beginDocument, completeDocument, abandonDocument, recentUploads, stillReading, claimReply, openRequestForFiles,
 } from '../lib/documents.js';
+import { sendToChat, phrase } from '../lib/channels.js';
+import { logInbound } from '../lib/chatlog.js';
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
 import { audit, logEvent } from '../lib/audit.js';
@@ -121,6 +131,12 @@ export default async function handler(req, res) {
   }).catch(() => null);
   defer(notedPromise);
 
+  // The language the client chose, read while the claim is in flight. Null
+  // until they choose, and always null before the migration that stores it.
+  const languagePromise = clientPromise
+    .then((c) => storedLanguage({ channel: 'telegram', chatId, clientId: c?.id ?? null }))
+    .catch(() => null);
+
   // Claimed in one statement, so two workers handling the same retried update
   // cannot both proceed. A crashed worker's claim becomes reclaimable after a
   // couple of minutes rather than being lost for good.
@@ -136,6 +152,15 @@ export default async function handler(req, res) {
     correlation_id: correlationId,
   });
 
+  // Everything said from here on - the machine's messages and the transport's
+  // own - is in the client's language.
+  const language = await languagePromise;
+  return withLanguage(language, () => turn(res, {
+    update, callbackQuery, message, from, chatId, correlationId, clientPromise, notedPromise, language,
+  }));
+}
+
+async function turn(res, { update, callbackQuery, message, from, chatId, correlationId, clientPromise, notedPromise, language }) {
   try {
     const client = await clientPromise;
 
@@ -145,12 +170,18 @@ export default async function handler(req, res) {
       clientId: client?.id ?? null,
       telegramUserId: from?.id ?? null,
       userName: [from?.first_name, from?.last_name].filter(Boolean).join(' ') || null,
+      language,
       messageId: message?.message_id,
       correlationId,
     };
+    const target = targetOf(ctx);
+
+    defer(logInbound({
+      channel: 'telegram', chatId, clientId: ctx.clientId, language, ...describe(update, chatId),
+    }));
 
     if (client?.is_blocked) {
-      await sendMessage(chatId, M.blocked());
+      await sendToChat(target, { text: M.blocked() });
       await finishUpdate(update.update_id, 'processed');
       return answer(res, { ok: true, blocked: true });
     }
@@ -175,7 +206,7 @@ export default async function handler(req, res) {
     }
 
     if (input.kind === 'rejected') {
-      await sendMessage(chatId, input.text, { inline: kb.homeOnly() });
+      await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
       return answer(res, { ok: true });
     }
@@ -204,6 +235,25 @@ export default async function handler(req, res) {
   }
 }
 
+const targetOf = (ctx) => ({ channel: 'telegram', chatId: ctx.chatId, clientId: ctx.clientId ?? null });
+
+/**
+ * What the chat log records of an update. Telegram's message ids count up per
+ * chat, so the chat id goes in front to make them unique across chats.
+ */
+function describe(update, chatId) {
+  const cq = update.callback_query;
+  if (cq) return { kind: 'choice', body: cq.data ?? null, payload: { id: cq.data ?? null } };
+  const m = update.message ?? {};
+  const providerMessageId = m.message_id != null ? `${chatId}:${m.message_id}` : null;
+  if (m.contact) return { kind: 'contact', body: m.contact.phone_number ?? null, providerMessageId };
+  if (m.document) {
+    return { kind: 'document', body: m.caption ?? null, payload: { file_name: m.document.file_name ?? null }, providerMessageId };
+  }
+  if (m.photo) return { kind: 'image', body: m.caption ?? null, providerMessageId };
+  return { kind: 'text', body: m.text ?? m.caption ?? null, providerMessageId };
+}
+
 /**
  * Sends what the flow said - or, when it said nothing, what the assistant
  * says - then the outbox, then the bookkeeping. Shared by the path that
@@ -211,6 +261,7 @@ export default async function handler(req, res) {
  */
 async function deliver(flow, input, ctx, update, callbackQuery) {
   const { chatId, correlationId } = ctx;
+  const target = targetOf(ctx);
 
   if (flow.handled) {
     // The card whose button was just pressed has been acted on; leaving the
@@ -220,13 +271,9 @@ async function deliver(flow, input, ctx, update, callbackQuery) {
     const cleared = callbackQuery?.message?.message_id
       ? clearButtons(chatId, callbackQuery.message.message_id)
       : Promise.resolve();
-    for (const m of flow.messages) {
-      await sendMessage(chatId, m.text, {
-        inline: m.inline,
-        keyboard: m.keyboard,
-        oneTime: m.oneTime ?? false,
-      });
-    }
+    // Exactly the message the machine built - text, inline buttons, reply
+    // keyboard - sent as lib/telegram.js always sent it, and logged.
+    for (const m of flow.messages) await sendToChat(target, m);
     await cleared;
   } else {
     // Nothing was being asked and the text is not a menu choice, so it is a
@@ -237,7 +284,7 @@ async function deliver(flow, input, ctx, update, callbackQuery) {
     // are the largest thing in this function, and a tap never needs them.
     const { respond } = await import('../lib/agent.js');
     const { reply } = await respond(input.text ?? '', ctx);
-    await sendMessage(chatId, reply, { inline: kb.mainMenu() });
+    await sendToChat(target, { text: reply, inline: kb.mainMenu() });
   }
 
   // Anything the flow queued for this client goes out now rather than waiting
@@ -261,7 +308,7 @@ async function failed(err, update, chatId, correlationId) {
   await finishUpdate(update.update_id, 'failed', err?.message).catch(() => null);
 
   try {
-    await sendMessage(chatId, M.recoverableError(correlationId), { inline: kb.errorRecovery() });
+    await sendToChat({ channel: 'telegram', chatId }, { text: M.recoverableError(correlationId), inline: kb.errorRecovery() });
   } catch { /* best effort */ }
 }
 
@@ -269,7 +316,7 @@ async function failed(err, update, chatId, correlationId) {
 // Reading one update into the shape the state machine takes
 // ---------------------------------------------------------------------------
 
-const COMMANDS = new Set(['/start', '/menu', '/help', '/cancel', '/reset', '/book', '/track']);
+const COMMANDS = new Set(['/start', '/menu', '/help', '/cancel', '/reset', '/book', '/track', '/language']);
 
 async function readInput(update, ctx) {
   const callbackQuery = update.callback_query;
@@ -362,16 +409,8 @@ async function recordIncomingFile(file, message, ctx) {
   }
 
   // Which request do these papers belong to? The one this conversation is
-  // working on. Attaching them by chat rather than guessing from the content is
-  // what stopped an invoice being filed against another vehicle's booking.
-  const { data: open } = await db()
-    .from('bookings')
-    .select('booking_ref, vin')
-    .eq('chat_id', String(ctx.chatId))
-    .in('status', ['draft', 'pending_review', 'under_review', 'needs_client_action'])
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // working on - by chat, never guessed from the content.
+  const open = await openRequestForFiles(ctx.chatId);
 
   const begun = await beginDocument({
     fileName: file.fileName,
@@ -407,6 +446,7 @@ async function recordIncomingFile(file, message, ctx) {
 async function finishDocument(input, ctx, update, notedPromise) {
   const { file, message, begun, bookingRef, caption } = input;
   const { chatId } = ctx;
+  const target = targetOf(ctx);
 
   try {
     // No "reading it now" message: the typing indicator is the feedback while
@@ -423,9 +463,7 @@ async function finishDocument(input, ctx, update, notedPromise) {
     if (caption) {
       const absorbed = await runFlow({ kind: 'caption', text: caption }, ctx);
       if (absorbed.handled && absorbed.messages.length) {
-        for (const m of absorbed.messages) {
-          await sendMessage(chatId, m.text, { inline: m.inline, keyboard: m.keyboard, oneTime: m.oneTime ?? false });
-        }
+        for (const m of absorbed.messages) await sendToChat(target, m);
         ended = true;
       }
     }
@@ -447,7 +485,7 @@ async function finishDocument(input, ctx, update, notedPromise) {
     }
 
     if (!ingested.ok) {
-      await sendMessage(chatId, M.documentSaveFailed(), { inline: kb.homeOnly() });
+      await sendToChat(target, { text: M.documentSaveFailed(), inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
       return;
     }
@@ -532,18 +570,14 @@ async function handleReset(ctx) {
 
   const alsoAr = drafts ? ` وشلت ${drafts === 1 ? 'حجز' : drafts + ' حجوزات'} لسه ما اتأكدش.` : '';
   const alsoEn = drafts ? ` I also dropped ${drafts} unconfirmed booking${drafts === 1 ? '' : 's'}.` : '';
+  const ar = `تمام، مسحت المحادثة ورسايلها.${alsoAr} حجوزاتك المؤكدة وشحناتك زي ما هي. ` +
+    'الرسايل الأقدم من يومين بتفضل ظاهرة - تليجرام مبيسمحش للبوت يمسحها.';
+  const en = `Done - cleared our conversation and the messages above.${alsoEn} Your confirmed bookings ` +
+    'and shipments are untouched. Anything older than two days stays visible - Telegram does ' +
+    'not let a bot delete it.';
 
-  await sendMessage(
-    ctx.chatId,
-    splitLanguages(
-      `تمام، مسحت المحادثة ورسايلها.${alsoAr} حجوزاتك المؤكدة وشحناتك زي ما هي. ` +
-      'الرسايل الأقدم من يومين بتفضل ظاهرة - تليجرام مبيسمحش للبوت يمسحها. |' +
-      `Done - cleared our conversation and the messages above.${alsoEn} Your confirmed bookings ` +
-      'and shipments are untouched. Anything older than two days stays visible - Telegram does ' +
-      'not let a bot delete it.',
-    ),
-    { removeKeyboard: true },
-  );
-  await sendMessage(ctx.chatId, M.welcome(ctx.userName), { inline: kb.mainMenu() });
+  const target = targetOf(ctx);
+  await sendToChat(target, { text: phrase(ar, en, splitLanguages(`${ar} |${en}`)), removeKeyboard: true });
+  await sendToChat(target, { text: M.welcome(ctx.userName), inline: kb.mainMenu() });
   await refreshPinSafely(ctx.chatId);
 }

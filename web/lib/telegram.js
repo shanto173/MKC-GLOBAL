@@ -3,7 +3,20 @@ import { config } from './config.js';
 const API = (method) => `https://api.telegram.org/bot${config.telegram.token}/${method}`;
 const MAX_LEN = 4000; // Telegram hard limit is 4096
 
+/**
+ * A WhatsApp chat id ("wa:<number>") shares the chat_id columns with Telegram's.
+ * Handed to Telegram by mistake - a desk action that forgot to check the
+ * booking's channel - it must go nowhere rather than to whichever Telegram
+ * chat happens to have those digits.
+ */
+const notTelegram = (chatId) => typeof chatId === 'string' && chatId.startsWith('wa:');
+const REFUSED = { ok: false, error_code: 400, description: 'Bad Request: not a Telegram chat' };
+
 async function call(method, payload) {
+  if (notTelegram(payload?.chat_id)) {
+    console.error(`telegram ${method} not sent: the chat is a WhatsApp chat (use lib/channels.js sendToChat)`);
+    return REFUSED;
+  }
   const res = await fetch(API(method), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -102,6 +115,7 @@ export async function sendTyping(chatId) {
 
 /** Upload a file (multipart, so it cannot go through the JSON helper above). */
 export async function sendDocument(chatId, buffer, filename, caption) {
+  if (notTelegram(chatId)) throw new Error(`sendDocument: ${REFUSED.description}`);
   const form = new FormData();
   form.append('chat_id', String(chatId));
   form.append('document', new Blob([buffer], { type: 'application/pdf' }), filename);
@@ -135,6 +149,7 @@ export async function downloadFile(fileId) {
 
 /** Like call(), but silent: a sweep expects failures and would flood the log. */
 async function tryCall(method, payload, { retryOn429 = true } = {}) {
+  if (notTelegram(payload?.chat_id)) return REFUSED;
   let data;
   try {
     const res = await fetch(API(method), {
@@ -280,6 +295,7 @@ export async function setCommands() {
       { command: 'book', description: 'Request a new booking' },
       { command: 'cancel', description: 'Stop what we are in the middle of' },
       { command: 'help', description: 'What this bot can do' },
+      { command: 'language', description: 'English / العربية' },
       { command: 'reset', description: 'Forget this conversation' },
     ],
   });

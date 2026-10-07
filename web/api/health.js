@@ -1,9 +1,67 @@
-/** Quick "is everything wired up?" check. Safe to open in a browser. */
+/**
+ * Two read-only views in one function.
+ *
+ *   GET /api/health              "is everything wired up?" - safe to open in a
+ *                                browser. ?deep=1 also asks Meta whether the
+ *                                WhatsApp token works.
+ *   GET /api/status?sessionId=   what a web-chat visitor has in flight, for the
+ *                                strip above the widget (rewritten here by
+ *                                vercel.json as ?view=status).
+ *
+ * WHY ONE FILE. Vercel's Hobby plan allows twelve functions per deployment and
+ * the project was at twelve; the WhatsApp webhook needed one of them. The
+ * status strip was the smallest route and, like this one, only reads - so it
+ * moved in here and the old URL is kept by a rewrite. server.js applies the
+ * same rewrites from vercel.json, so both hosts answer /api/status alike.
+ */
 
-import { config } from '../lib/config.js';
+import { config, whatsappConfigured } from '../lib/config.js';
 import { db } from '../lib/supabase.js';
+import { activeItems } from '../lib/pinned.js';
 
-export default async function handler(_req, res) {
+export default async function handler(req, res) {
+  // Either marker means the status view: the rewrite adds view=status, and a
+  // sessionId is never sent to the health check.
+  if (req.query?.view === 'status' || req.query?.sessionId !== undefined) return statusView(req, res);
+  return healthView(req, res);
+}
+
+// ---------------------------------------------------------------------------
+// /api/status
+// ---------------------------------------------------------------------------
+
+/**
+ * The same thing the pinned card shows on Telegram: a customer should be able
+ * to see where their vehicle is without asking for it again.
+ *
+ * The session id is the random one the browser made for itself and keeps in
+ * localStorage - the same key /api/chat is trusted with. It only ever returns
+ * rows created from that session.
+ */
+async function statusView(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+  const sessionId = String(req.query.sessionId ?? '').trim();
+  if (!sessionId || sessionId.length > 100) {
+    return res.status(400).json({ error: 'A sessionId is required.' });
+  }
+
+  try {
+    const items = await activeItems(sessionId);
+    // Never cached: a status the customer is watching must not be a stale copy.
+    res.setHeader('cache-control', 'no-store');
+    return res.status(200).json({ company: config.companyName, count: items.length, items });
+  } catch (err) {
+    console.error('status failed:', err.message);
+    return res.status(200).json({ company: config.companyName, count: 0, items: [] });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /api/health
+// ---------------------------------------------------------------------------
+
+async function healthView(req, res) {
   // Which build is actually serving. We repeatedly could not tell whether a
   // setting had failed to save or a redeploy simply had not happened; the commit
   // and build time answer that in one look. Vercel injects these itself.
@@ -37,6 +95,7 @@ export default async function handler(_req, res) {
   // log after a client has been left waiting.
   let migrations = 'not checked';
   const flowTables = {};
+  let whatsappSchema = { migration: 'not checked' };
 
   if (checks.supabase_url && checks.supabase_key) {
     try {
@@ -77,6 +136,8 @@ export default async function handler(_req, res) {
     migrations = absent.length
       ? `migration 008 not applied - missing: ${absent.join(', ')}`
       : 'ok';
+
+    whatsappSchema = await whatsappMigration();
   }
 
   // PDFKit reads .afm font files off disk; if Vercel's file tracing misses
@@ -121,9 +182,105 @@ export default async function handler(_req, res) {
     model_can_book: config.bookingEngine !== 'state_machine',
   };
 
-  const ready = missing.length === 0 && database === 'ok' && migrations === 'ok' && pdf.startsWith('ok');
+  const whatsapp = await whatsappHealth({ deep: req.query?.deep === '1' || req.query?.deep === 'true' });
+  whatsapp.schema = whatsappSchema;
+
+  // WhatsApp is the second channel, not a precondition: a Telegram-only
+  // deployment, or one waiting for its WhatsApp migration, is still ready.
+  // A deep check that finds the token dead is the exception - that is a
+  // channel silently dropping every customer on it.
+  const whatsappBroken = whatsapp.token_check?.startsWith('error');
+  const ready = missing.length === 0 && database === 'ok' && migrations === 'ok' && pdf.startsWith('ok') && !whatsappBroken;
   res.status(ready ? 200 : 503).json({
     ready, build, checks, database, migrations, flow_tables: flowTables,
-    booking_engine, rows: { shipments, documents }, pdf, notifications,
+    booking_engine, rows: { shipments, documents }, pdf, notifications, whatsapp,
   });
+}
+
+/**
+ * Which WhatsApp settings are present. Meta is only asked whether the token
+ * works when ?deep=1 says so: a health check opened every few minutes by a
+ * monitor should not spend Graph API calls or sit behind Meta's latency.
+ */
+async function whatsappHealth({ deep = false } = {}) {
+  const w = config.whatsapp;
+  const present = {
+    access_token: Boolean(w.token),
+    phone_number_id: Boolean(w.phoneNumberId),
+    business_account_id: Boolean(w.businessAccountId),
+    app_secret: Boolean(w.appSecret),
+    verify_token: Boolean(w.verifyToken),
+  };
+  const missing = Object.entries({
+    WHATSAPP_ACCESS_TOKEN: present.access_token,
+    WHATSAPP_PHONE_NUMBER_ID: present.phone_number_id,
+    WHATSAPP_APP_SECRET: present.app_secret,
+    WHATSAPP_VERIFY_TOKEN: present.verify_token,
+  }).filter(([, ok]) => !ok).map(([name]) => name);
+
+  const anything = Object.values(present).some(Boolean);
+  const result = {
+    status: !anything ? 'off' : missing.length ? 'incomplete' : 'configured',
+    ...present,
+    graph_version: w.graphVersion,
+    ...(anything && missing.length ? { missing_env: missing } : {}),
+    token_check: 'not checked - add ?deep=1',
+  };
+
+  if (deep && whatsappConfigured()) {
+    const { phoneNumberInfo } = await import('../lib/whatsapp.js');
+    const info = await phoneNumberInfo();
+    if (info.ok) {
+      result.token_check = 'ok';
+      result.number = info.body?.display_phone_number ?? null;
+      result.verified_name = info.body?.verified_name ?? null;
+      result.quality_rating = info.body?.quality_rating ?? null;
+    } else {
+      result.token_check = `error${info.code ? ` ${info.code}` : ''}: ${info.error}`;
+    }
+  }
+  return result;
+}
+
+/**
+ * Is migration 20261007090000 (WhatsApp, language, chat log) applied - and the
+ * small 20261007100000 after it? The bot runs without them, Telegram exactly
+ * as before; WhatsApp clients, the chosen language and the desk's
+ * conversation view need them. Said here by name, so "why is everything
+ * bilingual" has an answer one click away.
+ */
+async function whatsappMigration() {
+  const probes = {
+    chat_messages: () => db().from('chat_messages').select('*', { count: 'exact', head: true }),
+    processed_whatsapp_messages: () => db().from('processed_whatsapp_messages').select('*', { count: 'exact', head: true }),
+    'clients.whatsapp_id/language/opted_out_at': () => db().from('clients').select('whatsapp_id, language, opted_out_at').limit(1),
+    'conversation_sessions.language/last_client_message_at': () =>
+      db().from('conversation_sessions').select('language, last_client_message_at').limit(1),
+    'notification_outbox.language/delivery_status/provider_message_id/template_name': () =>
+      db().from('notification_outbox').select('language, delivery_status, provider_message_id, template_name').limit(1),
+    // A fixed id: the first check claims it, every later one is a duplicate.
+    'claim_whatsapp_message()': () => db().rpc('claim_whatsapp_message', { p_message_id: '__health_check__', p_chat_id: 'health' }),
+  };
+
+  const tables = {};
+  const absent = [];
+  for (const [name, probe] of Object.entries(probes)) {
+    const { error } = await probe();
+    tables[name] = error ? `missing: ${error.message}` : 'ok';
+    if (error) absent.push(name);
+  }
+
+  const { data: setting } = await db().from('bot_settings').select('value').eq('key', 'whatsapp_templates').maybeSingle();
+  tables.whatsapp_templates = setting?.value ? `${Object.keys(setting.value).length} events mapped` : 'not set';
+
+  const media = await db().from('booking_documents').select('whatsapp_media_sha256').limit(1);
+  tables['booking_documents.whatsapp_media_sha256'] = media.error ? `missing: ${media.error.message}` : 'ok';
+
+  return {
+    migration: absent.length
+      ? `20261007090000 not applied - missing: ${absent.join(', ')}`
+      : 'ok',
+    media_migration: media.error ? '20261007100000 not applied (WhatsApp re-sent files are not recognised as the same document)' : 'ok',
+    tables,
+  };
 }

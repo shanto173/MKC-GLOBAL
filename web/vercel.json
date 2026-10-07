@@ -28,6 +28,10 @@
     {
       "source": "/api/cron/outbox",
       "destination": "/api/admin/ops?resource=outbox"
+    },
+    {
+      "source": "/api/status",
+      "destination": "/api/health?view=status"
     }
   ]
 }

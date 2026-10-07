@@ -12,7 +12,8 @@
  *
  * No handler changes. They are (req, res) functions, and the few helpers they
  * use on top of Node's own - req.query, req.body, res.status, res.json,
- * res.send - are added here.
+ * res.send - are added here, plus req.rawBody (the unparsed bytes), which
+ * the WhatsApp webhook needs to check Meta's signature.
  *
  * And one thing Vercel's free plan would not do: retry the notification outbox
  * every few minutes (OUTBOX_EVERY_MINUTES, default 5; 0 turns it off).
@@ -185,7 +186,12 @@ export function createApp({ routes, rewrites = new Map(), publicDir, bodyLimit =
 async function callApi(handler, req, res, query, bodyLimit, logger) {
   req.query = toQuery(query);
   try {
-    req.body = parseBody(req.headers['content-type'], await readBody(req, bodyLimit));
+    const raw = await readBody(req, bodyLimit);
+    // The bytes exactly as they arrived. A signed webhook (api/whatsapp.js) is
+    // verified over these: the parsed body, serialised again, is not the same
+    // bytes, and the stream they came from has been read.
+    req.rawBody = raw;
+    req.body = parseBody(req.headers['content-type'], raw);
   } catch (err) {
     if (!err.status) throw err;
     return reply(res, err.status, { error: err.message });

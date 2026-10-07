@@ -92,6 +92,10 @@ export async function activeItems(chatId) {
  */
 export async function refreshPin(chatId, { channel = 'telegram' } = {}) {
   if (channel !== 'telegram' || !chatId || !config.telegram.token) return { action: 'none' };
+  // WhatsApp has nothing to pin - status changes are messages there. A
+  // WhatsApp chat id reaching here (a caller that left the channel at its
+  // default) is answered "nothing to do", not sent to Telegram.
+  if (String(chatId).startsWith('wa:')) return { action: 'none' };
 
   const rows = await activeItems(chatId);
   const current = await pinnedMessage(chatId);

@@ -13,6 +13,15 @@ import { readDocument } from './read-file.js';
 import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS, LATER_DOCS } from './extract.js';
 import { normalizeVin } from './tools.js';
 import { requiredDocuments } from './settings.js';
+import { isSchemaMissing } from './chatlog.js';
+
+// Whether booking_documents has the WhatsApp media columns. Learned once.
+let mediaColumns = null;
+
+/** For tests: forget what was learned about the schema. */
+export function resetDocumentsForTests() {
+  mediaColumns = null;
+}
 
 const DOC_LABELS = {
   invoice: 'commercial invoice',
@@ -33,6 +42,26 @@ export const DOC_LABELS_AR = {
 };
 
 /**
+ * Which request do papers arriving in this chat belong to? The one this
+ * conversation is working on. Attaching them by chat rather than guessing from
+ * the content is what stopped an invoice being filed against another
+ * vehicle's booking. Shared by both transports.
+ *
+ * @returns {Promise<{booking_ref: string, vin: string|null}|null>}
+ */
+export async function openRequestForFiles(chatId) {
+  const { data } = await db()
+    .from('bookings')
+    .select('booking_ref, vin')
+    .eq('chat_id', String(chatId))
+    .in('status', ['draft', 'pending_review', 'under_review', 'needs_client_action'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/**
  * Records that a file has arrived, before anything slow happens to it.
  *
  * Reading a document takes seconds - a model reads a scan - and three papers
@@ -49,6 +78,7 @@ export const DOC_LABELS_AR = {
 export async function beginDocument({
   fileName, mimeType, size = 0, chatId, channel = 'telegram', bookingRef = null,
   telegramFileId = null, telegramFileUniqueId = null, telegramMessageId = null,
+  whatsappMediaId = null, whatsappMediaSha256 = null,
   clientId = null, uploadedBy = null,
 }) {
   const row = {
@@ -79,20 +109,35 @@ export async function beginDocument({
   // warning, and the operations desk was reading nine chips for three papers.
   // Telegram's file_unique_id is the reliable test - the same photo re-sent
   // gets a new file_id and often a new name, but never a new unique id.
+  // WhatsApp's equivalent is the file's sha256, which Meta sends with it: a
+  // new media id every time, the same hash for the same bytes.
+  const byHash = Boolean(whatsappMediaSha256) && mediaColumns !== false;
   const dedupe = db()
     .from('booking_documents')
     .select('id')
     .eq('chat_id', String(chatId))
     .limit(1);
   if (telegramFileUniqueId) dedupe.eq('telegram_file_unique_id', telegramFileUniqueId);
+  else if (byHash) dedupe.eq('whatsapp_media_sha256', whatsappMediaSha256);
   else dedupe.eq('file_name', fileName).eq('size_bytes', size);
-  const { data: already } = await dedupe.maybeSingle();
+  const { data: already, error: dedupeError } = await dedupe.maybeSingle();
+  if (byHash && isSchemaMissing(dedupeError)) mediaColumns = false;
 
-  const write = already
-    ? db().from('booking_documents').update(row).eq('id', already.id)
-    : db().from('booking_documents').insert(row);
+  // The WhatsApp columns arrive with migration 20261007100000. Written only
+  // while they may exist; refused once, never named again in this process.
+  const media = channel === 'whatsapp' && mediaColumns !== false && (whatsappMediaId || whatsappMediaSha256)
+    ? { whatsapp_media_id: whatsappMediaId, whatsapp_media_sha256: whatsappMediaSha256 }
+    : null;
 
-  const { data, error } = await write.select().single();
+  const write = (values) => (already
+    ? db().from('booking_documents').update(values).eq('id', already.id)
+    : db().from('booking_documents').insert(values)).select().single();
+
+  let { data, error } = await write(media ? { ...row, ...media } : row);
+  if (error && media && isSchemaMissing(error)) {
+    mediaColumns = false;
+    ({ data, error } = await write(row));
+  }
   if (error) {
     console.error('booking_documents insert failed:', error.message);
     return { ok: false, error: error.message };
@@ -223,10 +268,11 @@ export async function claimReply(chatId, documentIds) {
   if (!ids.length) return true;
 
   const chat = String(chatId);
+  const whatsapp = chat.startsWith('wa:');
   const { error } = await db().from('notification_outbox').insert({
     chat_id: chat,
-    telegram_chat_id: Number.isSafeInteger(Number(chat)) ? Number(chat) : null,
-    channel: 'telegram',
+    telegram_chat_id: !whatsapp && Number.isSafeInteger(Number(chat)) ? Number(chat) : null,
+    channel: whatsapp ? 'whatsapp' : 'telegram',
     event_type: 'document_reply',
     entity_type: 'booking_document',
     entity_id: String(ids[ids.length - 1]),
