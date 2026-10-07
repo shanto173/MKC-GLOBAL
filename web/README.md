@@ -132,13 +132,17 @@ scripts/
 supabase/migrations/       the whole database, idempotent, CLI-pushable
 public/index.html          website chat widget
 data/                      demo PDF + Excel (replace with real exports)
+server.js                  the same app on any Node host, without Vercel:
+                           api/ routes, public/, the vercel.json rewrites,
+                           waitUntil, and an outbox retry every 5 minutes
 ```
 
 ## Commands
 
 ```bash
 npm install
-npm test              # 212 tests: no network, no token, no model
+npm start             # run it on a plain Node server (PORT, default 3000)
+npm test              # 254 tests: no network, no token, no model
 npm run outbox -- --list       # what is waiting to be sent
 npm run outbox                 # send it now
 npm run gen:data      # regenerate the demo PDF + Excel

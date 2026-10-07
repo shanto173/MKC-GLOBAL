@@ -13,6 +13,7 @@
     "ingest": "node scripts/ingest.mjs",
     "setup:webhook": "node scripts/set-webhook.mjs",
     "dev": "vercel dev",
+    "start": "node server.js",
     "smoke": "node scripts/smoke-test.mjs",
     "chatid": "node scripts/find-chat-id.mjs",
     "test:pdf": "node scripts/test-notify.mjs",
@@ -27,7 +28,7 @@
     "guide": "node scripts/make-guide.mjs",
     "reread": "node scripts/reread-documents.mjs",
     "testdocs": "node scripts/make-test-docs.mjs",
-    "test": "node --test --experimental-test-module-mocks tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs tests/pinned.test.mjs",
+    "test": "node --test --experimental-test-module-mocks tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs tests/pinned.test.mjs tests/server.test.mjs",
     "test:watch": "node --test --watch tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs",
     "outbox": "node scripts/drain-outbox.mjs",
     "docs:pdf": "node scripts/make-workflow-pdfs.mjs"
