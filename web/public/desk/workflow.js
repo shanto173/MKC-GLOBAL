@@ -74,6 +74,31 @@ export const statusLabel = (s) => STATUS[s]?.label ?? String(s ?? '').replace(/_
 export const statusTone = (s) => STATUS[s]?.tone ?? 'gray';
 
 /**
+ * The status as the desk says it: a few plain words a new colleague reads
+ * without being told what "needs_client_action" means. The short labels above
+ * stay for the places that already print them.
+ */
+const STATUS_WORDS = {
+  draft: 'Draft — the customer is still filling it in',
+  pending_review: 'New request',
+  under_review: 'Being checked',
+  needs_client_action: 'Waiting for the customer',
+  confirmed: 'Confirmed',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
+};
+export const statusWords = (s) => STATUS_WORDS[s] ?? statusLabel(s);
+
+/** Whose move it is, as a phrase. Paired with a tone, never shown by colour alone. */
+export const TURN = {
+  ops: { words: 'Our turn', tone: 'blue' },
+  client: { words: 'Customer’s turn', tone: 'amber' },
+  none: { words: 'Nothing to do', tone: 'green' },
+};
+export const turnWords = (owner) => (TURN[owner] ?? TURN.none).words;
+
+/**
  * Whose move is it?
  *
  * The single most useful thing on the screen. An operator scanning a queue must
@@ -221,13 +246,13 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   const status = booking.status;
 
   if (status === 'confirmed') {
-    return { code: 'NONE', label: 'Nothing outstanding', owner: 'none', detail: 'Booked and the client has been told.', action: null };
+    return { code: 'NONE', label: 'Nothing outstanding', owner: 'none', detail: 'Booked, and the customer has been told.', action: null };
   }
   if (['rejected', 'cancelled', 'expired'].includes(status)) {
     return { code: 'NONE', label: 'Closed', owner: 'none', detail: `This request was ${statusLabel(status).toLowerCase()}.`, action: null };
   }
   if (status === 'draft') {
-    return { code: 'WAIT_CLIENT', label: 'Client is still filling it in', owner: 'client', detail: 'Nothing has been sent to us yet.', action: null };
+    return { code: 'WAIT_CLIENT', label: 'The customer is still filling it in', owner: 'client', detail: 'Nothing has been sent to us yet.', action: null };
   }
 
   const ready = readiness(booking, documents, mrn);
@@ -236,7 +261,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   if (missingBasics.length) {
     return {
       code: 'REVIEW_INFORMATION',
-      label: 'Ask the client for missing details',
+      label: 'Ask the customer for the missing details',
       owner: 'ops',
       detail: `Still missing: ${missingBasics.map((i) => i.label).join(', ')}.`,
       action: 'request_info',
@@ -306,7 +331,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
     code: 'CONFIRM_BOOKING',
     label: 'Confirm the booking',
     owner: 'ops',
-    detail: 'Confirming tells the client and opens the shipment.',
+    detail: 'Confirming tells the customer and opens the shipment.',
     action: 'confirm_booking',
   };
 }
@@ -426,6 +451,30 @@ export const REQUEST_TRANSITIONS = {
 };
 
 export const requestStatusLabel = (s) => REQUEST_STATUS[s]?.label ?? String(s ?? '').replace(/_/g, ' ');
+
+const REQUEST_WORDS = {
+  open: 'New — nobody has it yet',
+  assigned: 'Taken',
+  in_progress: 'In progress',
+  waiting_client: 'Waiting for the customer',
+  resolved: 'Resolved',
+  closed: 'Closed',
+};
+export const requestStatusWords = (s) => REQUEST_WORDS[s] ?? requestStatusLabel(s);
+
+/** MRN application statuses, in words. The values are migration 008's. */
+export const MRN_STATUS = {
+  draft: { words: 'Customer still filling it in', tone: 'gray', owner: 'client' },
+  submitted: { words: 'New application', tone: 'blue', owner: 'ops' },
+  under_review: { words: 'Being worked on', tone: 'blue', owner: 'ops' },
+  missing_information: { words: 'Waiting for the customer', tone: 'amber', owner: 'client' },
+  approved: { words: 'Approved — record the number', tone: 'blue', owner: 'ops' },
+  issued: { words: 'MRN issued', tone: 'green', owner: 'none' },
+  rejected: { words: 'Rejected', tone: 'red', owner: 'none' },
+  cancelled: { words: 'Cancelled', tone: 'gray', owner: 'none' },
+};
+export const MRN_OPEN = ['submitted', 'under_review', 'missing_information', 'approved'];
+export const mrnStatusWords = (s) => MRN_STATUS[s]?.words ?? String(s ?? '').replace(/_/g, ' ');
 export const requestStatusTone = (s) => REQUEST_STATUS[s]?.tone ?? 'gray';
 export const requestOwner = (s) => REQUEST_STATUS[s]?.owner ?? 'none';
 export const canTransitionRequest = (from, to) => (REQUEST_TRANSITIONS[from] ?? []).includes(to);
@@ -449,7 +498,7 @@ export function requestNextAction(request = {}) {
   const s = request.status;
   if (s === 'resolved') return { label: 'Resolved — close it when you are done', owner: 'none', action: 'close' };
   if (s === 'closed') return { label: 'Closed', owner: 'none', action: null };
-  if (s === 'waiting_client') return { label: 'Waiting for the client to come back', owner: 'client', action: 'reply' };
+  if (s === 'waiting_client') return { label: 'Waiting for the customer to come back', owner: 'client', action: 'reply' };
   if (!request.assigned_to) return { label: 'Nobody owns this — take it', owner: 'ops', action: 'assign' };
   if (!request.contact || /^(telegram|web):/i.test(request.contact)) {
     return { label: 'No phone number — reply in the chat', owner: 'ops', action: 'reply' };
