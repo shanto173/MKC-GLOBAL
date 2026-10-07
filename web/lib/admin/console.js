@@ -938,7 +938,9 @@ async function search(req, res) {
   const q = String(req.query.q ?? '').trim();
   const empty = { q, groups: [] };
   if (q.length < 2) return res.status(200).json(empty);
-  const safe = q.replace(/[%_,()*]/g, ' ').trim();
+  // Characters that mean something to PostgREST's or() syntax are removed, so
+  // whatever is typed is searched for rather than parsed.
+  const safe = q.replace(/[%_,()*"\\]/g, ' ').trim();
   if (!safe) return res.status(200).json(empty);
   const norm = q.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const digits = q.replace(/\D/g, '');

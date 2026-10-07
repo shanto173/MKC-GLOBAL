@@ -523,6 +523,19 @@ test('the window closed while typing: refused with the reason, and the template 
   assert.equal(fake.calls.reopen[0].opts.language, 'ar');
 });
 
+test('WhatsApp refusing a message as outside the window is said in words, the draft is the operator’s to keep', async () => {
+  const fake = fakeChannels({ result: { ok: false, status: 'needs_template', error: '131047: Re-engagement message', code: 131047 } });
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'Hello', action_key: 'k-wa-meta-001' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.status, 'needs_template');
+  assert.match(r.body.error, /24 hours/);
+  assert.ok(r.body.composer, 'the composer as it is now comes back with the refusal');
+  const ledger = rows('notification_outbox').find((o) => o.idempotency_key === 'desk:k-wa-meta-001');
+  assert.equal(ledger.status, 'failed', 'recorded as not sent');
+});
+
 test('a customer who wrote STOP: composer disabled, saying when', async () => {
   channelsState.deployed = true;
   channelsState.api = fakeChannels({ open: false }).api;

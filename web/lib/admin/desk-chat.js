@@ -312,7 +312,14 @@ export async function sendMessage(req, res, who) {
       metadata: { chars: String(body.text ?? '').trim().length, channel: target.channel, status: sent.status },
     });
   }
-  if (!sent.ok) return res.status(httpFor(sent)).json({ error: sent.words ?? 'It did not go through.', ...sent });
+  if (!sent.ok) {
+    // Our clock said the window was open; WhatsApp disagreed. The answer
+    // carries the composer as it is now, so the screen offers the template
+    // instead of a Send button that will be refused again.
+    const now = ['needs_template', 'opted_out'].includes(sent.status)
+      ? (await composerFor({ channel: target.channel, chatId: target.chatId, customer })).composer : undefined;
+    return res.status(httpFor(sent)).json({ error: sent.words ?? 'It did not go through.', ...sent, composer: now });
+  }
   return res.status(200).json(sent);
 }
 
