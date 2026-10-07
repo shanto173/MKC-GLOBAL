@@ -19,6 +19,7 @@ import { enqueue, drain } from './outbox.js';
 import { sendToChat, phrase } from './channels.js';
 import { currentLanguage, withLanguage } from './lang.js';
 import { storedLanguage } from './flow/language.js';
+import { bookingLanguage } from './i18n.js';
 
 /**
  * The PDF renderer, loaded the first time a PDF is actually wanted.
@@ -33,7 +34,7 @@ import { storedLanguage } from './flow/language.js';
  */
 async function buildPdf(booking, language = null) {
   const { bookingConfirmationPdf } = await import('./pdf.js');
-  return bookingConfirmationPdf(booking, language ? { lang: language } : {});
+  return bookingConfirmationPdf(booking, { lang: bookingLanguage(booking, language) });
 }
 
 /** Can we reach a client on this channel at all, with the keys we have? */

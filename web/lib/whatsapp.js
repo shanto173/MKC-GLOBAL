@@ -22,8 +22,12 @@ import { config } from './config.js';
 
 const GRAPH = 'https://graph.facebook.com';
 
-/** Meta refuses a template parameter carrying a newline, tab or 5+ spaces. */
-const TEMPLATE_PARAM_MAX = 1000;
+/**
+ * A template's whole body - its own words and every parameter - must stay
+ * within 1024 characters, or Meta refuses it (132005). Two parameters of this
+ * size and the longest template text in docs/WHATSAPP-TEMPLATES.md fit.
+ */
+const TEMPLATE_PARAM_MAX = 400;
 
 /**
  * Throughput and quality limits: worth trying again later, with backoff.
@@ -167,13 +171,16 @@ export async function sendDocument(to, { buffer, fileName = 'document.pdf', capt
   });
 }
 
-/** Template parameters cannot carry line breaks, tabs, or runs of spaces. */
+/**
+ * Template parameters cannot carry line breaks, tabs, or runs of spaces, and
+ * cannot be empty. A long one is cut with an ellipsis, so the cut shows.
+ */
 export function templateParam(value) {
-  const text = String(value ?? '')
+  let text = String(value ?? '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/ {4,}/g, '   ')
-    .trim()
-    .slice(0, TEMPLATE_PARAM_MAX);
+    .trim();
+  if (text.length > TEMPLATE_PARAM_MAX) text = `${text.slice(0, TEMPLATE_PARAM_MAX - 1).trimEnd()}…`;
   // An empty parameter is refused outright; a dash reads as "none".
   return text || '—';
 }

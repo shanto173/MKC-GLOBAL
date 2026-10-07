@@ -35,7 +35,7 @@ import { sessionKey } from './flow/store.js';
 import { S } from './flow/states.js';
 import { settings } from './settings.js';
 import { db } from './supabase.js';
-import { defer } from './background.js';
+import { defer, flush } from './background.js';
 
 // ---------------------------------------------------------------------------
 // Identity
@@ -186,10 +186,14 @@ export function labelHalves(text) {
 }
 
 /**
- * What a button says on WhatsApp. The engine gives every button a short
- * `title` (agent-written, at most 20 characters); a button without one has its
- * label cut down here - the half in the conversation's language, or the Arabic
- * half when none was chosen (house style puts Arabic first).
+ * What a button says on WhatsApp. The engine gives every button a short,
+ * one-language `title` (at most 20 characters, lib/flow/keyboards.js) and that
+ * is what is shown. A button built without one has its label cut down here -
+ * the half in the conversation's language, or the Arabic half when none was
+ * chosen (house style puts Arabic first).
+ *
+ * `long` is the full label - both languages before a choice - which a list row
+ * can show under its title.
  */
 function labelFor(button, language) {
   const halves = labelHalves(button.text);
@@ -200,6 +204,9 @@ function labelFor(button, language) {
     : halves ? (language === 'en' ? halves[1] : halves[0]) : long;
   return { short, long };
 }
+
+/** A label without its leading emoji, for "does the long label add anything?". */
+const bare = (text) => String(text ?? '').replace(LEAD, '').trim();
 
 /** Flattens inline rows into one list of distinct buttons, ids unique. */
 function flatten(inline) {
@@ -280,8 +287,10 @@ export function renderWhatsApp(message, { language = currentLanguage() } = {}) {
       const titles = distinct(chunkLabels.map((l) => fitText(l.short, LIMITS.rowTitle)), LIMITS.rowTitle);
       const rows = chunk.map((b, i) => {
         // The row has room under its title for the full label - which is
-        // where a title cut to fit, or the other language, goes.
-        const description = chunkLabels[i].long !== titles[i] ? fitText(chunkLabels[i].long, LIMITS.rowDescription) : '';
+        // where a title cut to fit, or the other language, goes. A label that
+        // only repeats the title with an emoji in front is left off.
+        const { long } = chunkLabels[i];
+        const description = bare(long) && bare(long) !== bare(titles[i]) ? fitText(long, LIMITS.rowDescription) : '';
         return { id: b.id, title: titles[i], ...(description ? { description } : {}) };
       });
       steps.push({
@@ -701,10 +710,18 @@ export async function sendToChat(target, message, opts = {}) {
   const resolved = { channel, chatId, clientId: target.clientId ?? null };
   const options = { ...opts, author: opts.author ?? 'bot', language };
 
-  if (channel === 'telegram') return sendTelegram(resolved, message ?? {}, options);
-  if (channel === 'whatsapp') return withLanguage(language, () => sendWhatsApp(resolved, message ?? {}, options));
+  let result;
+  if (channel === 'telegram') result = await sendTelegram(resolved, message ?? {}, options);
+  else if (channel === 'whatsapp') result = await withLanguage(language, () => sendWhatsApp(resolved, message ?? {}, options));
   // The web widget is answered in the HTTP response; there is nothing to push to.
-  return { ok: false, status: 'failed', error: `cannot send to a ${channel} chat`, permanent: true };
+  else return { ok: false, status: 'failed', error: `cannot send to a ${channel} chat`, permanent: true };
+
+  // The bot's replies leave their chat-log rows to be written in the
+  // background - the transports wait for them before answering. A person at
+  // the desk is answered by a route that knows nothing of that, and the row is
+  // what their screen shows next, so it is written before this returns.
+  if (options.author === 'staff') await flush();
+  return result;
 }
 
 /**

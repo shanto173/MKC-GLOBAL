@@ -51,7 +51,7 @@ import { M } from '../lib/flow/messages.js';
 import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
 import { storedLanguage } from '../lib/flow/language.js';
-import { withLanguage } from '../lib/lang.js';
+import { withLanguage, withTurn } from '../lib/lang.js';
 import { upsertTelegramClient } from '../lib/clients.js';
 import { noteClientResponse } from '../lib/bookings.js';
 import {
@@ -153,9 +153,9 @@ export default async function handler(req, res) {
   });
 
   // Everything said from here on - the machine's messages and the transport's
-  // own - is in the client's language.
+  // own - is in the client's language, and worded for Telegram.
   const language = await languagePromise;
-  return withLanguage(language, () => turn(res, {
+  return withTurn({ lang: language, channel: 'telegram' }, () => turn(res, {
     update, callbackQuery, message, from, chatId, correlationId, clientPromise, notedPromise, language,
   }));
 }
@@ -282,9 +282,15 @@ async function deliver(flow, input, ctx, update, callbackQuery) {
     //
     // Loaded here rather than at the top: the assistant and its tool sheet
     // are the largest thing in this function, and a tap never needs them.
-    const { respond } = await import('../lib/agent.js');
-    const { reply } = await respond(input.text ?? '', ctx);
-    await sendToChat(target, { text: reply, inline: kb.mainMenu() });
+    //
+    // In the language the turn ended in - one the client chose or the machine
+    // detected just now is not the one this update started with.
+    const language = flow.language !== undefined ? flow.language : ctx.language;
+    await withLanguage(language, async () => {
+      const { respond } = await import('../lib/agent.js');
+      const { reply } = await respond(input.text ?? '', { ...ctx, language });
+      await sendToChat(target, { text: reply, inline: kb.mainMenu() });
+    });
   }
 
   // Anything the flow queued for this client goes out now rather than waiting

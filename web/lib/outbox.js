@@ -34,7 +34,8 @@ import { flush } from './background.js';
 import { M } from './flow/messages.js';
 import * as kb from './flow/keyboards.js';
 import { storedLanguage } from './flow/language.js';
-import { currentLanguage, normaliseLanguage, withLanguage } from './lang.js';
+import { currentLanguage, normaliseLanguage, withTurn } from './lang.js';
+import { bookingLanguage } from './i18n.js';
 import { sendToChat, channelOf, phrase } from './channels.js';
 import { isSchemaMissing, normaliseDeliveryStatus } from './chatlog.js';
 import { isPermanentError, WINDOW_CLOSED, TEMPLATE_MISSING } from './whatsapp.js';
@@ -184,7 +185,10 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
     const language = normaliseLanguage(row.language)
       ?? await storedLanguage({ channel, chatId: row.chat_id, clientId: row.client_id ?? null }).catch(() => null);
 
-    const message = withLanguage(language, () => render(row));
+    // Rendered as a turn on the client's channel would render it: in their
+    // language, and worded for where they read it.
+    const turn = { lang: language, channel };
+    const message = withTurn(turn, () => render(row));
     if (!message) {
       await finish(row, 'dead', `no renderer for event ${row.event_type}`);
       result.dead++;
@@ -202,14 +206,19 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
         outgoing = { text: '', document: { buffer: file.buffer, fileName: file.filename, caption: file.caption } };
       }
 
-      const sent = await sendToChat(
+      const sent = await withTurn(turn, () => sendToChat(
         { channel, chatId: row.chat_id, clientId: row.client_id ?? null },
         outgoing,
         {
-          author: 'system',
+          // A desk message queued with the name of who wrote it is theirs in
+          // the chat log; everything else is the system's.
+          author: row.payload?.staff_name ? 'staff' : 'system',
+          staffName: row.payload?.staff_name ?? null,
           language,
           eventType: row.event_type,
-          payload: row.payload ?? {},
+          // A template's "reference" falls back to what the row is about: a
+          // desk message carries only its text, its booking is the entity.
+          payload: { ...(row.payload ?? {}), reference: row.payload?.reference ?? row.entity_id ?? null },
           bookingRef: row.payload?.booking_ref ?? null,
           allowTemplate: true,
           answering: ANSWERS_CLIENT.has(row.event_type),
@@ -218,7 +227,7 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
           closedUnlessClientWroteAfter: row.delivery_status === 'needs_template' ? row.updated_at ?? null : null,
           transport: { send, sendFile },
         },
-      );
+      ));
 
       if (sent.status === 'needs_template' || sent.status === 'opted_out') {
         await hold(row, attempts, sent);
@@ -509,7 +518,7 @@ async function buildDocument(spec, language = null) {
   if (!booking) return null;
 
   const { bookingConfirmationPdf } = await import('./pdf.js');
-  const buffer = await bookingConfirmationPdf(booking, language ? { lang: language } : {});
+  const buffer = await bookingConfirmationPdf(booking, { lang: bookingLanguage(booking, language) });
   return { buffer, filename: `${booking.booking_ref}.pdf`, caption: spec.caption };
 }
 

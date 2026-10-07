@@ -43,6 +43,15 @@ function chunk(text) {
 }
 
 /**
+ * Buttons as Telegram knows them. The engine's buttons also carry `title`,
+ * the short label WhatsApp shows; Telegram has no such field, and what it is
+ * sent stays exactly what it was sent before WhatsApp existed.
+ */
+function telegramKeyboard(rows) {
+  return rows.map((row) => row.map(({ title, ...button }) => button));
+}
+
+/**
  * @param {object} opts
  * @param {Array} [opts.keyboard]  reply keyboard (sits under the text box)
  * @param {Array} [opts.inline]    inline keyboard (sits under this message)
@@ -61,8 +70,8 @@ export async function sendMessage(
     // Only the final part carries the buttons: repeating them under every chunk
     // of a long answer gives the client three copies of the same choice.
     if (i === parts.length - 1) {
-      if (inline) payload.reply_markup = { inline_keyboard: inline };
-      else if (keyboard) payload.reply_markup = { keyboard, resize_keyboard: true, one_time_keyboard: oneTime };
+      if (inline) payload.reply_markup = { inline_keyboard: telegramKeyboard(inline) };
+      else if (keyboard) payload.reply_markup = { keyboard: telegramKeyboard(keyboard), resize_keyboard: true, one_time_keyboard: oneTime };
       else if (removeKeyboard) payload.reply_markup = { remove_keyboard: true };
     }
     last = await call('sendMessage', payload);

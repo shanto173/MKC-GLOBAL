@@ -102,18 +102,25 @@ test('a WhatsApp chat id is the number with a prefix, and never mistaken for Tel
 // Drawing the engine's messages on WhatsApp
 // ---------------------------------------------------------------------------
 
-test('three choices or fewer are reply buttons, titled within 20 characters', () => {
+test('three choices or fewer are reply buttons, showing each button\'s short title', () => {
   const steps = renderWhatsApp({ text: M.menu(), inline: kb.mainMenu() }, { language: null });
   assert.equal(steps.length, 1);
   assert.equal(steps[0].type, 'buttons');
   assert.deepEqual(steps[0].buttons.map((b) => b.id), ['menu:book', 'menu:track', 'menu:contact']);
   for (const b of steps[0].buttons) assert.ok(b.title.length <= LIMITS.buttonTitle, `"${b.title}" fits`);
 
-  // In English the English half is used, with the label's emoji carried over.
-  const en = renderWhatsApp({ text: 'How can we help?', inline: kb.mainMenu() }, { language: 'en' });
-  assert.deepEqual(en[0].buttons.map((b) => b.title), ['📦 Book my shipment', '🚚 Track my shipment', '💬 Talk to an agent']);
-  const ar = renderWhatsApp({ text: 'نقدر نساعدك في إيه؟', inline: kb.mainMenu() }, { language: 'ar' });
-  assert.equal(ar[0].buttons[0].title, '📦 احجز شحنة');
+  // The engine writes the title in the conversation's language.
+  const en = withLanguage('en', () => renderWhatsApp({ text: 'How can we help?', inline: kb.mainMenu() }));
+  assert.deepEqual(en[0].buttons.map((b) => b.title), ['Book my shipment', 'Track my shipment', 'Talk to an agent']);
+  const ar = withLanguage('ar', () => renderWhatsApp({ text: 'نقدر نساعدك في إيه؟', inline: kb.mainMenu() }));
+  assert.equal(ar[0].buttons[0].title, 'احجز شحنة');
+});
+
+test('a button with no title of its own gets the half of its label in the conversation\'s language', () => {
+  const inline = [[{ text: '📦 احجز شحنة / Book my shipment', callback_data: 'menu:book' }]];
+  assert.equal(renderWhatsApp({ text: 'Hi', inline }, { language: 'en' })[0].buttons[0].title, '📦 Book my shipment');
+  assert.equal(renderWhatsApp({ text: 'Hi', inline }, { language: 'ar' })[0].buttons[0].title, '📦 احجز شحنة');
+  assert.equal(renderWhatsApp({ text: 'Hi', inline }, { language: null })[0].buttons[0].title, '📦 احجز شحنة');
 });
 
 test('a button that brings its own short title keeps it', () => {
@@ -123,7 +130,7 @@ test('a button that brings its own short title keeps it', () => {
 });
 
 test('four to ten choices are one list, rows within 24 characters, the long label kept underneath', () => {
-  const steps = renderWhatsApp({ text: 'What would you like to change?', inline: kb.editMenu() }, { language: 'en' });
+  const steps = withLanguage('en', () => renderWhatsApp({ text: 'What would you like to change?', inline: kb.editMenu() }));
   assert.equal(steps.length, 1);
   const [list] = steps;
   assert.equal(list.type, 'list');
@@ -136,8 +143,16 @@ test('four to ten choices are one list, rows within 24 characters, the long labe
   }
   for (const s of list.sections) assert.ok(s.title.length <= 24);
   assert.equal(rows[6].id, 'bk:edit:back');
+  // "Back to summary" fits; the full wording goes underneath it.
+  assert.equal(rows[6].title, 'Back to summary');
+  assert.equal(rows[6].description, '7️⃣ Back to confirmation');
+  assert.equal(rows[0].description, undefined, 'nothing repeated under "Client name"');
 
-  const arabic = renderWhatsApp({ text: 'تحب تعدل إيه؟', inline: kb.editMenu() }, { language: 'ar' });
+  // Before a choice the row carries both languages under its title.
+  const both = renderWhatsApp({ text: 'Edit', inline: kb.editMenu() }, { language: null });
+  assert.match(both[0].sections[0].rows[0].description, /اسم العميل/);
+
+  const arabic = withLanguage('ar', () => renderWhatsApp({ text: 'تحب تعدل إيه؟', inline: kb.editMenu() }));
   assert.equal(arabic[0].button, 'اختار');
 });
 
@@ -185,7 +200,7 @@ test('labels are shortened between whole characters, never through an emoji', ()
 });
 
 test('a reply keyboard has no WhatsApp form and is not sent', () => {
-  const steps = renderWhatsApp({ text: 'Your phone number?', keyboard: kb.SHARE_PHONE_KEYBOARD, oneTime: true }, { language: 'en' });
+  const steps = renderWhatsApp({ text: 'Your phone number?', keyboard: kb.sharePhoneKeyboard(), oneTime: true }, { language: 'en' });
   assert.deepEqual(steps, [{ type: 'text', body: 'Your phone number?' }]);
 });
 
@@ -220,9 +235,12 @@ test('sendToChat on Telegram sends exactly what lib/telegram.js always sent', as
   await flush();
   assert.equal(result.ok, true);
   const [payload] = net.telegram('sendMessage');
+  // Telegram's buttons are text and callback_data, as they always were: the
+  // WhatsApp title the engine adds is not Telegram's business.
+  const telegramButtons = kb.mainMenu().map((row) => row.map(({ text, callback_data }) => ({ text, callback_data })));
   assert.deepEqual(payload, {
     chat_id: 555, text: M.menu(), disable_web_page_preview: true,
-    reply_markup: { inline_keyboard: kb.mainMenu() },
+    reply_markup: { inline_keyboard: telegramButtons },
   });
 });
 
@@ -297,6 +315,27 @@ test('template parameters come from the payload, in the template\'s order, never
   );
   assert.deepEqual(params, ['MKY-1', 'A clearer invoice. Page 2 please', '—']);
   assert.equal(templateParams({ params: ['what'] }, { requested: 'x', requested_ar: 'فاتورة' }, 'ar')[0], 'فاتورة');
+
+  // Long enough to push the template past Meta's 1024: cut, visibly.
+  const [long] = templateParams({ params: ['message'] }, { text: 'word '.repeat(300) });
+  assert.ok(long.length <= 400);
+  assert.ok(long.endsWith('…'));
+});
+
+test('a desk message outside the window goes as the team-message template, about its booking', async () => {
+  setup({
+    lastWrote: 30 * HOUR,
+    templates: { ...TEMPLATES, operations_message: { name: 'mky_message_from_team', params: ['reference', 'message'] } },
+  });
+  await enqueue({
+    chatId: WA, clientId: 7, eventType: 'operations_message', entityType: 'booking', entityId: 'MKY-BKG-9',
+    idempotencyKey: 'ops:9', payload: { text: 'We have your documents.\nChecking them now.' },
+  });
+  assert.equal((await drain()).sent, 1);
+  const [sent] = net.sent();
+  assert.equal(sent.template.name, 'mky_message_from_team');
+  assert.deepEqual(sent.template.components[0].parameters.map((p) => p.text),
+    ['MKY-BKG-9', 'We have your documents. Checking them now.']);
 });
 
 // ---------------------------------------------------------------------------

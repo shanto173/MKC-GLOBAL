@@ -45,7 +45,7 @@ import { M } from '../lib/flow/messages.js';
 import { runFlow } from '../lib/flow/machine.js';
 import { clearSession } from '../lib/flow/store.js';
 import { storedLanguage } from '../lib/flow/language.js';
-import { withLanguage, normaliseLanguage, languageFromChoice } from '../lib/lang.js';
+import { withLanguage, withTurn, normaliseLanguage, languageFromChoice } from '../lib/lang.js';
 import { upsertWhatsAppClient, setOptOut } from '../lib/clients.js';
 import { noteClientResponse } from '../lib/bookings.js';
 import {
@@ -321,8 +321,9 @@ async function handleMessage(message, who, background) {
     ?? await storedLanguage(ctx).catch(() => null);
 
   // Everything said this turn - including what is said outside the machine:
-  // the blocked notice, an error, a refused file - is in the client's language.
-  return withLanguage(ctx.language, () => turn(message, ctx, client, background));
+  // the blocked notice, an error, a refused file - is in the client's
+  // language, and worded for WhatsApp ("send menu", not "/menu").
+  return withTurn({ lang: ctx.language, channel: 'whatsapp' }, () => turn(message, ctx, client, background));
 }
 
 async function turn(message, ctx, client, background) {

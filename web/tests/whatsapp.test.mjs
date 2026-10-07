@@ -266,6 +266,23 @@ test('"menu" runs the state machine and comes back as reply buttons with short t
   assert.ok(log.some((m) => m.direction === 'out' && m.author === 'bot' && m.kind === 'buttons'));
 });
 
+test('a new client is asked their language, and the answer to the tap is drawn in it', async () => {
+  const db = setup({ client: null });
+  await post(text('hi'));
+  const question = net.sent().at(-1);
+  assert.equal(question.type, 'interactive');
+  assert.deepEqual(question.interactive.action.buttons.map((b) => b.reply.id), ['lang:en', 'lang:ar']);
+
+  net.reset();
+  await post(inbound([{ type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'lang:ar', title: 'العربية' } } }]));
+  const client = db._tables.clients.find((c) => c.whatsapp_id === WA_ID);
+  assert.equal(client.language, 'ar', 'the choice is kept on the client');
+  const answer = net.sent().at(-1);
+  const titles = answer.interactive.action.buttons.map((b) => b.reply.title);
+  assert.ok(titles.every((t) => /[؀-ۿ]/.test(t)), `Arabic titles straight after choosing: ${titles}`);
+  assert.doesNotMatch(answer.interactive.body.text, /[A-Za-z]{4,} [A-Za-z]{4,}/, 'no English sentence');
+});
+
 test('a tapped reply button and a chosen list row arrive as the engine\'s callbacks', async () => {
   const db = setup();
   await post(inbound([{ type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'menu:track', title: 'Track' } } }]));
@@ -446,7 +463,7 @@ test('a file that cannot be fetched at all is reported politely, not left readin
   net.files.set('https://media.test/gone2', { status: 404 });
 
   await post(inbound([{ type: 'document', document: { id: 'm-gone', filename: 'invoice.pdf', mime_type: 'application/pdf' } }]));
-  assert.deepEqual(bodies(), [M.documentSaveFailed()]);
+  assert.deepEqual(bodies(), [withLanguage('en', () => M.documentSaveFailed())], 'in the client\'s language');
   assert.equal(db._tables.booking_documents[0].extracted.pending, false);
 });
 
@@ -459,7 +476,7 @@ test('a file of the wrong type or size is refused before anything is downloaded'
   net.reset();
   net.media.set('m-big', { url: 'https://media.test/big', mime_type: 'application/pdf', file_size: 50 * 1048576 });
   await post(inbound([{ type: 'document', document: { id: 'm-big', filename: 'big.pdf', mime_type: 'application/pdf' } }]));
-  assert.equal(bodies()[0], M.documentTooBig(20));
+  assert.equal(bodies()[0], withLanguage('en', () => M.documentTooBig(20)));
   assert.equal(net.calls.filter((c) => c.host === 'media.test').length, 0, 'never downloaded');
 });
 
@@ -578,12 +595,14 @@ test('a Telegram turn runs in the client\'s language and is logged both ways', a
   assert.ok(log.some((m) => m.channel === 'telegram' && m.direction === 'out' && /^555:\d+$/.test(m.provider_message_id)));
 });
 
-test('Telegram\'s menu is sent exactly as before', async () => {
-  setup({ client: null, seed: { clients: [{ id: 1, telegram_user_id: 999, telegram_chat_id: 555 }] } });
+test('Telegram is sent the buttons it always knew - the WhatsApp title stays out of them', async () => {
+  setup({ client: null, seed: { clients: [{ id: 1, telegram_user_id: 999, telegram_chat_id: 555, language: 'en' }] } });
   await telegram(tgMessage('/menu', 303));
   const sent = net.telegram('sendMessage');
   const kb = await import('../lib/flow/keyboards.js');
-  assert.deepEqual(sent.at(-1).reply_markup, { inline_keyboard: kb.mainMenu() });
+  const expected = withLanguage('en', () => kb.mainMenu())
+    .map((row) => row.map((b) => ({ text: b.text, callback_data: b.callback_data })));
+  assert.deepEqual(sent.at(-1).reply_markup, { inline_keyboard: expected });
   assert.equal(sent.at(-1).chat_id, 555);
 });
 
