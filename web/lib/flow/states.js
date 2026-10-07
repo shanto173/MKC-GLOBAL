@@ -17,6 +17,10 @@ export const S = {
   // -- idle ----------------------------------------------------------------
   MAIN_MENU: 'MAIN_MENU',
 
+  // -- before anything: which language -------------------------------------
+  // Asked once, of a client who has never chosen, when nothing is under way.
+  CHOOSE_LANGUAGE: 'CHOOSE_LANGUAGE',
+
   // -- booking, step 1: who is booking -------------------------------------
   BOOK_DRAFT_RESUME: 'BOOK_DRAFT_RESUME',
   BOOK_CLIENT_NAME: 'BOOK_CLIENT_NAME',
