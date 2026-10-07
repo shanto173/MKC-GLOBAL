@@ -74,6 +74,31 @@ export const statusLabel = (s) => STATUS[s]?.label ?? String(s ?? '').replace(/_
 export const statusTone = (s) => STATUS[s]?.tone ?? 'gray';
 
 /**
+ * The status as the desk says it: a few plain words a new colleague reads
+ * without being told what "needs_client_action" means. The short labels above
+ * stay for the places that already print them.
+ */
+const STATUS_WORDS = {
+  draft: 'Draft — the customer is still filling it in',
+  pending_review: 'New request',
+  under_review: 'Being checked',
+  needs_client_action: 'Waiting for the customer',
+  confirmed: 'Confirmed',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
+};
+export const statusWords = (s) => STATUS_WORDS[s] ?? statusLabel(s);
+
+/** Whose move it is, as a phrase. Paired with a tone, never shown by colour alone. */
+export const TURN = {
+  ops: { words: 'Our turn', tone: 'blue' },
+  client: { words: 'Customer’s turn', tone: 'amber' },
+  none: { words: 'Nothing to do', tone: 'green' },
+};
+export const turnWords = (owner) => (TURN[owner] ?? TURN.none).words;
+
+/**
  * Whose move is it?
  *
  * The single most useful thing on the screen. An operator scanning a queue must
@@ -426,6 +451,30 @@ export const REQUEST_TRANSITIONS = {
 };
 
 export const requestStatusLabel = (s) => REQUEST_STATUS[s]?.label ?? String(s ?? '').replace(/_/g, ' ');
+
+const REQUEST_WORDS = {
+  open: 'New — nobody has it yet',
+  assigned: 'Taken',
+  in_progress: 'In progress',
+  waiting_client: 'Waiting for the customer',
+  resolved: 'Resolved',
+  closed: 'Closed',
+};
+export const requestStatusWords = (s) => REQUEST_WORDS[s] ?? requestStatusLabel(s);
+
+/** MRN application statuses, in words. The values are migration 008's. */
+export const MRN_STATUS = {
+  draft: { words: 'Customer still filling it in', tone: 'gray', owner: 'client' },
+  submitted: { words: 'New application', tone: 'blue', owner: 'ops' },
+  under_review: { words: 'Being worked on', tone: 'blue', owner: 'ops' },
+  missing_information: { words: 'Waiting for the customer', tone: 'amber', owner: 'client' },
+  approved: { words: 'Approved — record the number', tone: 'blue', owner: 'ops' },
+  issued: { words: 'MRN issued', tone: 'green', owner: 'none' },
+  rejected: { words: 'Rejected', tone: 'red', owner: 'none' },
+  cancelled: { words: 'Cancelled', tone: 'gray', owner: 'none' },
+};
+export const MRN_OPEN = ['submitted', 'under_review', 'missing_information', 'approved'];
+export const mrnStatusWords = (s) => MRN_STATUS[s]?.words ?? String(s ?? '').replace(/_/g, ' ');
 export const requestStatusTone = (s) => REQUEST_STATUS[s]?.tone ?? 'gray';
 export const requestOwner = (s) => REQUEST_STATUS[s]?.owner ?? 'none';
 export const canTransitionRequest = (from, to) => (REQUEST_TRANSITIONS[from] ?? []).includes(to);

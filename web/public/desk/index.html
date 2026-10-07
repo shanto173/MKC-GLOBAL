@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="color-scheme" content="light" />
+  <title>MKY Desk</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d5bd6'/%3E%3Cpath d='M8 22V10l8 7 8-7v12' stroke='white' stroke-width='3' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./desk.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <!-- Shown whenever a request cannot reach the server. Everything typed is
+       kept, and a retried action carries the same key, so nothing is sent twice. -->
+  <div id="offline" class="offline" role="status" hidden>
+    <strong>Offline — retrying.</strong> Nothing you have typed is lost.
+  </div>
+
+  <!-- Sign in. The name is checked against the team list, so every decision
+       is attributable to a person who exists and is still on the team. -->
+  <main id="signin" class="signin" hidden>
+    <form id="signinForm" class="signin-card" novalidate>
+      <div class="signin-brand" aria-hidden="true">M</div>
+      <h1>MKY Desk</h1>
+      <p class="signin-sub">Sign in with your name and the desk password.</p>
+      <label for="who">Your name</label>
+      <input id="who" name="who" autocomplete="username" required />
+      <label for="secret">Desk password</label>
+      <input id="secret" name="secret" type="password" autocomplete="current-password" required />
+      <p class="field-hint">Ask your administrator if you do not have it.</p>
+      <p id="signinError" class="form-error" role="alert" hidden></p>
+      <div id="signinExtra"></div>
+      <button class="btn btn-primary btn-block" type="submit" id="signinButton">Sign in</button>
+    </form>
+  </main>
+
+  <div id="app" class="app" hidden>
+    <nav class="side" aria-label="Main">
+      <a class="brand" href="#/inbox"><span class="brand-mark" aria-hidden="true">M</span> MKY Desk</a>
+      <ul class="nav" id="nav"></ul>
+      <div class="me" id="me"></div>
+    </nav>
+
+    <div class="main">
+      <header class="top">
+        <a class="top-brand" href="#/inbox"><span class="brand-mark" aria-hidden="true">M</span><span class="sr-only">MKY Desk</span></a>
+        <form class="search" role="search" id="searchForm">
+          <label class="sr-only" for="q">Search chassis, reference, name or phone</label>
+          <span class="search-icon" id="searchIcon"></span>
+          <input id="q" type="search" placeholder="Search chassis, reference, name, phone…" autocomplete="off" enterkeyhint="search" />
+          <kbd class="search-key" title="Press / to search">/</kbd>
+        </form>
+      </header>
+      <main id="main" class="content" tabindex="-1"></main>
+    </div>
+
+    <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <noscript><p class="noscript">The MKY Desk needs JavaScript turned on.</p></noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

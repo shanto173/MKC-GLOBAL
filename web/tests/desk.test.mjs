@@ -1,0 +1,703 @@
+/**
+ * The MKY Desk's API, end to end against the fake database.
+ *
+ * What these pin down is what the desk promises the people using it:
+ *   - nobody acts without the secret and a name on the team, and a role only
+ *     does what it is allowed to - refused with a sentence that says who can;
+ *   - an action on a case somebody else changed is refused with who and when;
+ *   - a message to a customer is sent once, however many times Send is pressed;
+ *   - the desk keeps working when lib/channels.js or the new tables are not
+ *     there yet, and says so in words instead of crashing;
+ *   - customer text comes back as data, and the desk never turns it into HTML.
+ *
+ * lib/channels.js belongs to another work package and may not exist here, so
+ * the desk's door to it (lib/admin/channels-bridge.js) is replaced with node's
+ * module mocks: each test decides whether the channel code is "deployed".
+ */
+
+import test, { mock, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+process.env.SUPABASE_URL ||= 'http://localhost';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test';
+process.env.ADMIN_SECRET = 'desk-secret';
+process.env.TELEGRAM_BOT_TOKEN ||= 'test-token';
+
+// -- the channel code, as each test wants it ---------------------------------
+const channelsState = { deployed: false, api: null };
+mock.module(new URL('../lib/admin/channels-bridge.js', import.meta.url).href, {
+  namedExports: { channels: async () => (channelsState.deployed ? channelsState.api : null) },
+});
+
+/** A stand-in for lib/channels.js that records what it was asked to send. */
+function fakeChannels({ open = true, result = { ok: true, status: 'sent', providerMessageId: 'wamid.1' } } = {}) {
+  const calls = { send: [], reopen: [] };
+  return {
+    calls,
+    api: {
+      async sendToChat(target, message, opts) { calls.send.push({ target, message, opts }); return typeof result === 'function' ? result() : result; },
+      async windowState() {
+        return open
+          ? { applies: true, open: true, lastClientMessageAt: new Date(Date.now() - 3 * 3600_000).toISOString(), closesAt: new Date(Date.now() + 21 * 3600_000).toISOString() }
+          : { applies: true, open: false, lastClientMessageAt: new Date(Date.now() - 50 * 3600_000).toISOString(), closesAt: new Date(Date.now() - 26 * 3600_000).toISOString() };
+      },
+      async sendReopenTemplate(target, opts) { calls.reopen.push({ target, opts }); return { ok: true, status: 'sent' }; },
+    },
+  };
+}
+
+// -- Telegram, without the network --------------------------------------------
+const telegramCalls = [];
+globalThis.fetch = async (url, init) => {
+  telegramCalls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null });
+  return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: telegramCalls.length } }) };
+};
+
+const { createDeskDb, withViews } = await import('./helpers/desk-db.mjs');
+const { setClientForTests } = await import('../lib/supabase.js');
+const { invalidateSettings } = await import('../lib/settings.js');
+const { flush } = await import('../lib/background.js');
+const { default: handler } = await import('../lib/admin/console.js');
+const { composerState } = await import('../lib/admin/desk-chat.js');
+const { failureWords, ticketResolvedText } = await import('../lib/admin/desk-messages.js');
+const { notifyTicketResolved } = await import('../lib/notify.js');
+
+const SECRET = 'desk-secret';
+const now = Date.now();
+const iso = (msAgo) => new Date(now - msAgo).toISOString();
+const WA = 'wa:201005551234';
+
+const USERS = [
+  { name: 'Sara', role: 'ops_agent', active: true },
+  { name: 'Omar', role: 'ops_supervisor', active: true },
+  { name: 'Ariful', role: 'admin', active: true },
+  { name: 'Rita', role: 'read_only', active: true },
+  { name: 'Former', role: 'ops_agent', active: false },
+];
+
+function seed(extra = {}) {
+  return withViews({
+    ops_users: USERS.map((u) => ({ ...u })),
+    bot_settings: [
+      { key: 'required_mrn_documents', value: [] },
+      { key: 'required_booking_documents', value: ['invoice', 'brief', 'mrn'] },
+      { key: 'whatsapp_templates', value: { missing_information_requested: { name: 'mky_information_needed', params: ['booking_ref', 'what'] } } },
+    ],
+    clients: [
+      { id: 1, telegram_user_id: 999, telegram_chat_id: 555, display_name: 'Nile Motors', phone: '+20 100 000 0001' },
+      // The name a customer chose on WhatsApp is theirs to type, script tags and all.
+      { id: 2, whatsapp_id: '201005551234', whatsapp_name: '<script>alert(1)</script>', language: 'ar', phone: '+201005551234' },
+      { id: 3, whatsapp_id: '201007770000', whatsapp_name: 'Stopped', language: 'en', opted_out_at: iso(2 * 86400_000) },
+    ],
+    conversation_sessions: [
+      { id: `whatsapp:${WA}`, channel: 'whatsapp', chat_id: WA, client_id: 2, current_state: 'MAIN_MENU', last_client_message_at: iso(3 * 3600_000), updated_at: iso(3 * 3600_000) },
+      { id: 'whatsapp:wa:201007770000', channel: 'whatsapp', chat_id: 'wa:201007770000', client_id: 3, current_state: 'MAIN_MENU', last_client_message_at: iso(3 * 86400_000), updated_at: iso(3 * 86400_000) },
+      { id: 'telegram:555', channel: 'telegram', chat_id: '555', client_id: 1, current_state: 'MAIN_MENU', updated_at: iso(86400_000) },
+    ],
+    bookings: [
+      {
+        booking_ref: 'MKY-BKG-1', status: 'pending_review', channel: 'telegram', chat_id: '555', client_id: 1,
+        customer_name: 'Nile Motors', customer_contact: '+20 100 000 0001', vin: 'YV2RT40A8FB712905', make: 'Volvo', model: 'FH',
+        origin_port: 'Klaipeda', destination_port: 'Alexandria Port (incl. El Dekheila)', mrn_choice: 'existing', priority: 'normal',
+        created_at: iso(5 * 3600_000), submitted_at: iso(5 * 3600_000), status_changed_at: iso(5 * 3600_000), edit_history: [],
+      },
+      {
+        booking_ref: 'MKY-BKG-2', status: 'needs_client_action', channel: 'whatsapp', chat_id: WA, client_id: 2,
+        customer_name: 'Delta Trans', customer_contact: '+201005551234', vin: 'WDB9634031L000001', make: 'Mercedes-Benz',
+        origin_port: 'Antwerp', destination_port: 'Port Said', mrn_choice: 'existing', priority: 'urgent',
+        created_at: iso(30 * 3600_000), status_changed_at: iso(26 * 3600_000), edit_history: [],
+      },
+      {
+        booking_ref: 'MKY-BKG-3', status: 'confirmed', channel: 'telegram', chat_id: '555', client_id: 1,
+        customer_name: 'Nile Motors', customer_contact: '+20 100 000 0001', vin: 'XLRTE47MS0E000003', make: 'DAF',
+        origin_port: 'Rotterdam', destination_port: 'Damietta Port', confirmed_at: iso(60_000), confirmed_by: 'Omar',
+        created_at: iso(48 * 3600_000), edit_history: [],
+      },
+    ],
+    booking_documents: [
+      { id: 101, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'invoice', status: 'received', vin: 'YV2RT40A8FB712905', storage_path: '1/MKY-BKG-1/inv.pdf', mime_type: 'application/pdf', extraction_ok: true, extracted: { ok: true, vin: 'YV2RT40A8FB712905', make: 'VOLVO' }, uploaded_at: iso(5 * 3600_000) },
+      { id: 102, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'brief', status: 'received', vin: 'YV2RT40A8FB799999', storage_path: '1/MKY-BKG-1/cmr.pdf', mime_type: 'application/pdf', extraction_ok: true, extracted: { ok: true, vin: 'YV2RT40A8FB799999' }, uploaded_at: iso(5 * 3600_000) },
+      { id: 103, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'mrn', status: 'received', storage_path: '1/MKY-BKG-1/mrn.jpg', mime_type: 'image/jpeg', extraction_ok: false, needs_ocr: true, extracted: { ok: false, needs_ocr: true, message: 'no text' }, uploaded_at: iso(4 * 3600_000) },
+      { id: 201, booking_ref: 'MKY-BKG-2', chat_id: WA, doc_type: 'invoice', status: 'verified', verified_by: 'Sara', vin: 'WDB9634031L000001', storage_path: '2/MKY-BKG-2/inv.pdf', extraction_ok: true, extracted: { ok: true }, uploaded_at: iso(30 * 3600_000) },
+    ],
+    support_tickets: [
+      { ticket_ref: 'MKY-T-1', status: 'open', channel: 'telegram', chat_id: '555', client_id: 1, department: 'Booking Operations', customer: 'Nile Motors', contact: '+20 100 000 0001', summary: 'Please call me about the Volvo', request_type: 'booking', priority: 'normal', created_at: iso(40 * 60_000), status_changed_at: iso(40 * 60_000) },
+    ],
+    chat_messages: [
+      { id: 1, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'text', body: 'السلام عليكم، فين الشحنة؟', status: 'received', created_at: iso(3 * 3600_000) },
+      { id: 2, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'out', author: 'bot', kind: 'text', body: 'أهلاً بيك', status: 'read', created_at: iso(3 * 3600_000 - 1000) },
+      { id: 3, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'out', author: 'staff', staff_name: 'Sara', kind: 'text', body: 'We are checking.', status: 'failed', error: '(#131047) Re-engagement message', created_at: iso(2 * 3600_000) },
+    ],
+    shipments: [
+      { shipment_id: 'MKY-26001', booking_ref: 'MKY-BKG-2', customer_name: 'Delta Trans', origin_port: 'Antwerp', destination_port: 'Port Said', status: 'In transit', vin: 'WDB9634031L000001', channel: 'whatsapp', chat_id: WA, updated_at: iso(86400_000), delivery_status: 'Not yet' },
+    ],
+    ...extra,
+  });
+}
+
+let db;
+function setup(extra = {}, schema = {}) {
+  db = createDeskDb(seed(extra), schema);
+  setClientForTests(db);
+  invalidateSettings();
+  channelsState.deployed = false;
+  channelsState.api = null;
+  telegramCalls.length = 0;
+  return db;
+}
+
+beforeEach(() => setup());
+
+/** Calls the API the way the desk does. */
+async function call({ method = 'GET', query = {}, body, secret = SECRET, operator = 'Sara' } = {}) {
+  const req = {
+    method,
+    query: { resource: 'console', ...(method === 'GET' && operator ? { operator } : {}), ...query },
+    headers: secret ? { 'x-admin-secret': secret } : {},
+    body: method === 'POST' ? { operator, ...body } : undefined,
+  };
+  let status = 200;
+  let payload;
+  const res = {
+    status(c) { status = c; return this; },
+    json(p) { payload = p; return this; },
+    setHeader() { return this; },
+    send(p) { payload = p; return this; },
+  };
+  await handler(req, res);
+  await flush();
+  return { status, body: payload };
+}
+
+const get = (query, operator = 'Sara') => call({ query, operator });
+const post = (body, operator = 'Sara') => call({ method: 'POST', body, operator });
+const rows = (name) => db._tables[name] ?? [];
+
+// ---------------------------------------------------------------------------
+// Who may do what
+// ---------------------------------------------------------------------------
+
+test('no secret, or the wrong one, gets nothing', async () => {
+  assert.equal((await call({ query: { view: 'inbox' }, secret: null })).status, 401);
+  assert.equal((await call({ query: { view: 'inbox' }, secret: 'guess' })).status, 401);
+});
+
+test('a name that is not on the team, or no longer active, is refused in words', async () => {
+  const stranger = await get({ view: 'inbox' }, 'Mallory');
+  assert.equal(stranger.status, 403);
+  assert.match(stranger.body.error, /not on the team list/);
+
+  const former = await get({ view: 'inbox' }, 'Former');
+  assert.equal(former.status, 403);
+  assert.match(former.body.error, /no longer active/);
+});
+
+test('me says who you are, what you may do, and what is connected', async () => {
+  const r = await get({ view: 'me' }, 'sara');   // any capitalisation of the name
+  assert.equal(r.status, 200);
+  assert.equal(r.body.name, 'Sara');
+  assert.equal(r.body.role_words, 'Agent');
+  assert.ok(r.body.permissions.includes('chat'));
+  assert.equal(r.body.features.channels, false, 'lib/channels.js is not deployed in this test');
+  assert.equal(r.body.features.chat_messages, true);
+  assert.ok(r.body.saved_replies.length > 0, 'saved replies have sensible defaults');
+});
+
+test('an empty team lets the first person in as administrator, once', async () => {
+  setup({ ops_users: [] });
+  const first = await get({ view: 'me' }, 'Ariful');
+  assert.deepEqual(first.body, { bootstrap: true });
+
+  const made = await post({ action: 'bootstrap_admin' }, 'Ariful');
+  assert.equal(made.status, 200);
+  assert.equal(rows('ops_users')[0].role, 'admin');
+
+  const again = await post({ action: 'bootstrap_admin' }, 'Mallory');
+  assert.equal(again.status, 409, 'the door shuts once somebody is in');
+});
+
+test('a read-only person can look but every change is refused, saying why', async () => {
+  const look = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Rita');
+  assert.equal(look.status, 200);
+  assert.equal(look.body.document_actions.verify.enabled, false);
+  assert.match(look.body.document_actions.verify.reason, /read only/);
+
+  const act = await post({ action: 'verify_document', document_id: 101 }, 'Rita');
+  assert.equal(act.status, 403);
+  assert.match(act.body.error, /read only/);
+  assert.equal(rows('booking_documents').find((d) => d.id === 101).status, 'received', 'nothing was written');
+});
+
+test('an agent cannot change priority or hand work to someone else; a supervisor can', async () => {
+  const pr = await post({ action: 'priority', booking_ref: 'MKY-BKG-1', priority: 'urgent' }, 'Sara');
+  assert.equal(pr.status, 403);
+  assert.match(pr.body.error, /Only a supervisor/);
+
+  const give = await post({ action: 'assign', booking_ref: 'MKY-BKG-1', assignee: 'Omar' }, 'Sara');
+  assert.equal(give.status, 403);
+
+  const ok = await post({ action: 'assign', booking_ref: 'MKY-BKG-1', assignee: 'Sara' }, 'Omar');
+  assert.equal(ok.status, 200);
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').assigned_to, 'Sara');
+});
+
+test('settings are for administrators only', async () => {
+  const agent = await get({ view: 'settings' }, 'Sara');
+  assert.equal(agent.status, 403);
+  assert.match(agent.body.error, /Only an administrator/);
+  const admin = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(admin.status, 200);
+});
+
+// ---------------------------------------------------------------------------
+// The inbox
+// ---------------------------------------------------------------------------
+
+test('the inbox says what to do, in sentences, most urgent first', async () => {
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  assert.equal(r.status, 200);
+  const sentences = r.body.items.map((i) => i.sentence);
+
+  assert.ok(sentences.some((s) => /^Check 3 documents and confirm$/.test(s)), sentences.join(' | '));
+  assert.ok(sentences.some((s) => /^Call back \+20 100 000 0001$/.test(s)));
+  assert.ok(sentences.some((s) => /Message failed — couldn’t reach Delta Trans/.test(s)));
+  assert.ok(sentences.some((s) => /Couldn’t read the MRN/.test(s)), 'an unreadable file is its own line');
+  assert.equal(r.body.items[0].kind, 'problem', 'something wrong comes first');
+
+  for (const i of r.body.items) {
+    assert.doesNotMatch(i.sentence, /_/, `"${i.sentence}" leaks a database value`);
+    assert.ok(i.since, 'every row has an age');
+  }
+});
+
+test('the tabs split our move from the customer’s and from what is done today', async () => {
+  const r = await get({ view: 'inbox', tab: 'waiting' });
+  assert.deepEqual(r.body.items.map((i) => i.ref), ['MKY-BKG-2']);
+  assert.match(r.body.items[0].sentence, /Waiting for the customer to send the Brief and MRN/);
+  assert.equal(r.body.items[0].tone, 'amber');
+
+  const done = await get({ view: 'inbox', tab: 'done' });
+  assert.ok(done.body.items.some((i) => i.ref === 'MKY-BKG-3' && /Confirmed by Omar/.test(i.sentence)));
+  assert.ok(r.body.counts.tabs.needs_us >= 4);
+});
+
+test('filters narrow the list and count what they hold', async () => {
+  const problems = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(problems.body.items.length >= 2);
+  assert.ok(problems.body.items.every((i) => i.kind === 'problem'));
+  assert.equal(problems.body.counts.filters.problems, problems.body.items.length);
+
+  await post({ action: 'take', booking_ref: 'MKY-BKG-1' }, 'Sara');
+  setClientForTests(db);
+  // booking_queue is a view; in the fake it is refreshed by hand.
+  db._tables.booking_queue.find((b) => b.booking_ref === 'MKY-BKG-1').assigned_to = 'Sara';
+  const mine = await get({ view: 'inbox', filter: 'mine' }, 'Sara');
+  // Her case, and the unreadable file on her case: both are hers to deal with.
+  assert.ok(mine.body.items.some((i) => i.id === 'booking:MKY-BKG-1'));
+  assert.ok(mine.body.items.every((i) => i.ref === 'MKY-BKG-1'));
+  const omar = await get({ view: 'inbox', filter: 'mine' }, 'Omar');
+  assert.equal(omar.body.items.length, 0);
+});
+
+test('the inbox works before the message table exists, and says so', async () => {
+  setup({}, { missingTables: ['chat_messages'] });
+  const r = await get({ view: 'inbox' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.features.chat_messages, false);
+  assert.ok(!r.body.items.some((i) => i.id.startsWith('message:')));
+  assert.ok(r.body.items.some((i) => i.ref === 'MKY-BKG-1'), 'bookings still listed');
+});
+
+test('counts feed the tab title', async () => {
+  const r = await get({ view: 'counts' });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.needs_us >= 4);
+  assert.ok(r.body.problems >= 2);
+});
+
+// ---------------------------------------------------------------------------
+// The case page
+// ---------------------------------------------------------------------------
+
+test('a booking case: one next step, a checklist that says what is wrong, and a version', async () => {
+  const r = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.equal(r.status, 200);
+  assert.match(r.body.version, /^v[0-9a-z]+$/);
+  assert.equal(r.body.header.status_words, 'New request');
+  assert.equal(r.body.next_step.primary.action, 'open_document');
+  assert.equal(r.body.next_step.primary.enabled, true);
+  assert.equal(r.body.take.state, 'nobody');
+
+  const state = Object.fromEntries(r.body.checklist.map((c) => [c.type, c.state]));
+  assert.deepEqual(state, { invoice: 'received', brief: 'mismatch', mrn: 'unreadable' });
+
+  const brief = r.body.documents.find((d) => d.id === 102);
+  assert.equal(brief.wrong_vehicle, true);
+  assert.deepEqual(brief.checks.find((c) => c.field === 'vin'), {
+    field: 'vin', label: 'Chassis', document: 'YV2RT40A8FB799999', booking: 'YV2RT40A8FB712905', match: false,
+  });
+  const invoice = r.body.documents.find((d) => d.id === 101);
+  assert.equal(invoice.checks.find((c) => c.field === 'make').match, true, 'VOLVO and Volvo are one make');
+  assert.equal(r.body.documents.find((d) => d.id === 103).unreadable, true);
+});
+
+test('Confirm is offered disabled, with what is missing, until the booking is complete', async () => {
+  setup({ booking_documents: [] });
+  const r = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  const confirm = r.body.next_step.secondary.find((b) => b.action === 'confirm');
+  assert.equal(confirm.enabled, false);
+  assert.match(confirm.reason, /Not ready yet: Invoice, Brief and MRN/);
+  assert.equal(r.body.next_step.primary.action, 'request_info');
+  assert.match(r.body.next_step.primary.label, /Ask for the Invoice, Brief and MRN/);
+});
+
+test('a case changed by somebody else refuses the action, naming who and when', async () => {
+  const seen = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Sara')).body.version;
+  const omar = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Omar')).body.version;
+  assert.equal(seen, omar);
+
+  const first = await post({ action: 'verify_document', document_id: 101, version: omar }, 'Omar');
+  assert.equal(first.status, 200);
+
+  const late = await post({ action: 'verify_document', document_id: 103, version: seen }, 'Sara');
+  assert.equal(late.status, 409);
+  assert.equal(late.body.stale, true);
+  assert.match(late.body.error, /^Omar checked the Invoice (just now|\d+ min ago)\. The page now shows the latest\.$/);
+  assert.equal(rows('booking_documents').find((d) => d.id === 103).status, 'received', 'the stale action wrote nothing');
+
+  const fresh = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Sara')).body.version;
+  const retry = await post({ action: 'verify_document', document_id: 103, version: fresh }, 'Sara');
+  assert.equal(retry.status, 200, 'with the latest version it goes through');
+});
+
+test('a note from a colleague does not make your action stale', async () => {
+  const seen = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' })).body.version;
+  await post({ action: 'internal_note', booking_ref: 'MKY-BKG-1', body: 'Customer called, all fine.' }, 'Omar');
+  const r = await post({ action: 'verify_document', document_id: 101, version: seen }, 'Sara');
+  assert.equal(r.status, 200);
+});
+
+test('taking a new case makes it yours and "being checked"', async () => {
+  const v = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' })).body.version;
+  const r = await post({ action: 'take', booking_ref: 'MKY-BKG-1', version: v }, 'Sara');
+  assert.equal(r.status, 200);
+  const b = rows('bookings').find((x) => x.booking_ref === 'MKY-BKG-1');
+  assert.equal(b.assigned_to, 'Sara');
+  assert.equal(b.status, 'under_review');
+
+  const steal = await post({ action: 'take', booking_ref: 'MKY-BKG-1' }, 'Ariful');
+  assert.equal(steal.status, 200, 'an administrator may take it over');
+});
+
+test('correcting a detail is recorded with what it was', async () => {
+  const v = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' })).body.version;
+  const r = await post({ action: 'edit_details', booking_ref: 'MKY-BKG-1', version: v, field: 'make', value: 'Volvo Trucks' });
+  assert.equal(r.status, 200);
+  const b = rows('bookings').find((x) => x.booking_ref === 'MKY-BKG-1');
+  assert.equal(b.make, 'Volvo Trucks');
+  assert.deepEqual(b.edit_history.at(-1).from, 'Volvo');
+  const trail = rows('audit_logs').find((a) => a.action === 'booking_details_corrected');
+  assert.equal(trail.metadata.from, 'Volvo');
+  assert.equal(trail.metadata.to, 'Volvo Trucks');
+});
+
+test('a chassis correction cannot walk around the duplicate guard, and a decided booking is not edited', async () => {
+  const dup = await post({ action: 'edit_details', booking_ref: 'MKY-BKG-1', field: 'vin', value: 'xlrte47ms0e000003' });
+  assert.equal(dup.status, 409);
+  assert.match(dup.body.error, /MKY-BKG-3 already uses this chassis/);
+
+  const decided = await post({ action: 'edit_details', booking_ref: 'MKY-BKG-3', field: 'make', value: 'Volvo' });
+  assert.equal(decided.status, 409);
+  assert.match(decided.body.error, /decided/);
+});
+
+test('typing what an unreadable file says takes it off the problems list', async () => {
+  const before = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(before.body.items.some((i) => i.id === 'document:103'));
+
+  const r = await post({ action: 'mark_document_read_values', document_id: 103, values: { mrn: '26ltvr610172694233' } });
+  assert.equal(r.status, 200);
+  const doc = rows('booking_documents').find((d) => d.id === 103);
+  assert.equal(doc.extracted.typed.mrn, '26LTVR610172694233');
+  assert.equal(doc.extracted.typed_by, 'Sara');
+
+  const after = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(!after.body.items.some((i) => i.id === 'document:103'));
+});
+
+test('asking for a new document: the preview is the message, in the customer’s language', async () => {
+  const preview = await get({ view: 'preview', kind: 'reject_document', document_id: 201, reason_code: 'unreadable' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.language, 'ar');
+  assert.match(preview.body.text, /MKY-BKG-2/);
+  assert.match(preview.body.text, /نسخة جديدة من الفاتورة/, 'the Arabic customer is asked in Arabic');
+
+  const v = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-2' })).body.version;
+  const r = await post({ action: 'reject_document', document_id: 201, reason_code: 'unreadable', version: v });
+  assert.equal(r.status, 200);
+  const queued = rows('notification_outbox').find((o) => o.idempotency_key === 'doc_replacement:201:unreadable');
+  assert.ok(queued);
+  assert.match(queued.payload.requested_ar, /مش مقروءة/);
+
+  const twice = await post({ action: 'reject_document', document_id: 201, reason_code: 'unreadable' });
+  assert.equal(twice.status, 200);
+  assert.equal(rows('notification_outbox').filter((o) => o.idempotency_key === 'doc_replacement:201:unreadable').length, 1, 'asked once');
+});
+
+test('a WhatsApp customer outside the 24 hours: the preview says it goes as the template', async () => {
+  channelsState.deployed = true;
+  channelsState.api = fakeChannels({ open: false }).api;
+  const r = await get({ view: 'preview', kind: 'request_info', booking_ref: 'MKY-BKG-2', requested: 'The brief' });
+  assert.equal(r.body.delivery.via, 'template');
+  assert.match(r.body.delivery.words, /mky_information_needed/);
+});
+
+// ---------------------------------------------------------------------------
+// Talking to the customer
+// ---------------------------------------------------------------------------
+
+test('WhatsApp without the channel code: refused in words, nothing recorded as sent', async () => {
+  const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'Hello', action_key: 'k-wa-0000001' });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /WhatsApp sending isn’t connected yet/);
+  assert.equal(rows('notification_outbox').length, 0);
+});
+
+test('Telegram without the channel code falls back to the outbox, and a double click sends once', async () => {
+  const body = { action: 'send_message', booking_ref: 'MKY-BKG-1', text: 'We are on it.', action_key: 'k-tg-0000001' };
+  const first = await post(body);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.status, 'sent');
+  const second = await post(body);
+  assert.equal(second.status, 200);
+  assert.equal(second.body.duplicate, true);
+
+  const sends = telegramCalls.filter((c) => c.url.endsWith('/sendMessage'));
+  assert.equal(sends.length, 1, 'one message, however many clicks');
+  assert.equal(sends[0].body.text, 'We are on it.');
+  assert.equal(rows('notification_outbox')[0].idempotency_key, 'desk:k-tg-0000001');
+});
+
+test('with the channel code: one send, as staff, in the customer’s language; a repeat is recognised', async () => {
+  const fake = fakeChannels();
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+
+  const body = { action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'تمام، بنراجع', action_key: 'k-wa-0000002' };
+  const first = await post(body, 'Sara');
+  assert.equal(first.status, 200);
+  assert.equal(first.body.status, 'sent');
+  const again = await post(body, 'Sara');
+  assert.equal(again.body.duplicate, true);
+
+  assert.equal(fake.calls.send.length, 1);
+  const { target, opts } = fake.calls.send[0];
+  assert.deepEqual(target, { channel: 'whatsapp', chatId: WA, clientId: 2 });
+  assert.equal(opts.author, 'staff');
+  assert.equal(opts.staffName, 'Sara');
+  assert.equal(opts.language, 'ar');
+});
+
+test('the window closed while typing: refused with the reason, and the template offered', async () => {
+  const fake = fakeChannels({ open: false });
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+
+  const chat = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  assert.equal(chat.body.composer.mode, 'template_only');
+  assert.match(chat.body.composer.reason, /24 hours/);
+
+  const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'Hi', action_key: 'k-wa-0000003' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.status, 'needs_template');
+  assert.equal(fake.calls.send.length, 0);
+
+  const t = await post({ action: 'send_reopen_template', channel: 'whatsapp', chat_id: WA, action_key: 'k-wa-0000004' });
+  assert.equal(t.status, 200);
+  assert.equal(fake.calls.reopen.length, 1);
+  assert.equal(fake.calls.reopen[0].opts.language, 'ar');
+});
+
+test('a customer who wrote STOP: composer disabled, saying when', async () => {
+  channelsState.deployed = true;
+  channelsState.api = fakeChannels({ open: false }).api;
+  const chat = await get({ view: 'chat', channel: 'whatsapp', chat_id: 'wa:201007770000' });
+  assert.equal(chat.body.composer.mode, 'disabled');
+  assert.match(chat.body.composer.reason, /wrote STOP on/);
+  const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: 'wa:201007770000', text: 'Hi', action_key: 'k-wa-0000005' });
+  assert.equal(r.status, 409);
+});
+
+test('the conversation comes back as data: failures in words, customer text untouched', async () => {
+  const r = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.available, true);
+  assert.deepEqual(r.body.messages.map((m) => m.author), ['client', 'bot', 'staff']);
+  const failed = r.body.messages[2];
+  assert.equal(failed.retryable, true);
+  assert.match(failed.error_words, /hasn’t written in 24 hours/);
+  // Exactly as typed - the server neither escapes nor builds markup; the
+  // browser sets it as text. Both halves of that are tested.
+  assert.equal(r.body.customer.profile_name, '<script>alert(1)</script>');
+  assert.equal(r.body.messages[0].body, 'السلام عليكم، فين الشحنة؟');
+  assert.ok(r.body.bookings.some((b) => b.booking_ref === 'MKY-BKG-2'));
+});
+
+test('before the migration the conversation says when history starts, and sending still works', async () => {
+  setup({}, { missingTables: ['chat_messages'] });
+  const r = await get({ view: 'chat', channel: 'telegram', chat_id: '555' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.available, false);
+  assert.equal(r.body.notice, 'Conversation history starts once the database update is applied.');
+  assert.equal(r.body.composer.mode, 'text');
+
+  const sent = await post({ action: 'send_message', channel: 'telegram', chat_id: '555', text: 'Hello', action_key: 'k-tg-0000009' });
+  assert.equal(sent.status, 200);
+});
+
+test('before the migration the new client columns are simply absent, and nothing errors', async () => {
+  setup({}, { missingColumns: { clients: ['whatsapp_id', 'language', 'opted_out_at', 'whatsapp_name'] } });
+  const r = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.equal(r.status, 200);
+  const s = await get({ view: 'search', q: 'Nile' });
+  assert.equal(s.status, 200, 'search falls back to the columns that exist');
+});
+
+test('a failed message: retried once, then off the problems list', async () => {
+  const fake = fakeChannels();
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  const r = await post({ action: 'retry_message', message_id: 3, action_key: 'k-retry-0001' });
+  assert.equal(r.status, 200);
+  assert.equal(fake.calls.send[0].message.text, 'We are checking.');
+  const inbox = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(!inbox.body.items.some((i) => i.id === 'message:3'));
+});
+
+test('a problem can be set aside, and stays aside', async () => {
+  const r = await post({ action: 'dismiss_problem', problem_id: 'message:3' });
+  assert.equal(r.status, 200);
+  const inbox = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(!inbox.body.items.some((i) => i.id === 'message:3'));
+});
+
+test('the chats list: both channels, newest first, failures counted', async () => {
+  const r = await get({ view: 'chats' });
+  assert.equal(r.status, 200);
+  const wa = r.body.chats.find((c) => c.chat_id === WA);
+  assert.equal(wa.channel, 'whatsapp');
+  assert.equal(wa.failed, 1);
+  assert.equal(wa.name, 'Delta Trans');
+  assert.ok(r.body.chats.some((c) => c.channel === 'telegram'), 'a chat with no messages logged yet still appears');
+  const found = await get({ view: 'chats', q: '1005551234' });
+  assert.deepEqual(found.body.chats.map((c) => c.chat_id), [WA], 'found by phone digits');
+});
+
+// ---------------------------------------------------------------------------
+// Shipments, requests, settings
+// ---------------------------------------------------------------------------
+
+test('a shipment update tells the customer in their language, once', async () => {
+  const fake = fakeChannels();
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  const v = (await get({ view: 'shipment', id: 'MKY-26001' })).body.version;
+  const r = await post({ action: 'shipment_update', shipment_id: 'MKY-26001', version: v, status: 'Arrived at destination port', tell_customer: true, action_key: 'k-ship-0001' });
+  assert.equal(r.status, 200);
+  assert.equal(rows('shipments')[0].status, 'Arrived at destination port');
+  assert.equal(fake.calls.send.length, 1);
+  assert.match(fake.calls.send[0].message.text, /تحديث على شحنتك MKY-26001/);
+  assert.match(fake.calls.send[0].message.text, /وصلت ميناء الوصول/);
+  assert.doesNotMatch(fake.calls.send[0].message.text, /Update on your shipment/, 'one language, not both');
+
+  const stale = await post({ action: 'shipment_update', shipment_id: 'MKY-26001', version: v, status: 'Delivered' });
+  assert.equal(stale.status, 409);
+});
+
+test('the request-resolved preview is word for word what notify.js sends', async () => {
+  const ticket = rows('support_tickets')[0];
+  const note = 'Called them, booking moved to Friday.';
+  const preview = await get({ view: 'preview', kind: 'request_resolve', ticket_ref: 'MKY-T-1', note });
+  telegramCalls.length = 0;
+  await notifyTicketResolved({ ...ticket, resolution_note: note });
+  const sent = telegramCalls.find((c) => c.url.endsWith('/sendMessage'));
+  assert.equal(preview.body.text, sent.body.text);
+  assert.equal(ticketResolvedText(ticket, note, null), sent.body.text);
+});
+
+test('settings: every value checked, refused with a sentence, saved with its history', async () => {
+  const bad = await post({ action: 'settings_write', changes: { support_hours_start: '9am', direct_phone: 'call me' } }, 'Ariful');
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.errors.support_hours_start, /whole hour/);
+  assert.match(bad.body.errors.direct_phone, /phone number/);
+
+  const tpl = await post({ action: 'settings_write', changes: { whatsapp_templates: { _reopen: { name: 'Please Reply!' } } } }, 'Ariful');
+  assert.equal(tpl.status, 400);
+  assert.match(tpl.body.errors.whatsapp_templates, /lowercase letters, digits and underscores/);
+
+  const view = await get({ view: 'settings' }, 'Ariful');
+  const ok = await post({
+    action: 'settings_write', changes: { support_hours_start: 8, direct_phone: '+20 100 555 1234' },
+    versions: { support_hours_start: view.body.versions.support_hours_start },
+  }, 'Ariful');
+  assert.equal(ok.status, 200);
+  assert.equal(rows('bot_settings').find((r) => r.key === 'support_hours_start').value, 8);
+  assert.ok(rows('audit_logs').some((a) => a.action === 'setting_changed' && a.metadata.setting === 'direct_phone'));
+
+  const stale = await post({
+    action: 'settings_write', changes: { support_hours_start: 10 },
+    versions: { support_hours_start: view.body.versions.support_hours_start },
+  }, 'Ariful');
+  assert.equal(stale.status, 409, 'somebody saved it since this form loaded');
+});
+
+test('the team: people are added and changed, and the last administrator cannot be removed', async () => {
+  const add = await post({ action: 'user_save', name: 'Mona', role: 'ops_agent' }, 'Ariful');
+  assert.equal(add.status, 200);
+  assert.equal(rows('ops_users').find((u) => u.name === 'Mona').role, 'ops_agent');
+
+  const lockout = await post({ action: 'user_save', name: 'Ariful', role: 'ops_agent' }, 'Ariful');
+  assert.equal(lockout.status, 409);
+  assert.match(lockout.body.error, /at least one active administrator/);
+
+  const agent = await post({ action: 'user_save', name: 'Mona', role: 'admin' }, 'Sara');
+  assert.equal(agent.status, 403);
+});
+
+// ---------------------------------------------------------------------------
+// Pure rules
+// ---------------------------------------------------------------------------
+
+test('the composer rule, case by case', () => {
+  const base = { channel: 'whatsapp', chatId: WA, customer: { name: 'Delta' }, connected: true, templateAvailable: true };
+  assert.equal(composerState({ ...base, channel: 'telegram', chatId: '5', window: { open: true } }).mode, 'text');
+  assert.match(composerState({ ...base, connected: false, window: { open: true } }).reason, /isn’t connected yet/);
+  assert.equal(composerState({ ...base, window: { open: false } }).mode, 'template_only');
+  assert.equal(composerState({ ...base, window: { open: true } }).mode, 'text');
+  assert.equal(composerState({ ...base, chatId: null, window: { open: true } }).mode, 'disabled');
+
+  // Wrote STOP, then wrote again inside the window: answering them is allowed.
+  const stopped = { name: 'Delta', opted_out_at: iso(5 * 3600_000), last_client_message_at: iso(3600_000) };
+  assert.equal(composerState({ ...base, customer: stopped, window: { open: true } }).mode, 'text');
+  const silent = { name: 'Delta', opted_out_at: iso(3600_000), last_client_message_at: iso(5 * 3600_000) };
+  assert.equal(composerState({ ...base, customer: silent, window: { open: true } }).mode, 'disabled');
+});
+
+test('why a message failed, in words', () => {
+  assert.match(failureWords('(#131047) Re-engagement message'), /24 hours/);
+  assert.match(failureWords('(#131026) Message undeliverable'), /not on WhatsApp/);
+  assert.match(failureWords('(#190) Error validating access token'), /expired/);
+  assert.match(failureWords('Forbidden: bot was blocked by the user'), /blocked the bot/);
+  assert.match(failureWords('something odd'), /It did not go through: something odd/);
+});
+
+test('no file of the desk ever builds HTML from data', () => {
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk');
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const src = readFileSync(path.join(dir, file), 'utf8');
+    assert.doesNotMatch(src, /\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/, `${file} must set text, never HTML`);
+  }
+});
