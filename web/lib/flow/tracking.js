@@ -15,7 +15,8 @@
 
 import { db } from '../supabase.js';
 import { S, FLOWS } from './states.js';
-import { M, NOT_AVAILABLE, NOT_ASSIGNED, both } from './messages.js';
+import { M, NOT_AVAILABLE, NOT_ASSIGNED, both, pair } from './messages.js';
+import { routeArrow } from '../lang.js';
 import * as kb from './keyboards.js';
 import { normalizeVin } from '../bookings.js';
 import { valueFor, findVin } from './paste.js';
@@ -182,25 +183,28 @@ async function ownedBooking(refs, viewer) {
   ) ?? null;
 }
 
-/** The card. Every line is a column of the row; a blank one says so. */
+/**
+ * The card. Every line is a column of the row; a blank one says so. Labels in
+ * the client's language - both, on one line, until they have chosen.
+ */
 export function shipmentCard(s) {
   const latest = s.recent_events?.[0] ?? null;
   const vehicle = [s.make, s.model].filter(Boolean).join(' ') || s.cargo_description || null;
 
   const line = (arLabel, enLabel, value, blank) =>
-    `${arLabel} / ${enLabel}: ${value || `${blank.ar} / ${blank.en}`}`;
+    `${pair(arLabel, enLabel)}: ${value || pair(blank.ar, blank.en)}`;
 
   return [
     `📦 ${s.shipment_id}${vehicle ? ` — ${vehicle}` : ''}`,
-    s.vin ? `الشاسيه / Chassis: ${s.vin}` : null,
-    s.booking_ref ? `رقم الحجز / Booking Ref: ${s.booking_ref}` : null,
+    s.vin ? `${pair('الشاسيه', 'Chassis')}: ${s.vin}` : null,
+    s.booking_ref ? `${pair('رقم الحجز', 'Booking Ref')}: ${s.booking_ref}` : null,
     line('الحالة', 'Status', s.status, NOT_AVAILABLE),
     line('السفينة', 'Vessel', s.vessel, NOT_ASSIGNED),
     line('الموقع', 'Location', latest?.location, NOT_AVAILABLE),
-    `خط الشحن / Route: ${s.origin_port} → ${s.destination_port}`,
+    `${pair('خط الشحن', 'Route')}: ${s.origin_port} ${routeArrow()} ${s.destination_port}`,
     line('الوصول المتوقع', 'ETA', s.eta, NOT_AVAILABLE),
     latest?.description
-      ? `آخر تحديث / Last update: ${latest.description}${latest.event_time ? ` (${String(latest.event_time).slice(0, 10)})` : ''}`
+      ? `${pair('آخر تحديث', 'Last update')}: ${latest.description}${latest.event_time ? ` (${String(latest.event_time).slice(0, 10)})` : ''}`
       : null,
   ].filter(Boolean).join('\n');
 }
@@ -210,10 +214,10 @@ export function bookingCard(b) {
   const status = String(b.status ?? '').replace(/_/g, ' ');
   return [
     `📋 ${b.booking_ref}`,
-    b.vin ? `الشاسيه / Chassis: ${b.vin}` : null,
-    `خط الشحن / Route: ${b.origin_port ?? '—'} → ${b.destination_port ?? '—'}`,
-    `الحالة / Status: ${status}`,
-    b.ops_notes ? `ملاحظة / Note: ${b.ops_notes}` : null,
+    b.vin ? `${pair('الشاسيه', 'Chassis')}: ${b.vin}` : null,
+    `${pair('خط الشحن', 'Route')}: ${b.origin_port ?? '—'} ${routeArrow()} ${b.destination_port ?? '—'}`,
+    `${pair('الحالة', 'Status')}: ${status}`,
+    b.ops_notes ? `${pair('ملاحظة', 'Note')}: ${b.ops_notes}` : null,
     '',
     both(
       'لسه ما بدأتش الشحنة، فمفيش سفينة ولا موعد وصول لحد دلوقتي.',

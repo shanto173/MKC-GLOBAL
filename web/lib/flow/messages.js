@@ -11,18 +11,54 @@
  * Arabic first, a divider, then the same message in English. References,
  * chassis numbers, ports and Incoterms are identical in both halves because
  * they have to match the paperwork.
+ *
+ * Once a client has chosen a language, only that half is said (lib/lang.js
+ * carries the choice through the turn). Every message is still WRITTEN in
+ * both, so a client who switches mid-booking hears the same thing in the
+ * other language, and one who never chose hears both, as before.
+ *
+ * A few sentences also depend on the channel: "/menu" and "Share my number"
+ * are Telegram's, and mean nothing to a client on WhatsApp.
  */
+
+import { pick, currentChannel, currentLanguage } from '../lang.js';
+import { displayPhone } from '../phone.js';
+import { languageSupported } from './language.js';
 
 const RULE = '━━━━━━━━━━━━';
 
-/** Renders one bilingual message as the two stacked blocks Telegram can show. */
+/**
+ * One message in the turn's language - or, before a choice, the two stacked
+ * blocks Telegram can show. A half left empty is never chosen over the other.
+ */
 export function both(ar, en) {
   const top = String(ar ?? '').trim();
   const bottom = String(en ?? '').trim();
   if (!top) return bottom;
   if (!bottom) return top;
-  return `${top}\n${RULE}\n${bottom}`;
+  return pick(top, bottom, `\n${RULE}\n`);
 }
+
+/**
+ * Both languages, whatever the turn. For the one message said before a
+ * language is chosen - the question of which.
+ */
+export function stacked(ar, en) {
+  return `${String(ar ?? '').trim()}\n${RULE}\n${String(en ?? '').trim()}`;
+}
+
+/**
+ * A label on one line - "الحالة / Status" - as the cards write them. One word
+ * once a language is chosen; both, slash-separated, until then.
+ */
+export function pair(ar, en) {
+  return pick(ar, en, ' / ');
+}
+
+const onWhatsApp = () => currentChannel() === 'whatsapp';
+
+/** Where the client can change language by typing - not the website widget. */
+const canSwitch = () => ['telegram', 'whatsapp'].includes(currentChannel()) && languageSupported();
 
 /** A value we do not have. Never invented, never blank. */
 export const NOT_AVAILABLE = { ar: 'لسه مش متاح', en: 'Not available yet' };
@@ -37,18 +73,54 @@ export const M = {
 
   menu: () => both('نقدر نساعدك في إيه؟', 'How can we help you today?'),
 
-  help: () => both(
-    'الأوامر المتاحة:\n' +
-    '/start أو /menu - القائمة الرئيسية\n' +
-    '/cancel - إلغاء الطلب اللي شغال دلوقتي\n' +
-    '/help - الرسالة دي\n\n' +
-    'تقدر كمان تكتب اللي عايزه بلغتك العادية.',
-    'What you can do:\n' +
-    '/start or /menu - the main menu\n' +
-    '/cancel - stop whatever we are in the middle of\n' +
-    '/help - this message\n\n' +
-    'You can also just tell me what you need in your own words.',
+  // WhatsApp has no slash commands: the same things are plain words there.
+  help: () => (onWhatsApp()
+    ? both(
+      'تقدر تكتب:\n' +
+      'menu - القائمة الرئيسية\n' +
+      'cancel - إلغاء الطلب اللي شغال دلوقتي\n' +
+      'language - تغيير اللغة\n' +
+      'help - الرسالة دي\n\n' +
+      'تقدر كمان تكتب اللي عايزه بلغتك العادية.',
+      'What you can do:\n' +
+      'menu - the main menu\n' +
+      'cancel - stop whatever we are in the middle of\n' +
+      'language - English or Arabic\n' +
+      'help - this message\n\n' +
+      'You can also just tell me what you need in your own words.',
+    )
+    : both(
+      'الأوامر المتاحة:\n' +
+      '/start أو /menu - القائمة الرئيسية\n' +
+      '/cancel - إلغاء الطلب اللي شغال دلوقتي\n' +
+      (canSwitch() ? '/language - تغيير اللغة\n' : '') +
+      '/help - الرسالة دي\n\n' +
+      'تقدر كمان تكتب اللي عايزه بلغتك العادية.',
+      'What you can do:\n' +
+      '/start or /menu - the main menu\n' +
+      '/cancel - stop whatever we are in the middle of\n' +
+      (canSwitch() ? '/language - English or Arabic\n' : '') +
+      '/help - this message\n\n' +
+      'You can also just tell me what you need in your own words.',
+    )),
+
+  // -- language --------------------------------------------------------------
+  // Asked before anything else is known about the client, so it is the one
+  // question always put in both languages. The welcome rides along on first
+  // contact: it is the first thing the client reads from us.
+  chooseLanguage: (name, { first = true } = {}) => stacked(
+    (first ? `👋 أهلاً${name ? ' ' + name : ''} بيك في MKY Forwarding!\n\n` : '') + 'تحب نكمل بأنهي لغة؟',
+    (first ? `👋 Welcome${name ? ' ' + name : ''} to MKY Forwarding!\n\n` : '') + 'Which language would you like?',
   ),
+
+  // The answer told us nothing - digits, an emoji. Asked once more, saying how.
+  chooseLanguageAgain: () => stacked(
+    'معلش، محتاج أعرف اللغة الأول. اختار من الزرارين تحت، أو اكتب "عربي".',
+    'Sorry — which language first? Tap a button below, or type "English".',
+  ),
+
+  // Said in the language just chosen, ahead of the question that was open.
+  languageSet: () => both('تمام، هنكمل بالعربي.', 'Done — we will continue in English.'),
 
   // -- booking, step 1: who is booking ---------------------------------------
   // The opening and the first question are one message, not two: a second
@@ -62,12 +134,19 @@ export const M = {
 
   // Telegram hands over a verified number through the reply-keyboard button;
   // typing works too, and so does saying yes to the number we already hold.
-  askPhone: (suggestion) => both(
+  // On WhatsApp the client is writing from a number, and the buttons offer it.
+  // `own` is the WhatsApp number being written from, said here in full because
+  // the button that offers it has room for "Use this number" and no more.
+  askPhone: (suggestion, own = null) => both(
     '📱 ورقم الموبايل اللي نكلمك عليه؟\n' +
-    'اضغط "شارك رقمي"، أو اكتبه بكود الدولة - مثلاً +20 100 555 1234.' +
+    (onWhatsApp()
+      ? `تقدر تستخدم الرقم اللي بتكلمنا منه${own ? ` (${displayPhone(own)})` : ''}، أو تكتب رقم تاني بكود الدولة - مثلاً +20 100 555 1234.`
+      : 'اضغط "شارك رقمي"، أو اكتبه بكود الدولة - مثلاً +20 100 555 1234.') +
     (suggestion ? `\n(لو ${suggestion} لسه رقمك ابعت "تمام")` : ''),
     '📱 And a mobile number we can reach you on?\n' +
-    'Tap "Share my number", or type it with the country code — for example +20 100 555 1234.' +
+    (onWhatsApp()
+      ? `Use the number you are writing from${own ? ` (${displayPhone(own)})` : ''}, or type another one with the country code — for example +20 100 555 1234.`
+      : 'Tap "Share my number", or type it with the country code — for example +20 100 555 1234.') +
     (suggestion ? `\n(If ${suggestion} is still your number, reply "yes".)` : ''),
   ),
 
@@ -530,8 +609,8 @@ What I need right now is ${needEn}.`,
   ),
 
   notUnderstood: () => both(
-    'معلش، مش فاهم قصدك. اختار من الأزرار تحت أو اكتب /menu.',
-    'Sorry, I did not follow that. Use the buttons below, or send /menu.',
+    `معلش، مش فاهم قصدك. اختار من الأزرار تحت أو اكتب ${onWhatsApp() ? '"menu"' : '/menu'}.`,
+    `Sorry, I did not follow that. Use the buttons below, or send ${onWhatsApp() ? '"menu"' : '/menu'}.`,
   ),
 
   blocked: () => both(
@@ -566,7 +645,10 @@ function hourAr(h) {
   return n < 12 ? `${n} الصبح` : `${n - 12} ${n < 18 ? 'العصر' : 'بالليل'}`;
 }
 
-/** Bilingual labels for the fields the booking flow collects. */
+/**
+ * Bilingual labels for the fields the booking flow collects, as [ar, en]
+ * pairs. They are data: whatever shows them picks the half for the turn.
+ */
 export const FIELD_LABELS = {
   customer_name: ['اسم العميل', 'Client name'],
   customer_contact: ['رقم الموبايل', 'Mobile number'],
@@ -576,7 +658,7 @@ export const FIELD_LABELS = {
   destination_port: ['ميناء الوصول', 'Destination'],
 };
 
-/** Bilingual labels for document types. */
+/** Bilingual labels for document types, as [ar, en] pairs. */
 export const DOC_LABELS = {
   invoice: ['الفاتورة التجارية', 'Invoice'],
   brief: ['مستند النقل', 'Brief'],
@@ -586,5 +668,6 @@ export const DOC_LABELS = {
   other: ['مستند', 'Document'],
 };
 
-export const docLabel = (type, lang = 'en') =>
+/** One document's name, in the turn's language - English when none was chosen. */
+export const docLabel = (type, lang = currentLanguage() ?? 'en') =>
   (DOC_LABELS[type] ?? DOC_LABELS.other)[lang === 'ar' ? 0 : 1];

@@ -14,8 +14,18 @@
 
 import { db } from './../supabase.js';
 import { S, isState } from './states.js';
+import { languageColumnsExist } from './language.js';
+import { normaliseLanguage } from '../lang.js';
 
 export const sessionKey = (channel, chatId) => `${channel}:${chatId}`;
+
+/**
+ * The Telegram chat id, for a Telegram chat only. Reading the digits out of
+ * any chat id turned WhatsApp's "wa:201001234567" into a Telegram id: to
+ * anything reading this column, a WhatsApp conversation looked like a Telegram
+ * chat with a number it never had.
+ */
+const telegramChatId = (channel, chatId) => (channel === 'telegram' ? numeric(chatId) : null);
 
 /** Fresh session for a chat we have not seen, or whose state we cannot trust. */
 function blank(ctx) {
@@ -23,7 +33,7 @@ function blank(ctx) {
     id: sessionKey(ctx.channel, ctx.chatId),
     channel: ctx.channel,
     chat_id: String(ctx.chatId),
-    telegram_chat_id: numeric(ctx.chatId),
+    telegram_chat_id: telegramChatId(ctx.channel, ctx.chatId),
     client_id: ctx.clientId ?? null,
     active_flow: null,
     current_state: S.MAIN_MENU,
@@ -65,16 +75,21 @@ export async function loadSession(ctx) {
  *
  * `state_entered_at` only moves when the state actually changes, so "how long
  * has this client been staring at the document step" is answerable.
+ *
+ * `language` is written only once the column is known to exist: an upsert
+ * naming a column the database does not have fails whole, and would lose the
+ * turn's state along with the language (see ./language.js).
  */
 export async function saveSession(session, patch = {}) {
   const next = { ...session, ...patch };
   const changedState = patch.current_state && patch.current_state !== session.current_state;
+  const language = normaliseLanguage(next.language);
 
   const row = {
     id: next.id,
     channel: next.channel,
     chat_id: String(next.chat_id),
-    telegram_chat_id: next.telegram_chat_id ?? null,
+    telegram_chat_id: next.channel === 'telegram' ? (next.telegram_chat_id ?? null) : null,
     client_id: next.client_id ?? null,
     active_flow: next.active_flow ?? null,
     current_state: next.current_state ?? S.MAIN_MENU,
@@ -82,6 +97,7 @@ export async function saveSession(session, patch = {}) {
     context: next.context ?? {},
     updated_at: new Date().toISOString(),
     ...(changedState ? { state_entered_at: new Date().toISOString() } : {}),
+    ...(language && languageColumnsExist() ? { language } : {}),
   };
 
   const { error } = await db().from('conversation_sessions').upsert(row, { onConflict: 'id' });

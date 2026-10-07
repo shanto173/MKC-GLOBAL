@@ -92,7 +92,7 @@ function raw(pathname) {
 
 test('every file under api/ loads and becomes the route Vercel gave it', async () => {
   const real = await loadRoutes(path.join(WEB, 'api'));
-  for (const route of ['/api/telegram', '/api/chat', '/api/health', '/api/status',
+  for (const route of ['/api/telegram', '/api/whatsapp', '/api/chat', '/api/health',
                        '/api/admin/bookings', '/api/admin/ops', '/api/admin/label', '/api/admin/setup']) {
     assert.equal(typeof real.get(route), 'function', `${route} is routed`);
   }
@@ -102,6 +102,9 @@ test('the rewrites come from vercel.json, so the two hosts cannot disagree', () 
   const real = loadRewrites(path.join(WEB, 'vercel.json'));
   assert.equal(real.get('/api/cron/outbox'), '/api/admin/ops?resource=outbox');
   assert.equal(real.get('/api/admin/tasks'), '/api/admin/ops?resource=tasks');
+  // /api/status was folded into /api/health to make room for /api/whatsapp
+  // under the twelve-function cap; the old URL is a rewrite now.
+  assert.equal(real.get('/api/status'), '/api/health?view=status');
   assert.equal(real.get('/'), '/index.html');
 });
 

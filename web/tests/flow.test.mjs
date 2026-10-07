@@ -42,6 +42,10 @@ const SETTINGS = [
   { key: 'max_upload_bytes', value: 20971520 },
   { key: 'allow_unowned_shipment_tracking', value: false },
   { key: 'operations_phone', value: null },
+  // These tests are about the flow, in both languages, as a client who never
+  // chose sees it. The language question that would otherwise open every
+  // first conversation has its own tests, in language.test.mjs.
+  { key: 'ask_language_first', value: false },
 ];
 
 const CHAT = '555';

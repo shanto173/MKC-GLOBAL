@@ -47,6 +47,27 @@ export const config = {
     webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || '',
   },
 
+  /**
+   * WhatsApp Cloud API (Meta). The second channel into the same engine.
+   *
+   * Two of these protect the webhook rather than send anything: the app
+   * secret signs every POST Meta makes (X-Hub-Signature-256), and the verify
+   * token is the string Meta echoes back once, when the webhook is registered.
+   * Without the app secret the webhook refuses everything - an unsigned
+   * request is indistinguishable from anyone on the internet typing as a
+   * customer.
+   */
+  whatsapp: {
+    token: env.WHATSAPP_ACCESS_TOKEN || '',
+    phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || '',
+    businessAccountId: env.WHATSAPP_BUSINESS_ACCOUNT_ID || '',
+    appSecret: env.WHATSAPP_APP_SECRET || '',
+    verifyToken: env.WHATSAPP_VERIFY_TOKEN || '',
+    // Pinned rather than "latest": Meta retires a version two years after its
+    // release and changes payloads between versions, so moving is a decision.
+    graphVersion: env.WHATSAPP_GRAPH_VERSION || 'v23.0',
+  },
+
   /** Telegram group/channel where staff get notified of new bookings. */
   staffChatId: env.STAFF_CHAT_ID || '',
 
@@ -94,6 +115,11 @@ export const DEPARTMENTS = [
   'Customs Documentation',
   'Customer Care',
 ];
+
+/** Can we send on WhatsApp at all? Both are needed for every Graph API call. */
+export function whatsappConfigured() {
+  return Boolean(config.whatsapp.token && config.whatsapp.phoneNumberId);
+}
 
 /** Throws a readable error at boot if something essential is missing. */
 export function assertConfig({ needLlm = true } = {}) {

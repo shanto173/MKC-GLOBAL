@@ -54,6 +54,20 @@ export function looksLikePhone(value) {
   return shape(western) !== null;
 }
 
+/**
+ * A number as a person reads it back: "+20 100 555 1234" for an Egyptian
+ * mobile, which is most of them and the shape clients write; any other number
+ * as its digits. Grouping a number without its numbering plan would only look
+ * right by accident.
+ */
+export function displayPhone(number) {
+  const digits = String(number ?? '').replace(/\D/g, '');
+  if (/^20\d{10}$/.test(digits)) {
+    return `+20 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+  }
+  return `+${digits}`;
+}
+
 function shape(run) {
   let s = String(run).replace(/[^\d+]/g, '');
   if (s.startsWith('00')) s = '+' + s.slice(2);
