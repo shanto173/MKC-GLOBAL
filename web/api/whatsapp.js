@@ -435,7 +435,7 @@ async function deliver(flow, input, ctx) {
 
   await withLanguage(language, async () => {
     if (flow.handled) {
-      for (const m of flow.messages) await sendToChat(target, m, { author: 'bot' });
+      for (const m of coalesce(flow.messages)) await sendToChat(target, m, { author: 'bot' });
     } else {
       // Nothing was being asked and it is not a menu choice: a question. The
       // assistant answers it and the flow state is untouched. Loaded here, not
@@ -454,6 +454,50 @@ async function deliver(flow, input, ctx) {
   logEvent('whatsapp_message_processed', {
     chat: masked(ctx.chatId), correlation_id: ctx.correlationId, state: flow.state, handled: flow.handled,
   });
+}
+
+/** WhatsApp's ceilings on one message: an interactive body, and plain text. */
+const MERGE_LIMITS = { interactive: 1024, text: 4096 };
+
+/**
+ * One reply, as few messages as it fits in.
+ *
+ * The engine says things in steps - "this unit is new", "we still need make,
+ * port and destination", "what is the make?" - and Telegram shows them as
+ * steps. On WhatsApp each one is a separate notification on the client's phone,
+ * three buzzes for one answer. Plain messages are therefore folded into the
+ * message that follows them, while the result still fits what WhatsApp allows
+ * for that kind of message; a file, or anything over the limit, is left as it
+ * was.
+ */
+export function coalesce(messages) {
+  const out = [];
+  let pending = [];
+  const plain = (m) => !m.inline?.length && !m.document && String(m.text ?? '').trim();
+  const flush = () => { if (pending.length) out.push({ text: pending.join('\n\n') }); pending = []; };
+
+  for (const m of messages ?? []) {
+    if (plain(m)) {
+      const joined = [...pending, String(m.text).trim()].join('\n\n');
+      if (joined.length <= MERGE_LIMITS.text) { pending.push(String(m.text).trim()); continue; }
+      flush();
+      pending.push(String(m.text).trim());
+      continue;
+    }
+    if (pending.length && !m.document) {
+      const text = [...pending, String(m.text ?? '').trim()].filter(Boolean).join('\n\n');
+      const limit = m.inline?.length ? MERGE_LIMITS.interactive : MERGE_LIMITS.text;
+      if (text.length <= limit) {
+        out.push({ ...m, text });
+        pending = [];
+        continue;
+      }
+    }
+    flush();
+    out.push(m);
+  }
+  flush();
+  return out;
 }
 
 /** The language after the machine ran, re-read only when it may have moved. */
@@ -670,6 +714,9 @@ async function recordIncomingFile(file, message, ctx) {
   if (info.ok) {
     file.size = info.size || 0;
     file.url = info.url ?? file.url;
+    // The webhook usually carries the hash; when it does not, the media
+    // endpoint does, and the hash is how a re-sent paper is recognised.
+    file.sha256 = file.sha256 ?? info.sha256 ?? null;
   }
   const bySize = validateUpload({ mimeType: file.mimeType, size: file.size }, limits);
   if (!bySize.ok) return refuse(bySize);

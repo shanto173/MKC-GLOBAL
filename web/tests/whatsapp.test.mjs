@@ -660,3 +660,24 @@ test('the project stays within Vercel Hobby\'s twelve functions', () => {
   const functions = count(path.join(WEB, 'api'));
   assert.ok(functions <= 12, `api/ has ${functions} functions; the Hobby plan allows 12`);
 });
+
+test('one reply is as few WhatsApp messages as it fits in: plain steps fold into what follows', async () => {
+  const { coalesce } = await import('../api/whatsapp.js');
+  const ask = { text: 'What is the make?', inline: [[{ text: 'Main menu', callback_data: 'menu:home', title: 'Main menu' }]] };
+
+  // "unit is new", "still need…", "what is the make?" - one buzz, not three.
+  const out = coalesce([{ text: 'This unit is new.' }, { text: 'We still need the make.' }, ask]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].text, 'This unit is new.\n\nWe still need the make.\n\nWhat is the make?');
+  assert.deepEqual(out[0].inline, ask.inline);
+
+  // Over an interactive body's 1024 characters: left apart, so the buttons
+  // keep their own question rather than a generic prompt.
+  assert.equal(coalesce([{ text: 'x'.repeat(1010) }, ask]).length, 2);
+  assert.equal(coalesce([{ text: 'x'.repeat(1000) }, ask]).length, 1, '1019 characters still fit');
+
+  // A file is never folded into; plain messages alone become one.
+  assert.equal(coalesce([{ text: 'Here it is' }, { text: '', document: { buffer: Buffer.from('x') } }]).length, 2);
+  assert.deepEqual(coalesce([{ text: 'a' }, { text: 'b' }]), [{ text: 'a\n\nb' }]);
+  assert.deepEqual(coalesce([]), []);
+});
