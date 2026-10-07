@@ -604,9 +604,11 @@ test('on WhatsApp the phone step offers the number being written from', async ()
   assert.equal(asked.state, S.BOOK_CLIENT_PHONE);
   assert.ok(asked.messages.every((m) => !m.keyboard), 'no Telegram reply keyboard');
   assert.deepEqual(datas(asked), ['bk:phone:use', 'bk:phone:other', 'menu:home']);
-  assert.deepEqual(buttons(asked).map((b) => b.title), ['Use +20 100 555 1234', 'Another number', 'Main menu']);
+  // The number is said in full in the question; the button only has room to
+  // point at it - cut to 20 characters it hid the digits being confirmed.
+  assert.deepEqual(buttons(asked).map((b) => b.title), ['Use this number', 'Another number', 'Main menu']);
   assert.doesNotMatch(said(asked), /Share my number/);
-  assert.match(said(asked), /the number you are writing from/);
+  assert.match(said(asked), /the number you are writing from \(\+20 100 555 1234\)/);
 
   const used = await h.tap('bk:phone:use');
   assert.equal(h.booking().customer_contact, '+201005551234', 'the sender\'s number, in the one stored shape');

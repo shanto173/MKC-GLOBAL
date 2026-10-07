@@ -738,7 +738,7 @@ export async function askNextBasic(booking, ctx, { listMissing = false, notedPho
 
   const prompts = {
     customer_name: () => say(M.askClientName(ctx.userName ?? null), kb.homeOnly()),
-    customer_contact: () => phonePrompt(ctx, M.askPhone(suggestion)),
+    customer_contact: () => phonePrompt(ctx, M.askPhone(suggestion, whatsappNumber(ctx))),
     // Step 2 opens the moment the person is known and the vehicle is not. One
     // message: where they are, that everything may come at once with the
     // papers attached, and the chassis question. A number given in the same
@@ -1380,9 +1380,9 @@ export async function repeatQuestion(session, ctx) {
     case S.BOOK_EDIT_CLIENT_NAME:
       return reply(say(M.askClientName(session.current_state === S.BOOK_CLIENT_NAME ? ctx.userName ?? null : null), kb.homeOnly()));
     case S.BOOK_CLIENT_PHONE:
-      return reply(phonePrompt(ctx, M.askPhone(await suggestedPhone(ctx))));
+      return reply(phonePrompt(ctx, M.askPhone(await suggestedPhone(ctx), whatsappNumber(ctx))));
     case S.BOOK_EDIT_CLIENT_PHONE:
-      return reply(phonePrompt(ctx, M.askPhone(null)));
+      return reply(phonePrompt(ctx, M.askPhone(null, whatsappNumber(ctx))));
     case S.BOOK_VIN:
     case S.BOOK_EDIT_VIN:
       return reply(say(M.askVin(), kb.homeOnly()));
@@ -1430,7 +1430,7 @@ export async function handleEditChoice(session, target, ctx) {
   // The number has its own prompt: on Telegram it comes with the share button,
   // on WhatsApp with the number being written from.
   if (target === 'phone') {
-    return reply(phonePrompt(ctx, M.askPhone(null)), { current_state: S.BOOK_EDIT_CLIENT_PHONE });
+    return reply(phonePrompt(ctx, M.askPhone(null, whatsappNumber(ctx))), { current_state: S.BOOK_EDIT_CLIENT_PHONE });
   }
 
   if (target === 'documents') {

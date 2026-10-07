@@ -25,6 +25,7 @@
  */
 
 import { currentLanguage } from '../lang.js';
+import { displayPhone } from '../phone.js';
 
 const MAX_CALLBACK_BYTES = 64;
 
@@ -252,26 +253,19 @@ export function afterConfirmed() {
  * writing FROM their number, so it is offered back to them. `number` is the
  * sender's number in international form, "+201005551234".
  */
+/**
+ * WhatsApp's answer to the phone question. The number itself is in the
+ * question (M.askPhone), not on the button: a 20-character title cut
+ * "استخدم +20 100 555 1234" to "استخدم +20 100 555…", which asked the client
+ * to confirm a number they could not see the end of.
+ */
 export function phoneChoice(number) {
-  const shown = spacedPhone(number);
+  const shown = displayPhone(number);
   return rows(
-    cb(label(`استخدم ${shown}`, `Use ${shown}`, '📱'), 'bk:phone:use', fit(title(`استخدم ${shown}`, `Use ${shown}`))),
+    cb(label(`استخدم ${shown}`, `Use ${shown}`, '📱'), 'bk:phone:use', title('استخدم الرقم ده', 'Use this number')),
     button('✏️', 'رقم تاني', 'Another number', 'bk:phone:other'),
     homeButton(),
   );
-}
-
-/**
- * "+20 100 555 1234" for an Egyptian mobile, which is most of them and the
- * shape clients write; any other number as its digits. Grouping a number
- * without its numbering plan would only look right by accident.
- */
-function spacedPhone(number) {
-  const digits = String(number ?? '').replace(/\D/g, '');
-  if (/^20\d{10}$/.test(digits)) {
-    return `+20 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
-  }
-  return `+${digits}`;
 }
 
 // ---------------------------------------------------------------------------

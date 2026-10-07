@@ -22,6 +22,7 @@
  */
 
 import { pick, currentChannel, currentLanguage } from '../lang.js';
+import { displayPhone } from '../phone.js';
 import { languageSupported } from './language.js';
 
 const RULE = '━━━━━━━━━━━━';
@@ -134,15 +135,17 @@ export const M = {
   // Telegram hands over a verified number through the reply-keyboard button;
   // typing works too, and so does saying yes to the number we already hold.
   // On WhatsApp the client is writing from a number, and the buttons offer it.
-  askPhone: (suggestion) => both(
+  // `own` is the WhatsApp number being written from, said here in full because
+  // the button that offers it has room for "Use this number" and no more.
+  askPhone: (suggestion, own = null) => both(
     '📱 ورقم الموبايل اللي نكلمك عليه؟\n' +
     (onWhatsApp()
-      ? 'تقدر تستخدم الرقم اللي بتكلمنا منه، أو تكتب رقم تاني بكود الدولة - مثلاً +20 100 555 1234.'
+      ? `تقدر تستخدم الرقم اللي بتكلمنا منه${own ? ` (${displayPhone(own)})` : ''}، أو تكتب رقم تاني بكود الدولة - مثلاً +20 100 555 1234.`
       : 'اضغط "شارك رقمي"، أو اكتبه بكود الدولة - مثلاً +20 100 555 1234.') +
     (suggestion ? `\n(لو ${suggestion} لسه رقمك ابعت "تمام")` : ''),
     '📱 And a mobile number we can reach you on?\n' +
     (onWhatsApp()
-      ? 'Use the number you are writing from, or type another one with the country code — for example +20 100 555 1234.'
+      ? `Use the number you are writing from${own ? ` (${displayPhone(own)})` : ''}, or type another one with the country code — for example +20 100 555 1234.`
       : 'Tap "Share my number", or type it with the country code — for example +20 100 555 1234.') +
     (suggestion ? `\n(If ${suggestion} is still your number, reply "yes".)` : ''),
   ),
