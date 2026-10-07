@@ -11,7 +11,17 @@
  * reproduce it verbatim and add at most one sentence around it. Labels are
  * bilingual on one line - "الحالة / Status" - rather than the whole card being
  * printed twice, which is what a bar-separated translation would mean.
+ *
+ * Once a client has chosen a language (lib/lang.js), a card speaks it alone:
+ * "الحالة: …" for an Arabic conversation, "Status: …" for an English one.
+ * Values - references, chassis numbers, ports - are the paperwork's, and never
+ * change with it.
  */
+
+import { pick, currentLanguage, listJoin, routeArrow } from './lang.js';
+
+/** A label or a line in the turn's language; both, slash-separated, before a choice. */
+const bi = (ar, en) => pick(ar, en, ' / ');
 
 const L = {
   reference:   ['رقم الشحنة', 'Reference'],
@@ -43,13 +53,13 @@ const L = {
 };
 
 /**
- * Labels always carry both languages, whichever language the customer wrote in.
- * These cards get forwarded to drivers, brokers and customs agents who read one
- * or the other, and a card that arrives in the wrong one is useless to them.
- * The `lang` argument is kept because callers pass it; it no longer changes the
- * label, only which side reads first to the person holding the phone.
+ * Labels carry both languages until the customer has chosen one, whichever
+ * language they happened to write in: these cards get forwarded to drivers,
+ * brokers and customs agents who read one or the other. A customer who chose
+ * has said which they read. The `lang` argument is kept because callers pass
+ * it; the turn's language decides.
  */
-const label = (key) => `${L[key][0]} / ${L[key][1]}`;
+const label = (key) => bi(L[key][0], L[key][1]);
 
 /** One "field: value" line, dropped entirely when there is no value. */
 function line(key, value, lang) {
@@ -72,7 +82,7 @@ export function shipmentCard(s, lang = 'en') {
     line('status', s.status, lang),
     line('vessel', s.vessel, lang),
     line('location', latest?.location, lang),
-    line('route', `${s.origin_port} → ${s.destination_port}`, lang),
+    line('route', `${s.origin_port} ${routeArrow()} ${s.destination_port}`, lang),
     line('etd', s.etd, lang),
     line('eta', s.eta, lang),
     line('payment', s.payment_status, lang),
@@ -107,7 +117,7 @@ export function bookingCard(b, lang = 'en', { documents = null } = {}) {
     // they change something before confirming.
     line('company', b.company, lang),
     line('contact', contact, lang),
-    line('route', `${b.origin_port} → ${b.destination_port}`, lang),
+    line('route', `${b.origin_port} ${routeArrow()} ${b.destination_port}`, lang),
     line('weight', b.gross_weight_kg ? `${Number(b.gross_weight_kg).toLocaleString('en-US')} kg` : null, lang),
     line('incoterm', b.incoterm, lang),
     line('ready', b.ready_date, lang),
@@ -136,12 +146,12 @@ export function pinnedCard(rows, extra = 0) {
     ].filter(Boolean).join('\n');
   });
 
-  const more = extra > 0 ? [`+${extra} أخرى / more`] : [];
+  const more = extra > 0 ? [`+${extra} ${bi('أخرى', 'more')}`] : [];
   return [
-    '📌 شحنتك / Your shipment',
+    `📌 ${bi('شحنتك', 'Your shipment')}`,
     ...blocks,
     ...more,
-    'اكتب 2 للتفاصيل / Send 2 for details',
+    bi('اكتب 2 للتفاصيل', 'Send 2 for details'),
   ].join('\n\n');
 }
 
@@ -175,13 +185,22 @@ export const DEPARTMENT_MENU = [
   ['\u062e\u062f\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621', 'Customer Care', '\u0623\u064a \u062d\u0627\u062c\u0629 \u062a\u0627\u0646\u064a\u0629 \u0623\u0648 \u0634\u0643\u0648\u0649', 'anything else, or a complaint'],
 ];
 
+/**
+ * The department card's heading, in each language. lib/agent.js recognises the
+ * card by it, in whichever language it was sent.
+ */
+export const DEPARTMENTS_HEADING = [
+  '\u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0641\u0631\u064a\u0642\u0646\u0627',
+  'Contact our team',
+];
+
 export function departmentsCard() {
   const lines = DEPARTMENT_MENU.map(([ar, en, arHint, enHint], i) =>
-    `${i + 1} \u00b7 ${ar} / ${en}\n   ${arHint} / ${enHint}`);
+    `${i + 1} \u00b7 ${bi(ar, en)}\n   ${bi(arHint, enHint)}`);
   return [
-    '\u{1F4AC} \u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0641\u0631\u064a\u0642\u0646\u0627 / Contact our team',
+    `\u{1F4AC} ${bi(...DEPARTMENTS_HEADING)}`,
     ...lines,
-    '\u0627\u0628\u0639\u062a \u0631\u0642\u0645 \u0645\u0646 1 \u0644\u0640 5 / Reply with a number from 1 to 5',
+    bi('\u0627\u0628\u0639\u062a \u0631\u0642\u0645 \u0645\u0646 1 \u0644\u0640 5', 'Reply with a number from 1 to 5'),
   ].join('\n\n');
 }
 
@@ -194,20 +213,26 @@ export function departmentsCard() {
 export function documentsRequestCard(status = null) {
   const have = new Set((status?.received ?? []).map((d) => d.type));
   const items = [
-    ['invoice', '\u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0627\u0644\u062a\u062c\u0627\u0631\u064a\u0629 / Commercial invoice'],
-    ['mrn', '\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u062a\u0635\u062f\u064a\u0631 MRN / MRN export declaration'],
-    ['acid', '\u062a\u0633\u062c\u064a\u0644 ACID (\u0646\u0627\u0641\u0630\u0629) / ACID registration (Nafeza)'],
+    ['invoice', bi('\u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0627\u0644\u062a\u062c\u0627\u0631\u064a\u0629', 'Commercial invoice')],
+    ['mrn', bi('\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u062a\u0635\u062f\u064a\u0631 MRN', 'MRN export declaration')],
+    ['acid', bi('\u062a\u0633\u062c\u064a\u0644 ACID (\u0646\u0627\u0641\u0630\u0629)', 'ACID registration (Nafeza)')],
   ].filter(([type]) => !have.has(type));
 
   return [
-    '\u{1F4C4} \u0642\u0628\u0644 \u0645\u0627 \u0646\u0628\u0639\u062a \u0627\u0644\u0637\u0644\u0628 \u0644\u0641\u0631\u064a\u0642 \u0627\u0644\u0639\u0645\u0644\u064a\u0627\u062a / Before this goes to Operations',
-    '\u0627\u0628\u0639\u062a \u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a \u062f\u064a \u062f\u0644\u0648\u0642\u062a\u064a - \u0645\u0644\u0641\u0627\u062a \u0623\u0648 \u0635\u0648\u0631 / Send these now - files or photos:',
+    `\u{1F4C4} ${bi(...DOCUMENTS_REQUEST_HEADING)}`,
+    bi('\u0627\u0628\u0639\u062a \u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a \u062f\u064a \u062f\u0644\u0648\u0642\u062a\u064a - \u0645\u0644\u0641\u0627\u062a \u0623\u0648 \u0635\u0648\u0631', 'Send these now - files or photos:'),
     ...items.map(([, label]) => `\u2022 ${label}`),
     '',
-    '\u0644\u0645\u0627 \u062a\u062e\u0644\u0635 \u0627\u0643\u062a\u0628 "\u062a\u0645" \u0639\u0634\u0627\u0646 \u0646\u0648\u0631\u064a\u0643 \u0645\u0644\u062e\u0635 \u0627\u0644\u062d\u062c\u0632 \u0644\u0644\u062a\u0623\u0643\u064a\u062f / When you have sent them, reply "done" and we will show you the summary to confirm.',
-    '\u0644\u0648 \u0645\u0634 \u0645\u0639\u0627\u0643 \u062f\u0644\u0648\u0642\u062a\u064a\u060c \u0627\u0643\u062a\u0628 "\u0628\u0639\u062f\u064a\u0646" / If you do not have them yet, reply "later".',
+    bi('\u0644\u0645\u0627 \u062a\u062e\u0644\u0635 \u0627\u0643\u062a\u0628 "\u062a\u0645" \u0639\u0634\u0627\u0646 \u0646\u0648\u0631\u064a\u0643 \u0645\u0644\u062e\u0635 \u0627\u0644\u062d\u062c\u0632 \u0644\u0644\u062a\u0623\u0643\u064a\u062f', 'When you have sent them, reply "done" and we will show you the summary to confirm.'),
+    bi('\u0644\u0648 \u0645\u0634 \u0645\u0639\u0627\u0643 \u062f\u0644\u0648\u0642\u062a\u064a\u060c \u0627\u0643\u062a\u0628 "\u0628\u0639\u062f\u064a\u0646"', 'If you do not have them yet, reply "later".'),
   ].join('\n');
 }
+
+/** Its heading, in each language - lib/agent.js recognises the card by it. */
+export const DOCUMENTS_REQUEST_HEADING = [
+  '\u0642\u0628\u0644 \u0645\u0627 \u0646\u0628\u0639\u062a \u0627\u0644\u0637\u0644\u0628 \u0644\u0641\u0631\u064a\u0642 \u0627\u0644\u0639\u0645\u0644\u064a\u0627\u062a',
+  'Before this goes to Operations',
+];
 
 /**
  * What a ticket needs before it is worth raising: the problem in the customer's
@@ -215,24 +240,32 @@ export function documentsRequestCard(status = null) {
  */
 export function ticketAskCard(department, { needProblem = true, needContact = true } = {}) {
   const lines = [];
-  if (needProblem) lines.push('\u2022 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 \u0628\u0627\u0644\u0638\u0628\u0637 - \u062c\u0645\u0644\u0629 \u0623\u0648 \u0627\u062a\u0646\u064a\u0646 / What the problem is - a sentence or two');
-  if (needContact) lines.push('\u2022 \u0631\u0642\u0645 \u0645\u0648\u0628\u0627\u064a\u0644 \u0646\u0643\u0644\u0645\u0643 \u0639\u0644\u064a\u0647 / A phone number we can call you on');
+  if (needProblem) lines.push(`\u2022 ${bi('\u0627\u0644\u0645\u0634\u0643\u0644\u0629 \u0628\u0627\u0644\u0638\u0628\u0637 - \u062c\u0645\u0644\u0629 \u0623\u0648 \u0627\u062a\u0646\u064a\u0646', 'What the problem is - a sentence or two')}`);
+  if (needContact) lines.push(`\u2022 ${bi('\u0631\u0642\u0645 \u0645\u0648\u0628\u0627\u064a\u0644 \u0646\u0643\u0644\u0645\u0643 \u0639\u0644\u064a\u0647', 'A phone number we can call you on')}`);
   return [
     `\u{1F4AC} ${department}`,
-    '\u0639\u0634\u0627\u0646 \u0646\u0641\u062a\u062d \u0627\u0644\u0637\u0644\u0628 \u0644\u0644\u0641\u0631\u064a\u0642\u060c \u0627\u0628\u0639\u062a \u0641\u064a \u0631\u0633\u0627\u0644\u0629 \u0648\u0627\u062d\u062f\u0629: / To open this with the team, send in one message:',
+    bi(...TICKET_ASK_HEADING),
     ...lines,
   ].join('\n');
 }
 
+/** Its opening line, in each language - lib/agent.js recognises the card by it. */
+export const TICKET_ASK_HEADING = [
+  '\u0639\u0634\u0627\u0646 \u0646\u0641\u062a\u062d \u0627\u0644\u0637\u0644\u0628 \u0644\u0644\u0641\u0631\u064a\u0642\u060c \u0627\u0628\u0639\u062a \u0641\u064a \u0631\u0633\u0627\u0644\u0629 \u0648\u0627\u062d\u062f\u0629:',
+  'To open this with the team, send in one message:',
+];
+
 /** The ticket, as the customer sees it: what we took down and what happens next. */
 export function ticketCard(ticket) {
   return block(`\u{1F3AB} ${ticket.ticket_ref}`, [
-    `\u0627\u0644\u0642\u0633\u0645 / Department: ${ticket.department}`,
-    ticket.summary ? `\u0627\u0644\u0645\u0634\u0643\u0644\u0629 / Problem: ${ticket.summary}` : null,
-    ticket.contact ? `\u0631\u0642\u0645 \u0627\u0644\u062a\u0648\u0627\u0635\u0644 / We will call: ${ticket.contact}` : null,
-    '\u0627\u0644\u062d\u0627\u0644\u0629 / Status: open',
+    `${bi('\u0627\u0644\u0642\u0633\u0645', 'Department')}: ${ticket.department}`,
+    ticket.summary ? `${bi('\u0627\u0644\u0645\u0634\u0643\u0644\u0629', 'Problem')}: ${ticket.summary}` : null,
+    ticket.contact ? `${bi('\u0631\u0642\u0645 \u0627\u0644\u062a\u0648\u0627\u0635\u0644', 'We will call')}: ${ticket.contact}` : null,
+    // "open" stays English beside both labels, as it always read; an Arabic
+    // card says it in Arabic.
+    `${bi('\u0627\u0644\u062d\u0627\u0644\u0629', 'Status')}: ${currentLanguage() === 'ar' ? '\u0645\u0641\u062a\u0648\u062d' : 'open'}`,
     '',
-    '\u0627\u0644\u0641\u0631\u064a\u0642 \u0647\u064a\u0643\u0644\u0645\u0643 \u0641\u064a \u0645\u0648\u0627\u0639\u064a\u062f \u0627\u0644\u0639\u0645\u0644\u060c \u0648\u0647\u0646\u0628\u0639\u062a\u0644\u0643 \u0647\u0646\u0627 \u0644\u0645\u0627 \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u064a\u062a\u062d\u0644 / The team will call you during business hours, and we will message you here when it is resolved.',
+    bi('\u0627\u0644\u0641\u0631\u064a\u0642 \u0647\u064a\u0643\u0644\u0645\u0643 \u0641\u064a \u0645\u0648\u0627\u0639\u064a\u062f \u0627\u0644\u0639\u0645\u0644\u060c \u0648\u0647\u0646\u0628\u0639\u062a\u0644\u0643 \u0647\u0646\u0627 \u0644\u0645\u0627 \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u064a\u062a\u062d\u0644', 'The team will call you during business hours, and we will message you here when it is resolved.'),
   ]);
 }
 
@@ -247,19 +280,19 @@ export function documentsCard(status, lang = 'en') {
   // Four buckets, because they mean four different things and a customer who
   // has sent three documents must never read "still missing" about one of them.
   const lines = [
-    received.length ? `\u2705 \u0648\u0635\u0644\u0646\u0627 / Received: ${received.join(', ')}` : null,
+    received.length ? `\u2705 ${bi('\u0648\u0635\u0644\u0646\u0627', 'Received')}: ${listJoin(received)}` : null,
     wrongVehicle.length
-      ? `\u26a0\ufe0f \u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a / Another chassis: ${wrongVehicle.join(', ')}`
+      ? `\u26a0\ufe0f ${bi('\u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a', 'Another chassis')}: ${listJoin(wrongVehicle)}`
       : null,
     missing.length
-      ? `\u274c \u0644\u0633\u0647 \u0645\u062d\u062a\u0627\u062c\u064a\u0646 / Still needed: ${missing.join(', ')}`
-      : `\u2705 \u0645\u0641\u064a\u0634 \u0646\u0627\u0642\u0635 / Nothing outstanding from you`,
+      ? `\u274c ${bi('\u0644\u0633\u0647 \u0645\u062d\u062a\u0627\u062c\u064a\u0646', 'Still needed')}: ${listJoin(missing)}`
+      : `\u2705 ${bi('\u0645\u0641\u064a\u0634 \u0646\u0627\u0642\u0635', 'Nothing outstanding from you')}`,
     later.length
-      ? `\u{1F552} \u0628\u0639\u062f\u064a\u0646 - \u0628\u064a\u0637\u0644\u0639 \u0645\u0646 \u0627\u0644\u0646\u0627\u0642\u0644 / Later, issued by the carrier: ${later.join(', ')}`
+      ? `\u{1F552} ${bi('\u0628\u0639\u062f\u064a\u0646 - \u0628\u064a\u0637\u0644\u0639 \u0645\u0646 \u0627\u0644\u0646\u0627\u0642\u0644', 'Later, issued by the carrier')}: ${listJoin(later)}`
       : null,
   ].filter(Boolean);
 
-  return block('\u{1F4C4} \u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a / Documents', lines);
+  return block(`\u{1F4C4} ${bi('\u0627\u0644\u0645\u0633\u062a\u0646\u062f\u0627\u062a', 'Documents')}`, lines);
 }
 
 /**
@@ -273,13 +306,13 @@ export function documentReadCard(result, status, bookingVin = null) {
 
   const lines = [
     found.doc_type && found.doc_type !== 'other'
-      ? `\u0627\u0644\u0646\u0648\u0639 / Type: ${found.doc_type.toUpperCase()}`
+      ? `${bi('\u0627\u0644\u0646\u0648\u0639', 'Type')}: ${found.doc_type.toUpperCase()}`
       : null,
-    vin ? `\u0627\u0644\u0634\u0627\u0633\u064a\u0647 / Chassis: ${vin}` : null,
-    found.mrn ? `\u0631\u0642\u0645 MRN / MRN: ${found.mrn}` : null,
-    found.acid ? `\u0631\u0642\u0645 ACID / ACID: ${found.acid}` : null,
+    vin ? `${bi('\u0627\u0644\u0634\u0627\u0633\u064a\u0647', 'Chassis')}: ${vin}` : null,
+    found.mrn ? `${bi('\u0631\u0642\u0645 MRN', 'MRN')}: ${found.mrn}` : null,
+    found.acid ? `${bi('\u0631\u0642\u0645 ACID', 'ACID')}: ${found.acid}` : null,
     mismatch
-      ? `\u26a0\ufe0f \u0627\u0644\u0645\u0633\u062a\u0646\u062f \u062f\u0647 \u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a / This document is for a different chassis (${bookingVin})`
+      ? `\u26a0\ufe0f ${bi('\u0627\u0644\u0645\u0633\u062a\u0646\u062f \u062f\u0647 \u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a', 'This document is for a different chassis')} (${bookingVin})`
       : null,
   ].filter(Boolean);
 

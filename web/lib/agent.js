@@ -7,9 +7,12 @@ import { chat } from './llm.js';
 import { toolDefinitions, runTool, looksLikeAgreement } from './tools.js';
 import { loadHistory, saveHistory } from './session.js';
 import { db } from './supabase.js';
-import { departmentsCard, DEPARTMENT_MENU } from './format.js';
+import {
+  departmentsCard, DEPARTMENT_MENU, DEPARTMENTS_HEADING, TICKET_ASK_HEADING, DOCUMENTS_REQUEST_HEADING,
+} from './format.js';
 import { config, DESTINATION_PORTS, ORIGIN_COUNTRIES, DEPARTMENTS } from './config.js';
 import { flowReady } from './flow/ready.js';
+import { currentLanguage, currentChannel, normaliseLanguage, looksFrancoArabic } from './lang.js';
 
 const MAX_STEPS = 5;
 
@@ -49,31 +52,8 @@ export const stateMachineOwnsBooking = () => config.bookingEngine === 'state_mac
 export function detectLanguage(text) {
   const s = String(text ?? '');
   if (/[؀-ۿ]/.test(s)) return 'ar';
-  return isFrancoArabic(s) ? 'ar' : 'en';
-}
-
-/**
- * Franco-Arabic is Arabic typed in Latin letters, with digits standing in for
- * letters that have no Latin equivalent: 3=ع, 7=ح, 2=ء, 5=خ, 9=ص. Detecting it
- * matters because it looks like English to a character test, and an Egyptian
- * writing "el sha7na fen?" should not be answered in English alone.
- */
-function isFrancoArabic(text) {
-  // A chassis number is a Latin string full of digits, and to this test
-  // "TESTTBLMTR2LC19" reads exactly like "sha7na" does - which answered an
-  // English customer in Arabic because their VIN happened to contain a 2.
-  // A word carries at most one stand-in digit; two or more means a code.
-  const s = text.toLowerCase().replace(/\b[\w-]*\d[\w-]*\d[\w-]*\b/g, ' ');
-
-  // A digit used as a letter, i.e. sitting inside a word between letters
-  // (sha7na, bta3ty) or opening one (3ayez, 7abibi). Reference numbers such as
-  // MKC-24001 and chassis numbers do not match, because their digits are
-  // adjacent to other digits or separators rather than letters.
-  const digitAsLetter = /[a-z][23579][a-z]/.test(s) || /\b[2357][a-z]{2,}/.test(s);
-
-  const words = /\b(fen|feen|ezay|izzay|3ayez|3awez|a7gez|sha7na|bta3|bta3ty|bta3i|msh|mesh|3andi|3ala|kam|eh|ayoh|aiwa|tamam|momken|mumkin|law sama7t|shokran)\b/.test(s);
-
-  return digitAsLetter || words;
+  // Franco-Arabic (lib/lang.js) is Arabic, typed in Latin letters.
+  return looksFrancoArabic(s) ? 'ar' : 'en';
 }
 
 /** The pre-state-machine booking instructions, used only when BOOKING_ENGINE=llm. */
@@ -157,13 +137,15 @@ const LEGACY_BOOKING_GUIDANCE = `2. BOOKING - in this order.
  * The old instructions are kept for BOOKING_ENGINE=llm, so the rollback path is
  * a genuine rollback and not a different bot.
  */
-function bookingGuidance(stateMachine = config.bookingEngine === 'state_machine') {
+function bookingGuidance(stateMachine = config.bookingEngine === 'state_machine', channel = null) {
   if (!stateMachine) return LEGACY_BOOKING_GUIDANCE;
+  // WhatsApp has no slash commands; the client types the word.
+  const command = channel === 'whatsapp' ? 'send "menu"' : 'send /book';
   return `2. BOOKING - NOT YOURS TO DO. Bookings are taken by a guided flow with
    buttons, not by you, and you have no tool that can create, change or submit
    one. If someone wants to book, wants to change a booking, or is sending
    documents, say so in one short sentence and tell them to tap
-   "Book my shipment" on the menu, or send /book. Never ask for a chassis
+   "Book my shipment" ("احجز شحنة") on the menu, or ${command}. Never ask for a chassis
    number, a make, a route or a document yourself, never say a booking exists,
    and never promise that you have recorded anything.
 
@@ -171,14 +153,73 @@ function bookingGuidance(stateMachine = config.bookingEngine === 'state_machine'
    through Booking Operations. Offer them the menu or a person.`;
 }
 
+const CHANNEL_NAMES = { telegram: 'Telegram', whatsapp: 'WhatsApp' };
+
+/**
+ * The language the reply is written in: the client's choice, carried by the
+ * turn (lib/lang.js), or null - both, as before anyone chose.
+ */
+function replyLanguage(ctx = {}) {
+  return normaliseLanguage(ctx.replyLanguage) ?? currentLanguage();
+}
+
+/**
+ * How the reply is written. A client who chose a language gets that one only,
+ * whatever they typed in; before a choice, both, as the bot always wrote.
+ */
+function languageRules(lang) {
+  const never = `NEVER TRANSLATE chassis numbers, references, ACID, MRN, EUR.1, Incoterms, vessel
+or port names - they must match the paperwork.`;
+  const tail = `Western digits only (18500, not ١٨٥٠٠). Always name the reference you are answering
+about, and never open by repeating the customer's question.`;
+  const egyptian = `Egyptian colloquial as a person in Cairo speaks - فين not أين, عايز not أريد,
+إزاي not كيف, دلوقتي not الآن, ايه not ماذا - polite, never slangy.`;
+
+  if (lang === 'ar') {
+    return `LANGUAGE - ARABIC ONLY
+The customer chose Arabic. Every reply is in Arabic and nothing else: no English
+half, no bar, no translation, whatever language their message is in. The Arabic is
+${egyptian} Franco-Arabic
+(3=ع, 7=ح, 2=ء, 5=خ, 9=ص: "el sha7na fen?") is understood and answered in Arabic
+script.
+${never} A port may carry the Arabic in
+brackets, Alexandria Port (الإسكندرية), never the reverse. ${tail}`;
+  }
+
+  if (lang === 'en') {
+    return `LANGUAGE - ENGLISH ONLY
+The customer chose English. Every reply is in English and nothing else: no
+Arabic half, no bar, no translation, whatever language their message is in -
+Arabic or Franco-Arabic included, which you understand and answer in English.
+${never} ${tail}`;
+  }
+
+  return `LANGUAGE - EVERY REPLY CARRIES BOTH
+Arabic first, then a space, a single bar, a space, then the same message in
+English - one bar per reply, never per sentence:
+  <the message in Egyptian Arabic> | <the same message in English>
+Both halves say the same thing; identifiers identical in both. The Arabic is
+${egyptian} Franco-Arabic
+(3=ع, 7=ح, 2=ء, 5=خ, 9=ص: "el sha7na fen?") is understood and answered in Arabic
+script. This applies whatever language the customer wrote in.
+${never} A port may carry the Arabic in
+brackets, Alexandria Port (الإسكندرية), never the reverse. ${tail}`;
+}
+
+/** "in both languages" / "in Arabic" / "in English", for the instructions that say how much to add. */
+const inLanguage = (lang) => (lang === 'ar' ? 'in Arabic' : lang === 'en' ? 'in English' : 'in both languages');
+
 export function systemPrompt(ctx) {
   const today = new Date().toISOString().slice(0, 10);
   const known = knownSoFar(ctx.draft);
-  // Everything above the final `known` block is identical from turn to turn, so
-  // the provider caches it at a quarter of the price. Keep it that way: nothing
-  // that varies per customer or per turn belongs in the body.
+  const lang = replyLanguage(ctx);
+  const channel = ctx.channel ?? currentChannel();
+  // Everything above the final `known` block is identical from turn to turn for
+  // a given channel and language - a handful of variants, each cached by the
+  // provider at a quarter of the price. Keep it that way: nothing that varies
+  // per customer or per turn belongs in the body.
   return `You are the virtual assistant for ${config.companyName}, an international freight
-forwarding company. You talk to customers on ${ctx.channel === 'telegram' ? 'Telegram' : 'the company website'}.
+forwarding company. You talk to customers on ${CHANNEL_NAMES[channel] ?? 'the company website'}.
 Today is ${today}.
 
 WHAT THE COMPANY DOES
@@ -218,7 +259,7 @@ WHAT YOU DO
    state that did not come back from it. Tracking is always live; tell them to
    ask any time rather than promising to notify them.
 
-${bookingGuidance(ctx.stateMachineBooking !== false)}
+${bookingGuidance(ctx.stateMachineBooking !== false, channel)}
 
 4. COMPANY QUESTIONS - call search_knowledge FIRST, then answer from it. That
    includes anything starting "how long", "how much", "what do I need", "when",
@@ -236,30 +277,19 @@ HARD RULES
 ANSWER IN A FIXED SHAPE
 When a tool result has a "display" block, that block IS the answer and is
 attached to your reply for you. Do not copy, retype, translate or summarise it -
-anything you type that repeats it is removed. Add one short sentence, in both
-languages. Answers with no block - a question, an explanation - stay short prose:
+anything you type that repeats it is removed. Add one short sentence, ${inLanguage(lang)}.
+Answers with no block - a question, an explanation - stay short prose:
 two to five sentences, plain text, hyphen bullets only, no markdown headers.
 
 EMOJI - ONE PER MESSAGE, FROM THIS SET ONLY
-😄 greeting or thanks (in both halves) · 🙏 a booking just created, opening with
-"🙏 Thank you for booking your freight with MKY" ("🙏 شكراً لحجز شحنتك مع MKY")
+😄 greeting or thanks${lang ? '' : ' (in both halves)'} · 🙏 a booking just created, opening with
+${lang === 'ar' ? '"🙏 شكراً لحجز شحنتك مع MKY"'
+    : lang === 'en' ? '"🙏 Thank you for booking your freight with MKY"'
+      : '"🙏 Thank you for booking your freight with MKY" ("🙏 شكراً لحجز شحنتك مع MKY")'}
 · 👍 something they asked for is done · ⚠️ a problem they must act on.
 Nothing else, and never inside or added to a display block.
 
-LANGUAGE - EVERY REPLY CARRIES BOTH
-Arabic first, then a space, a single bar, a space, then the same message in
-English - one bar per reply, never per sentence:
-  <the message in Egyptian Arabic> | <the same message in English>
-Both halves say the same thing; identifiers identical in both. The Arabic is
-Egyptian colloquial as a person in Cairo speaks - فين not أين, عايز not أريد,
-إزاي not كيف, دلوقتي not الآن, ايه not ماذا - polite, never slangy. Franco-Arabic
-(3=ع, 7=ح, 2=ء, 5=خ, 9=ص: "el sha7na fen?") is understood and answered in Arabic
-script. This applies whatever language the customer wrote in.
-NEVER TRANSLATE chassis numbers, references, ACID, MRN, EUR.1, Incoterms, vessel
-or port names - they must match the paperwork. A port may carry the Arabic in
-brackets, Alexandria Port (الإسكندرية), never the reverse. Western digits only
-(18500, not ١٨٥٠٠). Always name the reference you are answering about, and never
-open by repeating the customer's question.` + known;
+${languageRules(lang)}` + known;
 }
 
 /**
@@ -344,19 +374,42 @@ function needsBothLanguages(text) {
 }
 
 /**
- * Asks for the missing half only - a small, cheap call that keeps the wording
- * we already produced rather than starting the answer again.
+ * Is this reply in the wrong shape for the language it should be in?
+ *
+ * Before a choice: both halves, or it is repaired. After one: Arabic must have
+ * Arabic in it, and English must not be mostly Arabic. "Mostly", because an
+ * English answer may carry a name in Arabic, and an Arabic one is full of Latin
+ * - chassis numbers, FOB, MSC Aurora.
  */
-async function translateHalf(text, system) {
+function needsRepair(text, lang) {
+  if (!lang) return needsBothLanguages(text);
+  const s = String(text ?? '');
+  if (!s.trim()) return false;
+  const arabic = (s.match(/[؀-ۿ]/g) ?? []).length;
+  const latin = (s.match(/[A-Za-z]/g) ?? []).length;
+  if (lang === 'ar') return arabic === 0 && latin > 0;
+  return arabic > latin;
+}
+
+/**
+ * Asks for the missing half only - or, for a client who chose a language, the
+ * reply again in it - a small, cheap call that keeps the wording we already
+ * produced rather than starting the answer again.
+ */
+async function translateHalf(text, system, lang = null) {
+  const instruction = lang === 'ar'
+    ? 'The reply below is not in Arabic, which this customer chose. Send it again in Egyptian Arabic only - no English half, no bar.'
+    : lang === 'en'
+      ? 'The reply below is not in English, which this customer chose. Send it again in English only - no Arabic half, no bar.'
+      : 'The reply below is missing one of its two languages, or repeats the same language twice. ' +
+        'Send it again as: the whole message in Egyptian Arabic, then " | ", then the same message in English.';
   try {
     const { content } = await chat({
       system,
       messages: [{
         role: 'user',
         content:
-          '[FORMAT REPAIR - this is not a customer message. The reply below is missing one of its ' +
-          'two languages, or repeats the same language twice. Send it again as: the whole message ' +
-          'in Egyptian Arabic, then " | ", then the same message in English. Keep any block of ' +
+          `[FORMAT REPAIR - this is not a customer message. ${instruction} Keep any block of ` +
           'labelled lines EXACTLY as it is and print it once. Change nothing else, add nothing.]\n\n' +
           text,
       }],
@@ -369,6 +422,12 @@ async function translateHalf(text, system) {
   }
 }
 
+/**
+ * "العربية | English" as two stacked blocks - or, for a client who chose a
+ * language, the half in that language alone. The model writes both now and
+ * then whatever it is told, and lib/notify.js builds messages this way on
+ * purpose; either way the client gets the language they asked for.
+ */
 export function splitLanguages(reply) {
   const text = String(reply ?? '');
   const bar = text.indexOf('|');
@@ -390,6 +449,9 @@ export function splitLanguages(reply) {
   if (!left || !right || !arabic.test(left) || arabic.test(right) || !latin.test(right)) {
     return text;
   }
+  const lang = currentLanguage();
+  if (lang === 'ar') return mirrorTone(left, right);
+  if (lang === 'en') return mirrorTone(right, left);
   return `${mirrorTone(left, right)}\n${LANGUAGE_RULE}\n${mirrorTone(right, left)}`;
 }
 
@@ -469,10 +531,13 @@ export function contactIntent(text, lastFromUs = '') {
   if (!s) return null;
 
   // Straight after the department list, anything short is an answer to it.
-  if (String(lastFromUs).includes('Contact our team') && s.length < 60) return 'answer';
+  // Recognised in either language: a client who chose Arabic got it in Arabic.
+  const last = String(lastFromUs);
+  if (DEPARTMENTS_HEADING.some((h) => last.includes(h)) && s.length < 60) return 'answer';
   // And straight after the "what is the problem, and a number" card, whatever
   // they send is those details - not a new question to be answered afresh.
-  if (String(lastFromUs).includes('To open this with the team')) return 'details';
+  // Its opening clause, which the booking flow's version of the card shares.
+  if (TICKET_ASK_HEADING.some((h) => last.includes(h.split(/[,،]/)[0]))) return 'details';
 
   const named = DEPARTMENT_MENU.some(([ar, en]) =>
     s.toLowerCase().includes(en.toLowerCase()) || s.includes(ar));
@@ -526,9 +591,11 @@ export async function respond(userText, ctx) {
 
   // A message we composed ourselves - the note that a document arrived - is
   // always English, so the customer's own last message decides the language.
+  // A customer who CHOSE a language is answered in it, whatever they typed in.
   const synthetic = String(spokenText).trimStart().startsWith('[');
   const spoken = synthetic ? userText : spokenText;
-  const customerLanguage = detectLanguage(spoken);
+  const chosen = currentLanguage();
+  const customerLanguage = chosen ?? detectLanguage(spoken);
   const toolsUsed = [];
 
   // One id per customer message. Tools that must not complete inside a single
@@ -545,6 +612,8 @@ export async function respond(userText, ctx) {
     ...ctx,
     stateMachineBooking,
     customerLanguage,
+    // The language the reply is written in; null is both, as before a choice.
+    replyLanguage: chosen,
     draft: await draftFor(ctx),
     // What the customer actually typed, so a tool can tell "yes, book it" from
     // "no, change the Incoterm" instead of trusting the arguments the model
@@ -612,7 +681,7 @@ export async function respond(userText, ctx) {
   const lastCard = [...history].reverse().find((m) => m.role === 'assistant')?.content ?? '';
   // The summary card, or the documents request that follows a yes to it: an
   // agreement after either one means "book it".
-  const showedCard = /\u{1F4CB}/u.test(lastCard) || lastCard.includes('Before this goes to Operations');
+  const showedCard = /\u{1F4CB}/u.test(lastCard) || DOCUMENTS_REQUEST_HEADING.some((h) => lastCard.includes(h));
   const proposedEarlier = turnCtx.draft?.raw?.turn_id && turnCtx.draft.raw.turn_id !== turnCtx.turnId;
 
   if (!stateMachineBooking
@@ -629,7 +698,7 @@ export async function respond(userText, ctx) {
         `[The customer answered the last card, so create_booking was called for you. Its result: ` +
         `${JSON.stringify({ ...result, display: undefined }).slice(0, 4000)}. ` +
         (result?.needs_confirmation
-          ? 'Their summary is attached to your reply: add ONE line in both languages asking them to confirm it.'
+          ? `Their summary is attached to your reply: add ONE line ${inLanguage(chosen)} asking them to confirm it.`
           : 'Tell them the outcome now, following next_step. Do not ask them to confirm anything again.') +
         ']',
     });
@@ -639,19 +708,23 @@ export async function respond(userText, ctx) {
 
   // A block that is the whole answer needs no prose, so the "something went
   // wrong" fallback must not be bolted onto it.
+  // Said in Arabic outright to a client who chose Arabic; otherwise English,
+  // which the repair below gives its Arabic half when both are wanted.
   if (!finalText && !verbatimOnly) {
-    finalText =
-      'Sorry, I had trouble putting that answer together. Could you rephrase, or would you like me to pass this to a colleague?';
+    finalText = chosen === 'ar'
+      ? 'معلش، ماعرفتش أجهز الرد ده. ممكن تكتبها بطريقة تانية، ولا تحب أحولك لحد من الفريق؟'
+      : 'Sorry, I had trouble putting that answer together. Could you rephrase, or would you like me to pass this to a colleague?';
   }
 
   finalText = splitLanguages(stripCards(finalText, displays));
 
-  // Both languages, every time. The model drops the Arabic half often enough -
-  // and once sent the same English twice with a divider between - that asking
-  // it again is cheaper than a customer forwarding half a message to a broker
-  // who cannot read it.
-  if (needsBothLanguages(finalText)) {
-    const repaired = await translateHalf(finalText, systemPrompt(turnCtx));
+  // Both languages, every time - or the chosen one, every time. The model drops
+  // the Arabic half often enough - and once sent the same English twice with a
+  // divider between - that asking it again is cheaper than a customer
+  // forwarding half a message to a broker who cannot read it. A client who
+  // chose Arabic and got English is the same failure.
+  if (needsRepair(finalText, chosen)) {
+    const repaired = await translateHalf(finalText, systemPrompt(turnCtx), chosen);
     if (repaired) finalText = splitLanguages(stripCards(repaired, displays));
   }
 

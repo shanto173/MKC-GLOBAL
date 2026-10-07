@@ -20,7 +20,8 @@
  */
 
 import { S, FLOWS, BASIC_FIELDS } from './states.js';
-import { M, FIELD_LABELS, DOC_LABELS, both } from './messages.js';
+import { M, FIELD_LABELS, DOC_LABELS, both, pair } from './messages.js';
+import { pick, routeArrow } from '../lang.js';
 import * as kb from './keyboards.js';
 import {
   findDraft, createDraft, updateDraft, bookingByRef, missingBasics,
@@ -60,16 +61,40 @@ const isYes = (text) => /^(y|yes|yeah|yep|ok|okay|sure|correct|right|confirm|ت�
 const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 
 /**
+ * The number a WhatsApp client is writing from, "+201005551234" - or null on
+ * any other channel. WhatsApp identifies a sender BY their number, so unlike a
+ * Telegram chat id this one can be dialled.
+ */
+export function whatsappNumber(ctx) {
+  const digits = String(ctx?.waId ?? '');
+  return ctx?.channel === 'whatsapp' && /^\d{8,15}$/.test(digits) ? `+${digits}` : null;
+}
+
+/**
  * The phone question, with the button that answers it.
  *
  * Telegram only hands a bot a verified number through a reply-keyboard contact
  * button, so on Telegram this is the one prompt in the booking that is not an
- * inline keyboard. The website widget has no such button; there the client
- * types the number.
+ * inline keyboard. WhatsApp has no such button and needs none: the number the
+ * client is writing from is offered back to them. The website widget has
+ * neither; there the client types the number.
  */
 function phonePrompt(ctx, text) {
-  if (ctx.channel === 'telegram') return { text, keyboard: kb.SHARE_PHONE_KEYBOARD, oneTime: true };
+  if (ctx.channel === 'telegram') return { text, keyboard: kb.sharePhoneKeyboard(), oneTime: true };
+  const own = whatsappNumber(ctx);
+  if (own) return say(text, kb.phoneChoice(own));
   return say(text, kb.homeOnly());
+}
+
+/**
+ * The number on file, offered back with "reply yes". Not on WhatsApp when it
+ * is the number being written from - the button offers that one already, and
+ * naming it twice asks the same thing twice.
+ */
+async function suggestedPhone(ctx) {
+  const held = await phoneOnFile(ctx).catch(() => null);
+  if (held && normalizePhone(held) === whatsappNumber(ctx)) return null;
+  return held;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,9 +185,10 @@ export async function handlePhone(session, text, ctx, { editing = false, shared 
   // is stored the same way.
   let phone = shared ? normalizePhone(/^\+/.test(typed) ? typed : `+${typed}`) : null;
 
-  // "yes" to the number on file.
+  // "yes" to the number on file - or, on WhatsApp, to the one being written
+  // from, which is what the question there offers.
   if (!phone && !shared && isYes(typed)) {
-    phone = await phoneOnFile(ctx).catch(() => null);
+    phone = (await phoneOnFile(ctx).catch(() => null)) ?? whatsappNumber(ctx);
   }
 
   // A pasted block: the number is in it, and probably everything else too.
@@ -708,7 +734,7 @@ export async function askNextBasic(booking, ctx, { listMissing = false, notedPho
 
   // The number we already hold for this person, offered back rather than
   // asked for again. Null on a first booking - never guessed.
-  const suggestion = next === 'customer_contact' ? await phoneOnFile(ctx).catch(() => null) : null;
+  const suggestion = next === 'customer_contact' ? await suggestedPhone(ctx) : null;
 
   const prompts = {
     customer_name: () => say(M.askClientName(ctx.userName ?? null), kb.homeOnly()),
@@ -1265,14 +1291,17 @@ export async function confirmationCard(booking, documentState = null) {
     mrnChoice: booking.mrn_choice ?? 'existing',
   });
 
+  // Labels on one line - "العميل / Client" - until the client has chosen a
+  // language, and in that language alone after. The values are the paperwork's
+  // and are never translated.
   const docLines = (state?.required ?? []).map((type) => {
     const have = state.received_types?.includes(type);
-    const label = `${DOC_LABELS[type]?.[0] ?? type} / ${DOC_LABELS[type]?.[1] ?? type}`;
+    const label = pair(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type);
     return `${have ? '✅' : '❌'} ${label}`;
   });
 
   if (booking.mrn_choice === 'mky_issue') {
-    docLines.push('🕒 MRN — MKY تستخرجه / MKY is obtaining it');
+    docLines.push(`🕒 MRN — ${pair('MKY تستخرجه', 'MKY is obtaining it')}`);
   }
 
   // "telegram:6284…" is our own routing address, not something the client
@@ -1280,16 +1309,15 @@ export async function confirmationCard(booking, documentState = null) {
   const phone = looksLikePhone(booking.customer_contact) ? booking.customer_contact : '—';
 
   const lines = [
-    M.confirmHeaderAr,
-    M.confirmHeaderEn,
+    pick(M.confirmHeaderAr, M.confirmHeaderEn, '\n'),
     '',
-    `👤 العميل / Client: ${booking.customer_name ?? '—'}`,
-    `📱 الموبايل / Phone: ${phone}`,
-    `🚘 الشاسيه / Chassis · VIN: ${booking.vin ?? '—'}`,
-    `🚗 الماركة / Make: ${[booking.make, booking.model].filter(Boolean).join(' ') || '—'}`,
-    `🌍 خط الشحن / Route: ${booking.origin_port ?? '—'} → ${booking.destination_port ?? '—'}`,
+    `👤 ${pair('العميل', 'Client')}: ${booking.customer_name ?? '—'}`,
+    `📱 ${pair('الموبايل', 'Phone')}: ${phone}`,
+    `🚘 ${pair('الشاسيه', 'Chassis · VIN')}: ${booking.vin ?? '—'}`,
+    `🚗 ${pair('الماركة', 'Make')}: ${[booking.make, booking.model].filter(Boolean).join(' ') || '—'}`,
+    `🌍 ${pair('خط الشحن', 'Route')}: ${booking.origin_port ?? '—'} ${routeArrow()} ${booking.destination_port ?? '—'}`,
     '',
-    '📄 المستندات / Documents:',
+    `📄 ${pair('المستندات', 'Documents')}:`,
     ...(docLines.length ? docLines : ['—']),
   ];
 
@@ -1332,6 +1360,63 @@ export function editMenu(session) {
   return reply(say(M.askWhatToEdit(), kb.editMenu()), { current_state: S.BOOK_EDIT_MENU });
 }
 
+/**
+ * The question this booking is waiting on, asked again - after the client
+ * switched language, or tapped a button that belongs to another step.
+ *
+ * Nothing is written and nothing moves on: the state is where it was and the
+ * draft is untouched, so whatever they answer next is the answer to it. Null
+ * when there is no live draft behind the state, and the caller shows the menu.
+ */
+export async function repeatQuestion(session, ctx) {
+  const ref = session.active_booking_ref;
+  const booking = ref ? await bookingByRef(ref) : null;
+  if (!booking || booking.status !== 'draft') return null;
+
+  switch (session.current_state) {
+    case S.BOOK_DRAFT_RESUME:
+      return reply(say(M.draftFound(booking.booking_ref, booking.vin), kb.resumeDraft()));
+    case S.BOOK_CLIENT_NAME:
+    case S.BOOK_EDIT_CLIENT_NAME:
+      return reply(say(M.askClientName(session.current_state === S.BOOK_CLIENT_NAME ? ctx.userName ?? null : null), kb.homeOnly()));
+    case S.BOOK_CLIENT_PHONE:
+      return reply(phonePrompt(ctx, M.askPhone(await suggestedPhone(ctx))));
+    case S.BOOK_EDIT_CLIENT_PHONE:
+      return reply(phonePrompt(ctx, M.askPhone(null)));
+    case S.BOOK_VIN:
+    case S.BOOK_EDIT_VIN:
+      return reply(say(M.askVin(), kb.homeOnly()));
+    case S.BOOK_MAKE:
+    case S.BOOK_EDIT_MAKE:
+      return reply(say(M.askMake(), kb.homeOnly()));
+    case S.BOOK_POL:
+    case S.BOOK_EDIT_POL:
+      return reply(say(M.askPol(), kb.homeOnly()));
+    case S.BOOK_DESTINATION:
+    case S.BOOK_EDIT_DESTINATION:
+      return reply(say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()));
+    case S.BOOK_MRN_CHOICE:
+      return reply(say(M.askMrnChoice(), kb.mrnChoice()));
+    case S.BOOK_MRN_SUPPORTING_INFO:
+      return reply(say(M.mrnMkyNeedsInfo(), kb.documentStep({ canSkip: true })));
+    case S.BOOK_DOCUMENTS:
+      return documentPrompt(booking, ctx);
+    case S.BOOK_DOCUMENT_CLASSIFY:
+      return askWhatItIs(session, booking, ctx, {
+        document: { id: session.context?.pending_document_id ?? null },
+        remaining: session.context?.unclassified_document_ids ?? [],
+      });
+    case S.BOOK_FINAL_CONFIRMATION:
+      return backToConfirmation(session, ctx);
+    case S.BOOK_EDIT_MENU:
+      return editMenu(session);
+    case S.BOOK_CANCEL_CONFIRM:
+      return reply(say(M.cancelConfirmAsk(booking.booking_ref), kb.cancelConfirm()));
+    default:
+      return null;
+  }
+}
+
 const EDIT_TARGETS = {
   vin: { state: S.BOOK_EDIT_VIN, ask: () => M.askVin() },
   make: { state: S.BOOK_EDIT_MAKE, ask: () => M.askMake() },
@@ -1342,7 +1427,8 @@ const EDIT_TARGETS = {
 export async function handleEditChoice(session, target, ctx) {
   if (target === 'back') return backToConfirmation(session, ctx);
 
-  // The number has its own prompt: on Telegram it comes with the share button.
+  // The number has its own prompt: on Telegram it comes with the share button,
+  // on WhatsApp with the number being written from.
   if (target === 'phone') {
     return reply(phonePrompt(ctx, M.askPhone(null)), { current_state: S.BOOK_EDIT_CLIENT_PHONE });
   }
