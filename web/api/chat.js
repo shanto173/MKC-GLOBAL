@@ -23,6 +23,7 @@ import { clearSession } from '../lib/flow/store.js';
 import { parseCallback } from '../lib/flow/keyboards.js';
 import { logEvent } from '../lib/audit.js';
 import { flush } from '../lib/background.js';
+import { withTurn } from '../lib/lang.js';
 
 const MAX_MESSAGE_CHARS = 1500;
 
@@ -87,8 +88,12 @@ export default async function handler(req, res) {
     }
 
     // Nothing was being asked and it is not a menu choice: a question for the
-    // knowledge assistant.
-    const { reply, toolsUsed } = await respond(text, ctx);
+    // knowledge assistant - in the language the turn ended in, as the
+    // machine's own messages are.
+    const { reply, toolsUsed } = await withTurn(
+      { lang: flow.language ?? null, channel: 'web' },
+      () => respond(text, { ...ctx, language: flow.language ?? null }),
+    );
     await flush();
     return res.status(200).json({ reply, options: [], toolsUsed });
   } catch (err) {

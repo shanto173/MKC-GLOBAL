@@ -2,15 +2,24 @@
  * Booking notifications: emails the confirmation PDF to the customer and to the
  * ops desk, and pings a staff Telegram group.
  *
+ * The customer hears on the channel they booked from - Telegram or WhatsApp -
+ * and in the language they chose. Telegram's wording is unchanged for a client
+ * who never chose one.
+ *
  * Nothing here is allowed to break a booking. Every failure is logged and
  * swallowed - the row is already safely in the database by the time we run.
  */
 
-import { config } from './config.js';
+import { createHash } from 'node:crypto';
+import { config, whatsappConfigured } from './config.js';
 import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
 import { splitLanguages } from './agent.js';
-import { enqueue } from './outbox.js';
+import { enqueue, drain } from './outbox.js';
+import { sendToChat, phrase } from './channels.js';
+import { currentLanguage, withLanguage } from './lang.js';
+import { storedLanguage } from './flow/language.js';
+import { bookingLanguage } from './i18n.js';
 
 /**
  * The PDF renderer, loaded the first time a PDF is actually wanted.
@@ -19,10 +28,33 @@ import { enqueue } from './outbox.js';
  * a top-level import of pdf.js put pdfkit and the bidi tables into every cold
  * start - including the one that answers a client tapping "Track". A PDF is
  * built once per booking; the library is loaded then, and not before.
+ *
+ * With a language the client chose, the sheet is in it; without one it decides
+ * from the booking, exactly as before.
  */
-async function buildPdf(booking) {
+async function buildPdf(booking, language = null) {
   const { bookingConfirmationPdf } = await import('./pdf.js');
-  return bookingConfirmationPdf(booking);
+  return bookingConfirmationPdf(booking, { lang: bookingLanguage(booking, language) });
+}
+
+/** Can we reach a client on this channel at all, with the keys we have? */
+function canMessage(channel) {
+  if (channel === 'telegram') return Boolean(config.telegram.token);
+  if (channel === 'whatsapp') return whatsappConfigured();
+  return false;
+}
+
+/**
+ * The language to address this booking's client in: the turn's, when we are
+ * inside one, else the one they stored. Null when they never chose.
+ */
+async function recipientLanguage(record) {
+  const now = currentLanguage();
+  if (now) return now;
+  if (!record?.chat_id) return null;
+  return storedLanguage({
+    channel: record.channel ?? 'telegram', chatId: record.chat_id, clientId: record.client_id ?? null,
+  }).catch(() => null);
 }
 
 /**
@@ -35,9 +67,11 @@ export async function notifyBooking(booking, { skipCustomerTelegram = false } = 
     ops_email: false, staff_telegram: false, errors: [],
   };
 
+  const language = await recipientLanguage(booking);
+
   let pdf = null;
   try {
-    pdf = await buildPdf(booking);
+    pdf = await buildPdf(booking, language);
     result.pdf = true;
   } catch (err) {
     result.errors.push(`pdf: ${err.message}`);
@@ -83,21 +117,30 @@ export async function notifyBooking(booking, { skipCustomerTelegram = false } = 
   // already in always works, and the PDF is the thing they need.
   // Skipped when the outbox owns the chat delivery: sending from both puts
   // the same PDF in the client's chat twice, once with no retry behind it.
+  const caption = withLanguage(language, () => phrase(
+    `طلب حجز ${booking.booking_ref} - نسختك بصيغة PDF`,
+    `Booking request ${booking.booking_ref} - your PDF copy`,
+    `طلب حجز ${booking.booking_ref} - نسختك بصيغة PDF\nBooking request ${booking.booking_ref} - your PDF copy`,
+  ));
   if (!skipCustomerTelegram && booking.channel === 'telegram' && booking.chat_id && pdf && config.telegram.token) {
     try {
-      await sendDocument(
-        booking.chat_id,
-        pdf,
-        filename,
-        `طلب حجز ${booking.booking_ref} - نسختك بصيغة PDF
-` +
-        `Booking request ${booking.booking_ref} - your PDF copy`,
-      );
+      await sendDocument(booking.chat_id, pdf, filename, caption);
       result.customer_telegram = true;
     } catch (err) {
       result.errors.push(`customer telegram: ${err.message}`);
       console.error('customer telegram pdf failed:', err.message);
     }
+  }
+  // WhatsApp: the client has just booked, so this answers them inside the
+  // window - and is theirs even if they once wrote STOP.
+  if (!skipCustomerTelegram && booking.channel === 'whatsapp' && booking.chat_id && pdf && canMessage('whatsapp')) {
+    const sent = await sendToChat(
+      { channel: 'whatsapp', chatId: booking.chat_id, clientId: booking.client_id ?? null },
+      { document: { buffer: pdf, fileName: filename, caption } },
+      { author: 'system', answering: true, language, bookingRef: booking.booking_ref },
+    );
+    result.customer_whatsapp = sent.ok;
+    if (!sent.ok) result.errors.push(`customer whatsapp: ${sent.error}`);
   }
 
   // -- email the ops desk ----------------------------------------------------
@@ -190,8 +233,12 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
   // learn otherwise; and an operator clicking twice sent two confirmations with
   // two different shipment references. The outbox row is written once per
   // decision - the idempotency key sees to that - and retried until it lands.
-  if (booking.chat_id && booking.channel === 'telegram' && config.telegram.token) {
+  //
+  // On WhatsApp the outbox also knows the 24-hour window: outside it the
+  // decision goes as the event's approved template, or waits for one.
+  if (booking.chat_id && canMessage(booking.channel)) {
     const queued = await enqueue({
+      channel: booking.channel,
       chatId: booking.chat_id,
       clientId: booking.client_id ?? null,
       eventType: confirmed ? 'booking_confirmed' : 'booking_rejected',
@@ -210,7 +257,12 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
     });
     // `queued` reports that the intention is recorded, which is the thing the
     // operator needs to know. Delivery is the drain's job and its own record.
-    result.telegram = queued.ok;
+    // `telegram` keeps its meaning for the screens that read it; `chat` and
+    // `channel` say the same for whichever app the client is on.
+    if (booking.channel === 'telegram') result.telegram = queued.ok;
+    else result[booking.channel] = queued.ok;
+    result.chat = queued.ok;
+    result.channel = booking.channel;
     result.queued = queued.queued;
     if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
 
@@ -219,6 +271,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
     // confirmation" arriving with a refusal would be worse than none.
     if (confirmed) {
       const doc = await enqueue({
+        channel: booking.channel,
         chatId: booking.chat_id,
         clientId: booking.client_id ?? null,
         eventType: 'booking_confirmed_pdf',
@@ -236,7 +289,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
   // confirmed sheet rather than the request that preceded it.
   let decisionPdf = null;
   if (confirmed) {
-    try { decisionPdf = await buildPdf(booking); }
+    try { decisionPdf = await buildPdf(booking, await recipientLanguage(booking)); }
     catch (err) { console.error('decision pdf failed:', err.message); }
   }
 
@@ -286,11 +339,34 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
  */
 export async function notifyTicketResolved(ticket, { operator = 'operations' } = {}) {
   const result = { telegram: false, errors: [] };
-  if (!(ticket.chat_id && ticket.channel === 'telegram' && config.telegram.token)) {
-    result.errors.push('no Telegram chat on this ticket');
+  const note = String(ticket.resolution_note ?? '').trim();
+
+  // WhatsApp goes through the outbox, which knows the 24-hour window: a
+  // ticket closed days after the client last wrote can only be a template.
+  if (ticket.chat_id && ticket.channel === 'whatsapp' && canMessage('whatsapp')) {
+    const marker = ticket.resolved_at ?? createHash('sha1').update(note).digest('hex').slice(0, 10);
+    const queued = await enqueue({
+      channel: 'whatsapp',
+      chatId: ticket.chat_id,
+      clientId: ticket.client_id ?? null,
+      eventType: 'ticket_resolved',
+      entityType: 'support_ticket',
+      entityId: ticket.ticket_ref,
+      idempotencyKey: `ticket_resolved:${ticket.ticket_ref}:${marker}`,
+      payload: { ticket_ref: ticket.ticket_ref, department: ticket.department ?? null, note: note || null },
+    });
+    await drain({ limit: 5 }).catch(() => null);
+    result.whatsapp = queued.ok;
+    result.chat = queued.ok;
+    result.channel = 'whatsapp';
+    if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
     return result;
   }
-  const note = String(ticket.resolution_note ?? '').trim();
+
+  if (!(ticket.chat_id && ticket.channel === 'telegram' && config.telegram.token)) {
+    result.errors.push('no Telegram or WhatsApp chat on this ticket');
+    return result;
+  }
   const arabic =
     `\u2705 \u062a\u0645 \u062d\u0644 \u0637\u0644\u0628\u0643 ${ticket.ticket_ref} (${ticket.department}).` +
     (note ? `\n\n${note}` : '') +
@@ -299,12 +375,17 @@ export async function notifyTicketResolved(ticket, { operator = 'operations' } =
     `\u2705 Your ticket ${ticket.ticket_ref} (${ticket.department}) has been resolved.` +
     (note ? `\n\n${note}` : '') +
     '\n\nIf anything is still outstanding, reply 3 and we will open a new one.';
-  try {
-    await sendMessage(ticket.chat_id, splitLanguages(`${arabic} | ${english}`));
-    result.telegram = true;
-  } catch (err) {
-    result.errors.push(`telegram: ${err.message}`);
-    console.error('ticket resolved message failed:', err.message);
+  const language = await recipientLanguage(ticket);
+  const text = withLanguage(language, () => phrase(arabic, english, splitLanguages(`${arabic} | ${english}`)));
+  const sent = await sendToChat(
+    { channel: 'telegram', chatId: ticket.chat_id, clientId: ticket.client_id ?? null },
+    { text },
+    { author: 'system', language, staffName: operator },
+  );
+  result.telegram = sent.ok;
+  if (!sent.ok) {
+    result.errors.push(`telegram: ${sent.error}`);
+    console.error('ticket resolved message failed:', sent.error);
   }
   return result;
 }
@@ -413,7 +494,7 @@ function opsHtml(b, delivery = '') {
 /** One line for the desk: did the customer get their copy, and if not, why. */
 function deliveryNote(result, customerEmail) {
   if (result.customer_email) return '';
-  const where = result.customer_telegram ? 'Their PDF was sent to them in the chat instead.' : '';
+  const where = result.customer_telegram || result.customer_whatsapp ? 'Their PDF was sent to them in the chat instead.' : '';
   if (!customerEmail) {
     return `The customer gave no email address, so no email copy was sent. ${where}`.trim();
   }
