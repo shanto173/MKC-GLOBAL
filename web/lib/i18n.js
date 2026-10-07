@@ -12,6 +12,8 @@
  * the document harder to use, not easier.
  */
 
+import { normaliseLanguage } from './lang.js';
+
 export const LANGUAGES = ['en', 'ar'];
 
 const STRINGS = {
@@ -184,10 +186,20 @@ export function normalizeLang(lang) {
 
 /**
  * Which language should this booking's paperwork be in?
- * The model records the conversation language on the booking; if that is
- * missing we fall back to looking for Arabic script in what the customer typed.
+ *
+ * The client's own choice first, when the caller has it (clients.language):
+ * someone who chose Arabic in the chat expects Arabic on the PDF. Without one,
+ * the model records the conversation language on the booking; if that is
+ * missing too we fall back to looking for Arabic script in what the customer
+ * typed.
+ *
+ * @param {object} booking
+ * @param {string|null} [preferred] the client's chosen language, 'en' | 'ar'
  */
-export function bookingLanguage(booking) {
+export function bookingLanguage(booking, preferred = null) {
+  const chosen = normaliseLanguage(preferred);
+  if (chosen) return chosen;
+
   const declared = booking?.raw?.language ?? booking?.language;
   if (declared) return normalizeLang(declared);
 

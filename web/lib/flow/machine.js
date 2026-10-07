@@ -16,18 +16,28 @@
  * - it returns handled:false and the caller falls back to the knowledge
  * assistant. The flow's state is left untouched, so asking a question in the
  * middle of a booking does not lose the booking.
+ *
+ * Every turn runs in the client's language (lib/lang.js): the one they chose,
+ * or both when they never have. The result says which, as `language`, so the
+ * assistant answering a handled:false turn speaks it too.
  */
 
 import { S, FLOWS, AWAITING_TEXT, ACCEPTS_DOCUMENTS } from './states.js';
 import { loadSession, saveSession, resetSession } from './store.js';
 import { flowReady } from './ready.js';
+import { storedLanguage, rememberLanguage, languageSupported } from './language.js';
 import { M } from './messages.js';
 import * as kb from './keyboards.js';
 import { parseCallback } from './keyboards.js';
 import * as booking from './booking.js';
 import * as tracking from './tracking.js';
 import * as contact from './contact.js';
+import { findVin } from './paste.js';
 import { bookingByRef, findDraft, openBookingFor } from '../bookings.js';
+import { setting } from '../settings.js';
+import {
+  withTurn, withLanguage, currentLanguage, normaliseLanguage, detectLanguage, languageFromChoice, looksFrancoArabic,
+} from '../lang.js';
 import { logEvent } from '../audit.js';
 
 const say = (text, inline = null) => ({ text, ...(inline ? { inline } : {}) });
@@ -43,8 +53,11 @@ const reply = (messages, patch = {}) => ({ messages: [].concat(messages), patch 
 /**
  * @param {FlowInput} input
  * @param {{channel: string, chatId: string|number, clientId?: number|null,
- *          userName?: string, telegramUserId?: number|null, correlationId?: string}} ctx
- * @returns {Promise<{handled: boolean, messages: Array, state: string}>}
+ *          userName?: string, telegramUserId?: number|null, correlationId?: string,
+ *          waId?: string, language?: 'en'|'ar'|null}} ctx
+ *   `waId` is a WhatsApp sender's number (E.164 digits, no +); `language` is
+ *   one the transport already knows, used when none is stored.
+ * @returns {Promise<{handled: boolean, messages: Array, state: string, language: 'en'|'ar'|null}>}
  */
 export async function runFlow(input, ctx) {
   // Migration 008 not applied: the flow has nowhere to keep its state, so it
@@ -55,8 +68,23 @@ export async function runFlow(input, ctx) {
     return { handled: false, messages: [], state: S.MAIN_MENU, degraded: true };
   }
 
-  const { session, error } = await loadSession(ctx);
+  // The session and the client's language are read side by side: one wait on
+  // every message, not two.
+  const [{ session, error }, stored] = await Promise.all([loadSession(ctx), turnLanguage(ctx)]);
+  const language = stored ?? normaliseLanguage(ctx.language);
 
+  // Everything said this turn is said in that language, and worded for that
+  // channel - including what the handlers say from deep inside.
+  return withTurn({ lang: language, channel: ctx.channel }, () => turn(session, error, input, ctx, language));
+}
+
+/** The client's stored choice. The website widget is never asked, so has none. */
+async function turnLanguage(ctx) {
+  if (!CHOOSING_CHANNELS.has(ctx.channel)) return null;
+  return storedLanguage(ctx).catch(() => null);
+}
+
+async function turn(session, error, input, ctx, language) {
   // A session we could not read is not an empty session. Saying so beats
   // silently restarting a booking the client has spent five minutes on.
   if (error) {
@@ -64,6 +92,7 @@ export async function runFlow(input, ctx) {
       handled: true,
       state: session.current_state,
       messages: [say(M.recoverableError(ctx.correlationId), kb.errorRecovery())],
+      language,
     };
   }
 
@@ -72,8 +101,16 @@ export async function runFlow(input, ctx) {
 
   const result = await dispatch(session, input, ctx);
 
+  // A language chosen this turn, or read from what the client wrote, is the
+  // language of the rest of it - the assistant's answer included.
+  const spoken = result.language ?? language;
+
   if (!result.handled) {
-    return { handled: false, messages: [], state: session.current_state };
+    // Nothing to say - the assistant answers. But a language just learned from
+    // the message, and the language question it closed, are still worth
+    // writing down.
+    if (Object.keys(result.patch ?? {}).length) await saveSession(session, result.patch);
+    return { handled: false, messages: [], state: result.patch?.current_state ?? session.current_state, language: spoken };
   }
 
   // A turn that said nothing and changed nothing - one file of several, read
@@ -81,7 +118,9 @@ export async function runFlow(input, ctx) {
   // copy of the session loaded moments ago over whatever the file that speaks
   // has written since.
   if (!(result.messages ?? []).length && !Object.keys(result.patch ?? {}).length) {
-    return { handled: true, messages: [], state: session.current_state, offered: session.context?.offered ?? [] };
+    return {
+      handled: true, messages: [], state: session.current_state, offered: session.context?.offered ?? [], language: spoken,
+    };
   }
 
   // Remember which buttons were offered.
@@ -111,12 +150,22 @@ export async function runFlow(input, ctx) {
     correlation_id: ctx.correlationId,
   });
 
-  return { handled: true, messages: result.messages ?? [], state: saved.current_state, offered };
+  return { handled: true, messages: result.messages ?? [], state: saved.current_state, offered, language: spoken };
 }
 
 // ---------------------------------------------------------------------------
 
 async function dispatch(session, input, ctx) {
+  // 0. Which language. Ahead of everything, because it decides how everything
+  //    else is said - and because "عربي" typed mid-booking is a choice, not a
+  //    client's name.
+  const language = await languageStep(session, input, ctx);
+  if (language) return language;
+
+  return dispatchInput(session, input, ctx);
+}
+
+async function dispatchInput(session, input, ctx) {
   // 1. Commands come first, from any state. /cancel has to work when a client
   //    is stuck, which means it cannot be a transition out of one state only.
   if (input.kind === 'command') {
@@ -320,6 +369,12 @@ async function handleCommand(session, command, ctx) {
       });
     }
 
+    // Reached only where a language cannot be chosen - the website, or a
+    // database without the column. The open question again, rather than
+    // "/language" being taken as its answer.
+    case '/language':
+      return repeatQuestion(session, ctx);
+
     default:
       return null;      // /reset and friends are handled by the transport
   }
@@ -356,6 +411,12 @@ async function handleCallback(session, callback, ctx) {
   if (ns === 'tr') return trackingCallback(session, action, arg, ctx);
   if (ns === 'ct') return contactCallback(session, action, arg, ctx);
 
+  // A language button, reached only where a language cannot be chosen (the
+  // website, or a database without the column): the menu, as it is.
+  if (ns === 'lang') {
+    return reply(say(M.menu(), kb.mainMenu()), { active_flow: null, current_state: S.MAIN_MENU });
+  }
+
   return reply(say(M.notUnderstood(), kb.mainMenu()));
 }
 
@@ -363,7 +424,7 @@ async function bookingCallback(session, action, arg, ctx) {
   // Every branch below needs a live draft. A button pressed on a card from
   // yesterday, whose request has since been submitted or cancelled, must not
   // silently start editing something else.
-  const needsDraft = ['mrn', 'confirm', 'edit', 'docs', 'doctype', 'cancel', 'draft'].includes(action);
+  const needsDraft = ['mrn', 'confirm', 'edit', 'docs', 'doctype', 'cancel', 'draft', 'phone'].includes(action);
   if (needsDraft && session.active_booking_ref) {
     const current = await bookingByRef(session.active_booking_ref);
     if (!current) {
@@ -405,6 +466,20 @@ async function bookingCallback(session, action, arg, ctx) {
     case 'cancel':
       if (arg === 'ask') return booking.askCancel(session, ctx);
       return booking.handleCancelDecision(session, arg, ctx);
+
+    // WhatsApp's answer to the phone question: the number being written from,
+    // or "another" - which is simply typed next. Only while the number is what
+    // is being asked; from an older message, the open question is asked again.
+    case 'phone': {
+      const state = session.current_state;
+      if (state !== S.BOOK_CLIENT_PHONE && state !== S.BOOK_EDIT_CLIENT_PHONE) return repeatQuestion(session, ctx);
+      const own = booking.whatsappNumber(ctx);
+      if (arg === 'use' && own) {
+        // As good as a shared contact: WhatsApp vouches for the sender's number.
+        return booking.handlePhone(session, own, ctx, { shared: true, editing: state === S.BOOK_EDIT_CLIENT_PHONE });
+      }
+      return reply(say(M.phoneTypeIt(), kb.homeOnly()));
+    }
 
     default:
       return reply(say(M.notUnderstood(), kb.mainMenu()));
@@ -474,6 +549,285 @@ async function startFlow(session, intent, ctx) {
     });
   }
   return null;
+}
+
+/**
+ * The question that is open, asked again in the turn's language - after the
+ * client switched language, or tapped a button that belongs to another step.
+ * Nothing moves: whatever they send next is the answer to it.
+ */
+async function repeatQuestion(session, ctx) {
+  const state = session.current_state;
+  let again = null;
+  if (state === S.TRACK_IDENTIFIER) again = tracking.askIdentifier(session);
+  else if (state.startsWith('CONTACT_')) again = await contact.repeatQuestion(session, ctx);
+  else if (state.startsWith('BOOK_')) again = await booking.repeatQuestion(session, ctx);
+  if (again) return again;
+
+  // Nothing is being asked - or the request behind the step has gone, and the
+  // menu is the honest place to be.
+  return reply(
+    say(M.menu(), kb.mainMenu()),
+    state === S.MAIN_MENU ? {} : { active_flow: null, current_state: S.MAIN_MENU },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Language
+//
+// One language per conversation, chosen once (docs/WHATSAPP-AND-DESK.md §2.1).
+// Asked only of a client who never chose, and only when nothing is under way;
+// a client half-way through a booking keeps both languages until their next
+// menu rather than being stopped mid-question. Never asked at all when the
+// choice could not be kept (languageSupported() false: the migration is not
+// applied) - it would be asked again on every message.
+// ---------------------------------------------------------------------------
+
+/** Where a client chooses a language. The website widget never asks. */
+const CHOOSING_CHANNELS = new Set(['telegram', 'whatsapp']);
+
+/** Where nothing is under way, so the question interrupts nothing. */
+const IDLE = new Set([S.MAIN_MENU, S.BOOK_SUBMITTED, S.TRACK_RESULTS]);
+
+/** "Which language?", typed rather than tapped. */
+const LANGUAGE_REQUEST = /^\/?(?:language|languages|lang|اللغة|اللغه|لغة|لغه)$/i;
+
+/** Commands whose whole answer is the welcome - which, on first contact, the question is. */
+const WELCOME_COMMANDS = new Set(['/start', '/menu', '/help']);
+
+/**
+ * The words a hello is made of. A message of these and nothing else - "hi
+ * there", "السلام عليكم ورحمة الله وبركاته" - says hello; "hi, I want to book"
+ * says more, and is acted on.
+ */
+const HELLO_WORD = /^(?:hi+|hello|helo|hey|hiya|there|all|team|everyone|good|morning|afternoon|evening|salam|salaam|as+alam|as+alamu|alaikum|alaykum|aleikum|ahlan|ahlen|marhaba|start|menu|mky|السلام|سلام|عليكم|ورحمة|الله|وبركاته|اهلا|أهلا|اهلاً|أهلاً|مرحبا|مرحباً|هاي|هالو|هلا|صباح|مساء|الخير|النور|ازيك|إزيك|ازيكم|إزيكم|يا)$/i;
+
+/** The quiet parts of a batch of files: a caption read ahead, a file whose sibling speaks. */
+const silent = (input) => input.kind === 'caption' || (input.kind === 'document' && input.speak === false);
+
+/** Something written - words, digits, a hello - rather than a tap or a file. */
+const written = (input) => input.kind === 'text' || (input.kind === 'command' && WELCOME_COMMANDS.has(input.command));
+
+/**
+ * @returns {Promise<object|null>} the turn's result when the message was about
+ *   language, or when its language was learned and it was dealt with; null to
+ *   carry on as usual
+ */
+async function languageStep(session, input, ctx) {
+  if (!CHOOSING_CHANNELS.has(ctx.channel) || !languageSupported() || silent(input)) return null;
+
+  // Chosen in so many words, from anywhere: a button (the current question's
+  // or an old one's), "/language", "english", "عربي".
+  const chosen = explicitChoice(input);
+  if (chosen === 'ask') return askLanguage(session, ctx, { first: false });
+  if (chosen) return chooseLanguage(session, chosen, ctx);
+
+  if (session.current_state === S.CHOOSE_LANGUAGE) return answerLanguageQuestion(session, input, ctx);
+  if (await mayAsk(session, ctx)) return firstWord(session, input, ctx);
+  return null;
+}
+
+/**
+ * A choice made in so many words: a language button, "/language ar", or the
+ * name of a language on its own. 'ask' is a request to be asked.
+ */
+function explicitChoice(input) {
+  if (input.kind === 'callback') {
+    if (input.callback?.ns !== 'lang') return null;
+    return normaliseLanguage(input.callback.action) ?? 'ask';
+  }
+  if (input.kind !== 'text' && input.kind !== 'command') return null;
+
+  // "/language@MkyBot ar" from a Telegram group is "/language ar".
+  const text = String(input.text ?? '').trim().replace(/^(\/\w+)@\w+/, '$1');
+  const [head = '', ...rest] = text.split(/\s+/);
+  if (LANGUAGE_REQUEST.test(head)) {
+    // Only the word alone, or with a language after it: "Language is not a
+    // problem for us" is a sentence, not a request.
+    if (!rest.length) return 'ask';
+    const named = languageFromChoice(rest.join(' '));
+    if (named) return named;
+  }
+  if (input.kind === 'command' && input.command === '/language') return languageFromChoice(text) ?? 'ask';
+  return languageFromChoice(text);
+}
+
+/**
+ * What the client's own words say about their language: Arabic script is
+ * Arabic, Latin is English. A slash command says nothing - "/start" is English
+ * whoever types it - and neither does a tap, or a file without a caption.
+ */
+function languageSignal(input) {
+  const text = input.kind === 'document' ? input.caption
+    : input.kind === 'text' || input.kind === 'command' ? input.text
+    : null;
+  const s = String(text ?? '').trim();
+  if (!s || s.startsWith('/')) return null;
+  const script = detectLanguage(s);
+  // Franco-Arabic - "3ayez a7gez" - is Latin letters and Arabic words; the
+  // assistant already answers it in Arabic, and so does the choice.
+  if (script === 'en' && looksFrancoArabic(s)) return 'ar';
+  // A chassis number is Latin, but often without two letters side by side -
+  // W1T96340310484233 - which the script test looks for.
+  return script ?? (findVin(s) ? 'en' : null);
+}
+
+/**
+ * May this client be asked now? Never chosen, nothing under way, and MKY has
+ * not turned the question off (bot_settings.ask_language_first).
+ */
+async function mayAsk(session, ctx) {
+  if (currentLanguage() || !IDLE.has(session.current_state)) return false;
+  if ((await setting('ask_language_first')) === false) return false;
+  // A draft is a booking under way even from the menu. A lookup that failed
+  // is not evidence of no draft, so it does not ask either.
+  const { draft, error } = await findDraft(ctx.chatId);
+  return !draft && !error;
+}
+
+/**
+ * The question. On first contact it is the welcome, and the conversation waits
+ * on it. Asked for ("/language") from anywhere else, it is just the question:
+ * the booking stays exactly where it is, because its buttons answer from any
+ * state.
+ */
+function askLanguage(session, ctx, { first = true, again = false, asked = 1 } = {}) {
+  const text = again ? M.chooseLanguageAgain() : M.chooseLanguage(ctx.userName ?? null, { first });
+  const message = say(text, kb.languageChoice());
+  if (!first && !again) return { handled: true, messages: [message], patch: {} };
+  return {
+    handled: true,
+    messages: [message],
+    patch: {
+      active_flow: null,
+      current_state: S.CHOOSE_LANGUAGE,
+      active_booking_ref: null,
+      context: { language_asked: asked },
+    },
+  };
+}
+
+/**
+ * The choice, kept on the client and the session.
+ *
+ * The language also goes on the session patch, always: the session row is
+ * written back whole at the end of the turn from the copy read at its start,
+ * and without it there that write would put the old language back - or, for a
+ * first message with no row yet, be the only place it is kept at all.
+ */
+async function remember(session, lang, ctx) {
+  await rememberLanguage(
+    { channel: ctx.channel, chatId: ctx.chatId, clientId: ctx.clientId ?? session.client_id ?? null },
+    lang,
+  ).catch((err) => console.error('language not saved:', err?.message));
+  logEvent('language_chosen', { chat_id: String(ctx.chatId), channel: ctx.channel, language: lang });
+}
+
+/** A language chosen: answered in it at once, from wherever the client was. */
+async function chooseLanguage(session, lang, ctx) {
+  await remember(session, lang, ctx);
+
+  return withLanguage(lang, async () => {
+    // The answer to the first question: the welcome, now in one language.
+    if (session.current_state === S.CHOOSE_LANGUAGE) {
+      return {
+        handled: true,
+        language: lang,
+        messages: [say(M.welcome(ctx.userName), kb.mainMenu())],
+        patch: { active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {}, language: lang },
+      };
+    }
+
+    // A switch, mid-whatever: said, and the open question asked again in the
+    // new language - in one message, not two.
+    const again = await repeatQuestion(session, ctx);
+    const [first, ...rest] = again.messages;
+    const messages = first
+      ? [{ ...first, text: `${M.languageSet()}\n\n${first.text}` }, ...rest]
+      : [say(M.languageSet())];
+    return { handled: true, language: lang, messages, patch: { ...again.patch, language: lang } };
+  });
+}
+
+/**
+ * Whatever the client sent while the language question was open.
+ *
+ * Never a dead end: a typed "2" is the second button, words are read for their
+ * script and then dealt with, and a file or a tap is dealt with in both
+ * languages. Only a message with nothing to go on - digits, an emoji - is asked
+ * about again, once; after that it is English, and on we go.
+ */
+async function answerLanguageQuestion(session, input, ctx) {
+  // As far as anything they sent is concerned, the client is at the menu.
+  const menu = { ...session, active_flow: null, current_state: S.MAIN_MENU, context: {} };
+  const atMenu = { active_flow: null, current_state: S.MAIN_MENU, context: {} };
+
+  // Chosen meanwhile - on the other channel, say.
+  if (currentLanguage()) return fromMenu(menu, input, ctx);
+
+  if (input.kind === 'text') {
+    const picked = pickByNumber(input.text, session.context?.offered);
+    const lang = picked ? normaliseLanguage(parseCallback(picked).action) : null;
+    if (lang) return chooseLanguage(session, lang, ctx);
+  }
+
+  const signal = languageSignal(input);
+  if (signal) return adopt(menu, signal, input, ctx, atMenu);
+
+  if (!written(input)) return fromMenu(menu, input, ctx);
+
+  const asked = Number(session.context?.language_asked) || 1;
+  if (asked < 2) return askLanguage(session, ctx, { again: true, asked: asked + 1 });
+  return adopt(menu, 'en', input, ctx, atMenu);
+}
+
+/**
+ * The first message from a client who never chose, with nothing under way.
+ *
+ * A hello - /start, "hi", "السلام عليكم" - is answered with the question, which
+ * is the welcome. A message with something in it is acted on, in the language
+ * it was written in: a chassis number, "I want to book", a question. Answering
+ * those with a question of our own would drop what they asked.
+ */
+async function firstWord(session, input, ctx) {
+  if (onlyHello(input)) return askLanguage(session, ctx, { first: true });
+
+  const signal = languageSignal(input);
+  if (signal) return adopt(session, signal, input, ctx);
+
+  // A digit that picks a button the client can see is a choice, not a hello.
+  if (input.kind === 'text' && pickByNumber(input.text, session.context?.offered)) return null;
+  // Digits or an emoji with nothing on screen to pick: nothing to go on.
+  if (written(input)) return askLanguage(session, ctx, { first: true });
+  // A file or a tap: dealt with as it always was, in both languages.
+  return null;
+}
+
+function onlyHello(input) {
+  if (input.kind === 'command') return WELCOME_COMMANDS.has(input.command);
+  if (input.kind !== 'text') return false;
+  // Letters only: "hello!! 👋" is "hello".
+  const words = String(input.text ?? '').replace(/[^\p{L}\p{M}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.length <= 6 && words.every((w) => HELLO_WORD.test(w));
+}
+
+/**
+ * The language read from what the client wrote, kept - and their message then
+ * dealt with in it, in this same turn, so nothing they sent is lost to the
+ * question.
+ */
+async function adopt(session, lang, input, ctx, base = {}) {
+  await remember(session, lang, ctx);
+  return withLanguage(lang, async () => {
+    const result = await dispatchInput(session, input, ctx);
+    return { ...result, language: lang, patch: { ...base, ...(result.patch ?? {}), language: lang } };
+  });
+}
+
+/** Dealt with as though sent from the menu, in the turn's language; the question stays open for later. */
+async function fromMenu(menu, input, ctx) {
+  const result = await dispatchInput(menu, input, ctx);
+  return { ...result, patch: { active_flow: null, current_state: S.MAIN_MENU, context: {}, ...(result.patch ?? {}) } };
 }
 
 /**

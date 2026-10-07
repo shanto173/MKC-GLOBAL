@@ -20,7 +20,7 @@
 
 import { db } from '../supabase.js';
 import { S, FLOWS } from './states.js';
-import { M, both, DOC_LABELS } from './messages.js';
+import { M, both, pair, docLabel, DOC_LABELS } from './messages.js';
 import * as kb from './keyboards.js';
 import { config, DEPARTMENTS } from '../config.js';
 import { operationsContact, supportHours } from '../settings.js';
@@ -29,6 +29,8 @@ import { findBookingForClient } from '../bookings.js';
 import { bookingDocumentState } from '../documents.js';
 import { phoneOnFile } from '../clients.js';
 import { lookupForClient, shipmentCard, bookingCard } from './tracking.js';
+import { whatsappNumber } from './booking.js';
+import { listJoin, routeArrow } from '../lang.js';
 import { audit, logEvent } from '../audit.js';
 
 const say = (text, inline = null) => ({ text, ...(inline ? { inline } : {}) });
@@ -38,12 +40,25 @@ const reply = (messages, patch = {}) => ({ messages: [].concat(messages), patch 
  * Asking for a phone number is the one place a REPLY keyboard beats an inline
  * one: Telegram only hands a bot a verified number through a contact button,
  * and a typed number arrives with a digit missing often enough to matter.
+ *
+ * WhatsApp has no such button - and is rarely asked at all, because the number
+ * the client writes from is the one we hold (see numberFor). When it is, the
+ * question goes out plain, with the way home.
  */
-const askForContact = () => ({
-  text: M.askProblemAndPhone(),
-  keyboard: kb.SHARE_PHONE_KEYBOARD,
-  oneTime: true,
-});
+function numberPrompt(ctx, text) {
+  if (ctx.channel === 'whatsapp') return say(text, kb.homeOnly());
+  return { text, keyboard: kb.sharePhoneKeyboard(), oneTime: true };
+}
+
+const askForContact = (ctx) => numberPrompt(ctx, M.askProblemAndPhone());
+
+/**
+ * The number to call this client back on: the one on file, or - on WhatsApp -
+ * the one they are writing from, which is a phone number by definition.
+ */
+async function numberFor(ctx) {
+  return (await phoneOnFile(ctx).catch(() => null)) ?? whatsappNumber(ctx);
+}
 
 /** Which desk each route belongs to. Named here so a ticket is never mis-filed. */
 const DEPARTMENT_FOR = {
@@ -88,14 +103,14 @@ export async function handleBookingIdentifier(session, text, ctx) {
 
   const card = [
     `📋 ${b.booking_ref}`,
-    b.vin ? `الشاسيه / Chassis: ${b.vin}` : null,
-    `الماركة / Make: ${[b.make, b.model].filter(Boolean).join(' ') || '—'}`,
-    `العميل / Client: ${b.customer_name ?? '—'}`,
-    `خط الشحن / Route: ${b.origin_port ?? '—'} → ${b.destination_port ?? '—'}`,
-    `الحالة / Status: ${String(b.status).replace(/_/g, ' ')}`,
+    b.vin ? `${pair('الشاسيه', 'Chassis')}: ${b.vin}` : null,
+    `${pair('الماركة', 'Make')}: ${[b.make, b.model].filter(Boolean).join(' ') || '—'}`,
+    `${pair('العميل', 'Client')}: ${b.customer_name ?? '—'}`,
+    `${pair('خط الشحن', 'Route')}: ${b.origin_port ?? '—'} ${routeArrow()} ${b.destination_port ?? '—'}`,
+    `${pair('الحالة', 'Status')}: ${String(b.status).replace(/_/g, ' ')}`,
     docs.ok && docs.missing.length
-      ? `ناقص / Outstanding: ${docs.missing.map((t) => DOC_LABELS[t]?.[1] ?? t).join(', ')}`
-      : docs.ok ? 'المستندات / Documents: ✅' : null,
+      ? `${pair('ناقص', 'Outstanding')}: ${listJoin(docs.missing.map((t) => (DOC_LABELS[t] ? docLabel(t) : t)))}`
+      : docs.ok ? `${pair('المستندات', 'Documents')}: ✅` : null,
   ].filter(Boolean).join('\n');
 
   return reply([
@@ -144,6 +159,11 @@ export function documentsMenu() {
   });
 }
 
+const askDocumentRequest = () => both(
+  'اكتبلي المستند اللي محتاجه ورقم الحجز لو معاك.',
+  'Tell me which document you need, and the booking reference if you have it.',
+);
+
 /**
  * What is outstanding, computed from the client's own live request. Never a
  * recited list: a client who has sent everything must not be told to send it.
@@ -189,17 +209,14 @@ export async function handleDocumentsChoice(session, choice, ctx) {
   }
 
   if (choice === 'request') {
-    return reply(say(both(
-      'اكتبلي المستند اللي محتاجه ورقم الحجز لو معاك.',
-      'Tell me which document you need, and the booking reference if you have it.',
-    ), kb.homeOnly()), {
+    return reply(say(askDocumentRequest(), kb.homeOnly()), {
       current_state: S.CONTACT_DOCUMENT_REQUEST,
       context: { ...session.context, department: DEPARTMENT_FOR.documents },
     });
   }
 
   // "Other"
-  return reply(askForContact(), {
+  return reply(askForContact(ctx), {
     current_state: S.CONTACT_TICKET_DETAILS,
     context: { ...session.context, department: DEPARTMENT_FOR.documents },
   });
@@ -222,7 +239,7 @@ export async function talkToAgent(session, ctx) {
   const [contact, hours, held] = await Promise.all([
     operationsContact(),
     supportHours({ now: ctx.now }),
-    phoneOnFile(ctx).catch(() => null),
+    numberFor(ctx),
   ]);
 
   // Before opening time it is "today from 9"; after closing it is tomorrow.
@@ -277,7 +294,7 @@ export async function talkToAgent(session, ctx) {
     return reply(messages, { active_flow: FLOWS.CONTACT, current_state: S.CONTACT_URGENCY, context });
   }
 
-  messages.push(held ? say(M.agentAskProblem(held), kb.homeOnly()) : askForContact());
+  messages.push(held ? say(M.agentAskProblem(held), kb.homeOnly()) : askForContact(ctx));
   return reply(messages, {
     active_flow: FLOWS.CONTACT,
     current_state: S.CONTACT_TICKET_DETAILS,
@@ -312,7 +329,7 @@ export async function handleUrgency(session, decision, ctx, { problem = null } =
   } else {
     messages.push(say(M.notUrgentAskProblem(desk), held ? kb.homeOnly() : null));
   }
-  if (!held) messages.push(askForContact());
+  if (!held) messages.push(askForContact(ctx));
 
   return reply(messages, { active_flow: FLOWS.CONTACT, current_state: S.CONTACT_TICKET_DETAILS, context });
 }
@@ -368,7 +385,7 @@ async function progressTicket(session, incoming, ctx) {
   // earlier ticket - is theirs to use again. Asking for it a second time is
   // the thing "right away" is meant to remove.
   if (!ticket.phone && !ticket.declined) {
-    ticket.phone = await phoneOnFile(ctx).catch(() => null);
+    ticket.phone = await numberFor(ctx);
   }
 
   const context = { ...session.context, department, ticket };
@@ -383,13 +400,41 @@ async function progressTicket(session, incoming, ctx) {
   }
 
   if (!ticket.phone && !ticket.declined) {
-    return reply(
-      { text: M.askPhoneOnly(), keyboard: kb.SHARE_PHONE_KEYBOARD, oneTime: true },
-      { current_state: S.CONTACT_TICKET_DETAILS, context },
-    );
+    return reply(numberPrompt(ctx, M.askPhoneOnly()), { current_state: S.CONTACT_TICKET_DETAILS, context });
   }
 
   return raiseTicket(ticket, ctx, session);
+}
+
+/**
+ * The question a contact step is waiting on, asked again - after a language
+ * switch. Never raises a ticket and never logs another callback: it only says
+ * again what was already asked.
+ */
+export async function repeatQuestion(session, ctx) {
+  switch (session.current_state) {
+    case S.CONTACT_MENU:
+      return contactMenu();
+    case S.CONTACT_BOOKING_IDENTIFIER:
+      return askBookingIdentifier(session);
+    case S.CONTACT_TRACKING_IDENTIFIER:
+      return askTrackingIdentifier(session);
+    case S.CONTACT_DOCUMENT_MENU:
+      return documentsMenu();
+    case S.CONTACT_DOCUMENT_REQUEST:
+      return reply(say(askDocumentRequest(), kb.homeOnly()));
+    case S.CONTACT_URGENCY:
+      return reply(say(M.agentAfterHours(session.context?.desk ?? { start: 9, end: 19, tomorrow: true }), kb.urgencyChoice()));
+    case S.CONTACT_TICKET_DETAILS: {
+      const held = session.context?.ticket ?? {};
+      if (!held.problem) {
+        return reply(held.phone ? say(M.agentAskProblem(held.phone), kb.homeOnly()) : askForContact(ctx));
+      }
+      return reply(numberPrompt(ctx, M.askPhoneOnly()));
+    }
+    default:
+      return null;
+  }
 }
 
 async function raiseTicket(ticket, ctx, session) {
