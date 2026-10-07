@@ -326,7 +326,7 @@ anybody. `OperationsNotifier` (`lib/operations.js`) fans a copy out to whichever
 chat channels are configured; Pumble is one of them and is off by default. None
 of them can affect whether a booking succeeded.
 
-The console is `/ops.html`, protected by `ADMIN_SECRET`, which travels in a
+The desk is `/desk/` (`/ops/` and `/ops.html` forward to it), protected by `ADMIN_SECRET`, which travels in a
 header and never in a URL.
 
 ---

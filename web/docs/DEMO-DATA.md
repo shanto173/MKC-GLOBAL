@@ -6,7 +6,7 @@ a document arrives in the chat as backticks and row numbers run together — the
 bot reads that too now, but it is not what you should be sending.
 
 Bot — your MKY bot in Telegram
-Operations console — https://mkc-global.vercel.app/ops/ — sign in as `Ariful`
+The MKY Desk — https://mkc-global.vercel.app/desk/ — sign in as `Ariful`
 Health check — https://mkc-global.vercel.app/api/health
 
 ---
@@ -559,7 +559,7 @@ script.
 
 # OPERATIONS CONSOLE
 
-https://mkc-global.vercel.app/ops/ — sign in with your name (`Ariful`) and the
+https://mkc-global.vercel.app/desk/ — sign in with your name (`Ariful`) and the
 admin secret. This is the half that makes it a product rather than a chatbot.
 
 ## The walkthrough

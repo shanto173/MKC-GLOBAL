@@ -37,7 +37,7 @@ a redeploy. Without it, it prints both values and you paste them into
 npm run setup:webhook -- https://mkc-global.vercel.app
 ```
 
-Then sign in to https://mkc-global.vercel.app/ops.html with the new secret.
+Then sign in to https://mkc-global.vercel.app/desk/ with the new secret.
 
 ---
 

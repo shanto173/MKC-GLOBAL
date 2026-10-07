@@ -240,15 +240,22 @@ Document viewer: the file on the left, what the bot read on the right (chassis, 
 
 ---
 
-## 6. Going live (the morning)
+## 6. Going live
 
-1. Supabase: approve the Supabase MCP connection; apply `20261007090000_whatsapp_language_messages.sql` to the live project (additive, idempotent).
-2. Meta: assign the WhatsApp account to system user *Automation2* (full control). Collect the **Phone number ID** and **WhatsApp Business Account ID**.
-3. Vercel env (Production + Preview): `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, optional `WHATSAPP_GRAPH_VERSION` (default `v23.0`).
-4. Meta webhook: callback `https://<deployment>/api/whatsapp`, verify token = `WHATSAPP_VERIFY_TOKEN`, subscribe `messages`.
-5. WhatsApp Manager: create the templates listed in `bot_settings.whatsapp_templates` (en + ar, Utility).
-6. Send "hi" from a phone on the allowed list → language → book a test vehicle → see it in the desk.
-7. Merge `whatsapp-channel` to `main`.
+Done on 7 October:
+- Both migrations (`20261007090000`, `20261007100000`) are applied to the live Supabase project `kverwgcnvnferjewvvyr` and verified; existing bookings and clients untouched.
+- Every table, column and function the code uses was checked against the live schema.
+- A rehearsal against the live database, with Meta, Telegram and email faked, ran a full WhatsApp conversation (language, booking to the documents step, a real invoice read, a chassis mismatch caught, voice note, language switch, assistant answer in Arabic, cancel, STOP/START, a duplicate delivery) and the desk sending into it (window open, double click, window closed → template, opted out). All behaved as specified; all test rows were deleted.
+- Branch `whatsapp-channel` builds on Vercel (preview deployment, behind Vercel Authentication).
+
+Still to do:
+1. **Meta**: in Business Settings → System users → *Automation2* → Assign assets → WhatsApp accounts → full control. From the app's WhatsApp → API Setup, copy the **Phone number ID** and **WhatsApp Business Account ID**.
+2. **WhatsApp Manager**: submit the templates in `docs/WHATSAPP-TEMPLATES.md` (en + ar, Utility) — approval can take up to 48 h.
+3. **Vercel env** (Production, and Preview if testing there): `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (any long random string), optional `WHATSAPP_GRAPH_VERSION` (default `v23.0`).
+4. **Deploy**: merge `whatsapp-channel` into `main`. The Telegram bot keeps working; clients who never chose a language are asked at their next hello.
+5. **Meta webhook**: callback `https://mkc-global.vercel.app/api/whatsapp`, verify token = `WHATSAPP_VERIFY_TOKEN`, subscribe the `messages` field. (A preview deployment cannot receive it while Vercel Authentication protects previews.) Meta's "Test" button on the webhook page proves the signature check on the real host.
+6. **First real test**: from a phone on the allowed list send "hi" → choose a language → book a test vehicle → open https://mkc-global.vercel.app/desk/ and find it in the Inbox.
+7. **Supabase plan**: the free plan pauses the database after 7 idle days, which took the bot down in September. Pro ($25/month) does not pause.
 
 ---
 

@@ -2,8 +2,14 @@
  * Who is on the operations desk.
  *
  *   GET  /api/admin/users     the people who may decide bookings
- *   POST /api/admin/users     { name, role } register, or reactivate, one
- *   POST /api/admin/users     { name, active: false } retire one
+ *   POST /api/admin/users     { operator, name, role } register, or reactivate, one
+ *   POST /api/admin/users     { operator, name, active: false } retire one
+ *
+ * `operator` must be an active administrator - the same rule the desk's own
+ * Settings page enforces - except on an empty desk, whose first person has
+ * nobody to ask. Roles are the database's vocabulary (ops_agent, ops_supervisor,
+ * admin, read_only); the old "operator" and "supervisor" are read as their
+ * successors, because writing them as they were is refused by the role check.
  *
  * The console used to take whatever name was typed into the sign-in box and
  * write it onto the booking as the decision-maker, so "confirmed_by" was worth
@@ -17,6 +23,14 @@
 
 import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
+
+/** What may be asked for, and what it is stored as. */
+const ROLES = {
+  ops_agent: 'ops_agent', operator: 'ops_agent', agent: 'ops_agent',
+  ops_supervisor: 'ops_supervisor', supervisor: 'ops_supervisor',
+  admin: 'admin', administrator: 'admin',
+  read_only: 'read_only',
+};
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -41,13 +55,32 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const name = String(req.body?.name ?? '').trim().slice(0, 80);
-    const role = req.body?.role === 'supervisor' ? 'supervisor' : 'operator';
     const active = req.body?.active !== false;
     if (name.length < 2) return res.status(400).json({ error: 'A name of at least two characters is required' });
 
+    const asked = req.body?.role == null ? null : ROLES[String(req.body.role).trim().toLowerCase()];
+    if (req.body?.role != null && !asked) {
+      return res.status(400).json({ error: `Unknown role "${req.body.role}". Use ops_agent, ops_supervisor, admin or read_only.` });
+    }
+
+    const { data: team, error: readErr } = await db().from('ops_users').select('name, role, active');
+    if (readErr) return res.status(500).json({ error: readErr.message });
+    const everyone = team ?? [];
+    if (everyone.some((u) => u.active)) {
+      const by = String(req.body?.operator ?? '').trim().toLowerCase();
+      const admin = everyone.find((u) => u.active && u.role === 'admin' && u.name.toLowerCase() === by);
+      if (!admin) return res.status(403).json({ error: 'Only an active administrator can change the team.' });
+    }
+
+    // A person being reactivated or retired keeps the role they had: an
+    // upsert carrying a default role demoted an administrator who was only
+    // being switched back on. A new person with no role given is an agent.
+    const existing = everyone.find((u) => u.name.toLowerCase() === name.toLowerCase());
+    const row = { name: existing?.name ?? name, active, ...(asked ? { role: asked } : existing ? {} : { role: 'ops_agent' }) };
+
     const { data, error } = await db()
       .from('ops_users')
-      .upsert({ name, role, active }, { onConflict: 'name' })
+      .upsert(row, { onConflict: 'name' })
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });

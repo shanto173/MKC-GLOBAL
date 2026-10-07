@@ -79,7 +79,9 @@ check('the desk can be listed', deskBefore.status === 200 && Array.isArray(deskB
 // Registering first makes the next check deterministic: an empty desk lets
 // anybody through on purpose, so a stranger is only refused once the desk has
 // somebody on it.
-const added = await call(usersApi, { method: 'POST', body: { name: OPERATOR } });
+// Changing the team takes an administrator, as it does on the desk.
+const admin = (deskBefore.body.users ?? []).find((u) => u.active && u.role === 'admin')?.name;
+const added = await call(usersApi, { method: 'POST', body: { name: OPERATOR, operator: admin } });
 check('an operator can be added to the desk', added.status === 200 && added.body.user?.name === OPERATOR, JSON.stringify(added.body).slice(0, 160));
 
 const unknown = await call(bookingsApi, {
