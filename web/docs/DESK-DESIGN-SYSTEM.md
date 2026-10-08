@@ -262,7 +262,7 @@ The inbox row is a grid. The header (`.list-head`) and every row share fixed col
 | MRN application | New application, Approved (record the number), Waiting on customer, MRN issued. |
 | Problem | Unreadable (a paper the bot could not read), Not delivered (a message that failed), Held (waiting for a template, or the customer wrote STOP). |
 
-Buttons inside a row (Take it, Retry, Set aside) sit above the stretched link (`z-index: 1`), so they stay their own targets.
+Buttons inside a row (Take it, Retry, Set aside) sit above the stretched link (`z-index: 1`), so they stay their own targets. **Take it** reads the case before it takes it: if a colleague has just taken it, it says so ("Sara has just taken this.") instead of taking it from them, and otherwise it sends the version it read, so the server refuses any change in between.
 
 Column widths:
 
