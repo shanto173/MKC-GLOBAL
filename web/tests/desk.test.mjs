@@ -728,6 +728,37 @@ test('settings: every value checked, refused with a sentence, saved with its his
   assert.equal(stale.status, 409, 'somebody saved it since this form loaded');
 });
 
+test('recording an MRN does not make every paper that prints another MRN "not match the booking"', async () => {
+  const b = rows('bookings').find((x) => x.booking_ref === 'MKY-BKG-1');
+  const docs = rows('booking_documents');
+  const brief = docs.find((d) => d.id === 102);
+  brief.vin = b.vin;
+  brief.extracted = { ok: true, vin: b.vin, mrn: '26LTVR610172694233' };
+
+  // MKY obtained the MRN and the desk typed it in; the transport document
+  // prints a different one (a transit MRN, say). The booking's number is not
+  // the paper's to match.
+  b.mrn_choice = 'mky_issue';
+  b.mrn_number = '26LT000000000000X1';
+  docs.splice(docs.findIndex((d) => d.id === 103), 1);
+  let c = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  let paper = c.body.documents.find((d) => d.id === 102);
+  assert.deepEqual(paper.checks.filter((k) => !k.match), [], 'no false "does not match the booking"');
+
+  // The customer's own MRN declaration is what other papers are held to -
+  // and the declaration is what the number on the booking is held to.
+  b.mrn_choice = 'existing';
+  docs.push({ id: 104, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'mrn', status: 'received', vin: b.vin, storage_path: '1/MKY-BKG-1/mrn.pdf', extraction_ok: true, extracted: { ok: true, vin: b.vin, mrn: '26LTVR610172694233' }, uploaded_at: iso(3600_000) });
+  c = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  paper = c.body.documents.find((d) => d.id === 102);
+  const onBrief = paper.checks.find((k) => k.field === 'mrn');
+  assert.equal(onBrief.match, true, 'the brief agrees with the MRN declaration');
+  assert.match(onBrief.against, /MRN declaration/);
+  const onDeclaration = c.body.documents.find((d) => d.id === 104).checks.find((k) => k.field === 'mrn');
+  assert.equal(onDeclaration.match, false, 'the number typed on the booking differs from the declaration - that one is real');
+  assert.equal(onDeclaration.against, undefined, 'held to the booking, as every check always was');
+});
+
 test('the customer\'s answer is on the case, beside what was asked, and the case is ours again', async () => {
   const { recordAnswer } = await import('../lib/answers.js');
   rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-2').needs_client_action = { requested: 'The brief, please', at: iso(3600_000), by: 'Sara' };

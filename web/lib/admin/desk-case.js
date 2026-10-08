@@ -109,21 +109,52 @@ const sameWords = (a, b) => {
   return Boolean(x && y) && (x.includes(y) || y.includes(x));
 };
 
-export function documentOut(d, booking) {
+/** A value as the desk reads it off a document: what a person typed wins over what the bot read. */
+function readValue(d, k) {
   const x = d.extracted ?? {};
   const typed = x.typed ?? {};
-  const value = (k) => {
-    if (typed[k] != null && typed[k] !== '') return typed[k];
-    if (k === 'value') return x.value_amount != null ? `${x.value_amount}${x.value_currency ? ` ${x.value_currency}` : ''}` : null;
-    if (k === 'vin') return d.vin ?? x.vin ?? null;
-    return x[k] ?? null;
-  };
+  if (typed[k] != null && typed[k] !== '') return typed[k];
+  if (k === 'value') return x.value_amount != null ? `${x.value_amount}${x.value_currency ? ` ${x.value_currency}` : ''}` : null;
+  if (k === 'vin') return d.vin ?? x.vin ?? null;
+  return x[k] ?? null;
+}
+
+/**
+ * The MRN on the customer's own export declaration - the booking's MRN
+ * document, the newest one still standing - or null when there is none.
+ */
+export function declaredMrn(docs = []) {
+  const standing = docs.filter((d) => d.doc_type === 'mrn' && !['replacement_requested', 'rejected'].includes(d.status) && !d.deleted_at);
+  for (const d of standing) {
+    const mrn = readValue(d, 'mrn');
+    if (mrn) return String(mrn);
+  }
+  return null;
+}
+
+/**
+ * One document as the viewer shows it.
+ *
+ * `declared` is the MRN read from the booking's MRN declaration (declaredMrn).
+ * It, not the number on the booking, is what OTHER papers' MRNs are held to:
+ * the booking's number is whatever the desk typed when it recorded one, and a
+ * transport document routinely prints a different MRN - a transit one - so
+ * holding every paper to it flagged them all "does not match the booking" the
+ * moment an MRN was recorded. The declaration itself is held to the booking's
+ * number, which is the comparison that catches a mistyped MRN.
+ */
+export function documentOut(d, booking, { declared = null } = {}) {
+  const x = d.extracted ?? {};
+  const typed = x.typed ?? {};
+  const value = (k) => readValue(d, k);
   const read = READ_FIELDS
     .map(([field, label]) => ({ field, label, value: value(field), typed: typed[field] != null && typed[field] !== '' }))
     .filter((f) => f.value != null && f.value !== '');
 
   // Checked against the booking: the comparisons that get a customs entry
   // rejected when they are wrong.
+  // A check held to something other than the booking says what, in
+  // `against`, for the sentence the viewer writes: "the MRN declaration says…".
   const checks = [];
   const vin = value('vin');
   if (vin && booking?.vin) {
@@ -132,7 +163,11 @@ export function documentOut(d, booking) {
   const make = value('make');
   if (make && booking?.make) checks.push({ field: 'make', label: 'Make', document: make, booking: booking.make, match: sameWords(make, booking.make) });
   const mrn = value('mrn');
-  if (mrn && booking?.mrn_number) checks.push({ field: 'mrn', label: 'MRN', document: mrn, booking: booking.mrn_number, match: normalise(mrn) === normalise(booking.mrn_number) });
+  if (mrn && d.doc_type === 'mrn' && booking?.mrn_number) {
+    checks.push({ field: 'mrn', label: 'MRN', document: mrn, booking: booking.mrn_number, match: normalise(mrn) === normalise(booking.mrn_number) });
+  } else if (mrn && d.doc_type !== 'mrn' && declared) {
+    checks.push({ field: 'mrn', label: 'MRN', document: mrn, booking: declared, against: 'the MRN declaration', match: normalise(mrn) === normalise(declared) });
+  }
 
   const [words, tone] = DOC_WORDS[d.status] ?? [String(d.status ?? ''), 'gray'];
   return {
@@ -288,7 +323,8 @@ export async function bookingCase(req, res, who) {
   if (!state) return res.status(404).json({ error: `There is no booking ${ref}.` });
   const { booking, docs, mrn, required } = state;
 
-  const docsOut = docs.map((d) => documentOut(d, booking));
+  const declared = declaredMrn(docs);
+  const docsOut = docs.map((d) => documentOut(d, booking, { declared }));
   const byId = new Map(docsOut.map((d) => [d.id, d]));
   const live = docs.map((d) => ({ ...d, ...byId.get(d.id), status: d.status }));
   const checklist = checklistFor(required, live);

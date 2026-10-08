@@ -130,9 +130,11 @@ export function openViewer(ctx) {
       h('div', { class: 'viewer-status' },
         chip(doc.status_words, doc.tone),
         h('span', { class: 'muted small' }, `Arrived ${when(doc.uploaded_at)}`)),
+      // Each check names what it was held to: the booking, or - for an MRN
+      // printed on another paper - the customer's MRN declaration.
       mismatch.length ? h('div', { class: 'callout callout-red', role: 'note' }, icon('alert', { size: 16 }),
-        h('p', {}, h('strong', {}, 'Does not match the booking. '),
-          mismatch.map((c) => `${c.label}: the document says ${c.document}, the booking says ${c.booking}.`).join(' '))) : null,
+        h('p', {}, h('strong', {}, mismatch.every((c) => (c.against ?? 'the booking') === 'the booking') ? 'Does not match the booking. ' : 'Does not match. '),
+          mismatch.map((c) => `${c.label}: the document says ${c.document}, ${c.against ?? 'the booking'} says ${c.booking}.`).join(' '))) : null,
       doc.reading ? h('div', { class: 'callout callout-gray' }, h('p', {}, 'The bot is still reading this file. Look again in a moment.')) : null,
       doc.unreadable ? typeIn(doc, actions) : readTable(doc),
       doc.typed_by ? h('p', { class: 'muted small' }, `Values typed by ${doc.typed_by}.`) : null,
@@ -152,7 +154,9 @@ export function openViewer(ctx) {
             h('th', { scope: 'row' }, f.label),
             h('td', { dir: 'auto', class: f.field === 'vin' || f.field === 'mrn' ? 'mono' : '' }, String(f.value), f.typed ? h('span', { class: 'muted small' }, ' (typed)') : null),
             h('td', {}, c ? h('span', { class: `match ${c.match ? 'match-yes' : 'match-no'}` },
-              icon(c.match ? 'check' : 'alert', { size: 13 }), c.match ? ' Matches' : ` Differs: ${c.booking}`) : h('span', { class: 'muted' }, '—')));
+              icon(c.match ? 'check' : 'alert', { size: 13 }), c.match ? ' Matches' : ` Differs: ${c.booking}`,
+              c.against && c.against !== 'the booking' ? h('span', { class: 'muted small' }, ` (${c.against.replace(/^the /, '')})`) : null)
+              : h('span', { class: 'muted' }, '—')));
         }))));
   }
 
