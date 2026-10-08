@@ -491,7 +491,10 @@ export async function savedReplies() {
  * shows what they tapped when the transport kept the button's title, and
  * "Tapped a button" when it did not; never the raw id.
  */
-const TAP_KINDS = new Set(['callback', 'button', 'interactive', 'button_reply', 'list_reply', 'tap']);
+// 'choice' is what the webhooks log a tap as (api/whatsapp.js, api/telegram.js):
+// on WhatsApp its body is the button's title, on Telegram the payload. Missing
+// from this list, every WhatsApp tap showed as a message the customer typed.
+const TAP_KINDS = new Set(['choice', 'callback', 'button', 'interactive', 'button_reply', 'list_reply', 'tap']);
 // Only the engine's own namespaces (lib/flow/keyboards.js), lower case and
 // with no spaces - so a customer typing "VIN: YV2…" is never mistaken for a tap.
 const PAYLOAD = /^(menu|bk|ct|lang|tr):[a-z0-9_:.-]*$/;
@@ -500,7 +503,9 @@ export function displayBody(m) {
   const body = m.body ?? '';
   const tapped = m.direction === 'in' && (TAP_KINDS.has(m.kind) || PAYLOAD.test(body.trim()));
   if (!tapped) return { kind: m.kind ?? 'text', body };
-  const title = m.payload?.title ?? m.payload?.button_title ?? m.payload?.text ?? null;
+  // A choice's body is the title the customer saw, unless it is the payload itself.
+  const said = m.kind === 'choice' && body.trim() && !PAYLOAD.test(body.trim()) ? body.trim() : null;
+  const title = m.payload?.title ?? m.payload?.button_title ?? m.payload?.text ?? said ?? null;
   // The title separately as well, so the desk can isolate an Arabic title
   // from the English around it instead of letting the two scripts reorder.
   return { kind: 'tap', body: title ? `Tapped “${title}”` : 'Tapped a button', tap_title: title };

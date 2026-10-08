@@ -445,10 +445,13 @@ export function describeActivity(row) {
   const who = row.actor_type === 'operator' ? row.actor_id
     : row.actor_type === 'client' ? 'The customer' : 'The system';
   const m = row.metadata ?? {};
+  // Taking a case is giving it to yourself: "Sara took it", not "Sara gave it to Sara" -
+  // which is what the inbox's Take it says when a colleague got there first.
+  const gave = m.to && String(m.to).toLowerCase() === String(who).toLowerCase() ? 'took it' : `gave it to ${m.to ?? 'somebody'}`;
   const what = {
     booking_draft_created: 'started a booking request',
     booking_request_submitted: 'sent the request to us',
-    booking_assigned: `gave it to ${m.to ?? 'somebody'}`,
+    booking_assigned: gave,
     booking_unassigned: 'put it back for anyone to take',
     booking_status_changed: `moved it to “${statusLabel(m.to)}”`,
     booking_priority_changed: `set the priority to ${m.priority ?? ''}`,
@@ -472,11 +475,12 @@ export function describeActivity(row) {
     mrn_review: 'started on the MRN application',
     mrn_need_info: 'asked the customer for MRN information',
     mrn_reject: 'rejected the MRN application',
-    request_assigned: `gave it to ${m.to ?? 'somebody'}`,
+    request_assigned: gave,
     request_unassigned: 'put it back for anyone to take',
     request_status_changed: `moved it to “${String(m.to ?? '').replace(/_/g, ' ')}”`,
     request_reply_sent: 'replied to the customer',
     support_ticket_created: 'asked for a person',
+    support_ticket_details_added: 'said what it is about',
     operations_task_created: 'raised a task',
     notification_sent: 'sent the customer a message',
     duplicate_booking_detected: 'hit the duplicate-chassis guard',

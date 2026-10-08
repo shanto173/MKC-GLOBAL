@@ -705,6 +705,9 @@ test('a tapped button shows what was tapped, never the engine’s payload', asyn
     { id: 50, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'button_reply', body: 'lang:ar', payload: { title: 'العربية' }, status: 'received', created_at: iso(60_000) },
     { id: 51, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'text', body: 'bk:phone:use', payload: {}, status: 'received', created_at: iso(50_000) },
     { id: 52, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'text', body: 'VIN: YV2RT40A8FB712905', payload: {}, status: 'received', created_at: iso(40_000) },
+    // As the webhooks log a tap (api/whatsapp.js, api/telegram.js): kind 'choice', the title or the payload as the body.
+    { id: 53, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'choice', body: 'Talk to an agent', payload: { id: 'menu:contact' }, status: 'received', created_at: iso(30_000) },
+    { id: 54, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'choice', body: 'menu:contact', payload: { id: 'menu:contact' }, status: 'received', created_at: iso(20_000) },
   );
   const r = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
   const byId = Object.fromEntries(r.body.messages.map((m) => [m.id, m]));
@@ -712,6 +715,10 @@ test('a tapped button shows what was tapped, never the engine’s payload', asyn
   assert.equal(byId[50].kind, 'tap');
   assert.equal(byId[51].body, 'Tapped a button');
   assert.equal(byId[52].body, 'VIN: YV2RT40A8FB712905', 'what a customer typed is never taken for a button');
+  assert.equal(byId[53].kind, 'tap', 'a WhatsApp tap, as the webhook logs it, is a tap - not words the customer typed');
+  assert.equal(byId[53].body, 'Tapped “Talk to an agent”');
+  assert.equal(byId[53].tap_title, 'Talk to an agent');
+  assert.equal(byId[54].body, 'Tapped a button', 'a Telegram tap logs only the payload, which is never shown');
 });
 
 test('where the customer is with the bot, and a language not chosen yet, in words', async () => {
@@ -1137,6 +1144,10 @@ test('a call-back opened before the customer said what about is flagged, on its 
   const c = await get({ view: 'case', type: 'request', ref: 'MKY-T-2' });
   assert.equal(c.body.request.undescribed, true);
   assert.equal((await get({ view: 'case', type: 'request', ref: 'MKY-T-1' })).body.request.undescribed, false);
+
+  // When they do say, the case's history says so in words.
+  const { describeActivity } = await import('../lib/admin/desk-shared.js');
+  assert.equal(describeActivity({ actor_type: 'client', action: 'support_ticket_details_added', metadata: {} }).what, 'said what it is about');
 });
 
 // The live test, 2026-10-08: the photo of an invoice sent with no booking
@@ -1187,6 +1198,26 @@ test('a paper on a booking, opened on its own, is held to that booking', async (
   assert.equal(r.body.version, c.body.version, 'the same version the case page sends');
   assert.ok(r.body.documents[0].wrong_vehicle, 'its chassis differs from the booking');
   assert.equal(r.body.document_actions.reject.enabled, true);
+});
+
+test('Take it from a row a colleague has just taken is refused, saying they took it', async () => {
+  const items = (await get({ view: 'inbox', tab: 'needs_us' })).body.items;
+  const callback = items.find((i) => i.id === 'request:MKY-T-1');
+  const booking = items.find((i) => i.id === 'booking:MKY-BKG-1');
+  assert.equal((await post({ action: 'take', ticket_ref: 'MKY-T-1', version: callback.version }, 'Omar')).status, 200);
+  assert.equal((await post({ action: 'take', booking_ref: 'MKY-BKG-1', version: booking.version }, 'Omar')).status, 200);
+
+  // Sara's list was drawn before Omar took them.
+  for (const body of [{ ticket_ref: 'MKY-T-1', version: callback.version }, { booking_ref: 'MKY-BKG-1', version: booking.version }]) {
+    const late = await post({ action: 'take', ...body }, 'Sara');
+    assert.equal(late.status, 409);
+    assert.equal(late.body.stale, true);
+    assert.match(late.body.error, /^Omar (took it|moved it)/, late.body.error);
+  }
+  assert.equal(rows('support_tickets')[0].assigned_to, 'Omar');
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').assigned_to, 'Omar');
+  const history = (await get({ view: 'case', type: 'request', ref: 'MKY-T-1' })).body.history;
+  assert.ok(history.some((h) => h.who === 'Omar' && h.what === 'took it'), JSON.stringify(history));
 });
 
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {
