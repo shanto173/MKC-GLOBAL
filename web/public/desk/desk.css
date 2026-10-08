@@ -10,7 +10,7 @@
  *     late, green = done, red = something is wrong. Every coloured thing also
  *     has a word and, for status, an icon - never colour alone.
  *   - every text colour on its background is at least 4.5:1 (secondary text
- *     is 7:1); icons and borders that carry meaning are at least 3:1.
+ *     at least 6.5:1); icons and field edges that carry meaning at least 3:1.
  *   - one type scale (13 / 14 / 15 / 18 / 22), one spacing scale (4px steps).
  *   - focus is always visible; primary controls are at least 32px tall.
  *
@@ -32,7 +32,7 @@
   --n-300: #c2c8d0;
   --n-400: #98a0ac;
   --n-500: #6b7482;
-  --n-600: #525b68;
+  --n-600: #4f5865;
   --n-700: #3d4450;
   --n-800: #272c34;
   --n-900: #15181d;
@@ -66,6 +66,7 @@
   --surface-sunk: var(--n-100);
   --line: var(--n-150);
   --line-strong: var(--n-200);
+  --line-input: #858d99;   /* 3.3:1 on white: a field's edge must be visible (WCAG 1.4.11) */
   --ink: var(--n-900);
   --ink-2: var(--n-700);
   --ink-3: var(--n-600);
@@ -330,12 +331,12 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); }
 
 .input {
   width: 100%; min-height: var(--h-md); padding: 7px var(--sp-3);
-  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  border: 1px solid var(--line-input); border-radius: var(--r-sm);
   background: var(--surface); color: var(--ink); line-height: var(--lh-snug);
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
 .input::placeholder, .composer-input::placeholder, .search input::placeholder { color: var(--ink-placeholder); opacity: 1; }
-.input:hover { border-color: var(--n-300); }
+.input:hover { border-color: var(--n-600); }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--brand-100); }
 .input:disabled { background: var(--n-100); color: var(--ink-3); }
 select.input { padding-right: var(--sp-8); }
@@ -390,7 +391,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .seg-item:hover { color: var(--ink); background: rgba(255, 255, 255, .6); }
 .seg-item[aria-current="true"], .seg-item[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); font-weight: var(--w-semibold); }
 .seg-count { color: var(--ink-3); font-size: var(--text-xs); font-weight: var(--w-bold); font-variant-numeric: tabular-nums; }
-.seg-item.is-zero .seg-count { color: var(--n-400); }
+.seg-item.is-zero .seg-count { font-weight: var(--w-regular); }
 .seg-item.is-alert .seg-count { color: var(--n-0); background: var(--red-solid); border-radius: var(--r-full); padding: 0 6px; line-height: 18px; }
 
 /* -- Card and section header ------------------------------------------------- */
@@ -674,10 +675,10 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .search { position: relative; flex: 1; max-width: 680px; }
 .search input {
   width: 100%; height: 38px; padding: 0 44px 0 38px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface);
+  border: 1px solid var(--line-input); border-radius: var(--r-md); background: var(--surface);
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.search input:hover { border-color: var(--n-300); }
+.search input:hover { border-color: var(--n-600); }
 .search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--brand-100); }
 .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-3); display: flex; pointer-events: none; }
 .search-key {
@@ -909,7 +910,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 
 .composer { border-top: 1px solid var(--line); padding: var(--sp-3); background: var(--surface); display: flex; flex-direction: column; gap: var(--sp-2); }
 .composer-note { color: var(--ink-3); font-size: var(--text-sm); }
-.composer-box { border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); transition: border-color var(--dur-fast), box-shadow var(--dur-fast); }
+.composer-box { border: 1px solid var(--line-input); border-radius: var(--r-md); background: var(--surface); transition: border-color var(--dur-fast), box-shadow var(--dur-fast); }
 .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--brand-100); }
 .composer-box.is-disabled { background: var(--n-50); opacity: 1; cursor: default; }
 .composer-input { display: block; width: 100%; min-height: 64px; max-height: 220px; resize: vertical; padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--r-md) var(--r-md) 0 0; background: transparent; line-height: var(--lh-body); font-size: var(--text-lg); }
