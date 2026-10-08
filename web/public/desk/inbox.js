@@ -215,6 +215,7 @@ export function renderInbox({ route, main, refreshCounts }) {
         h('span', { class: 'row-age-time' }, icon(tone === 'red' ? 'alert' : 'clock', { size: 13 }), timeEl(item.since, ageWords || '—')),
         item.overdue ? h('span', { class: 'row-age-note' }, 'Overdue') : late ? h('span', { class: 'sr-only' }, late) : null));
   }
+
   /** Who has it - or, when nobody does and it is ours, the button that takes it. */
   function owner(item) {
     if (item.kind === 'problem' || item.kind === 'mrn') return h('div', { class: 'row-owner' });
@@ -226,10 +227,35 @@ export function renderInbox({ route, main, refreshCounts }) {
     if (item.tab !== 'needs_us') return h('div', { class: 'row-owner' });
     if (!session.can('assign_self')) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-none' }, icon('userX', { size: 14 }), 'Nobody yet'));
     const take = h('button', { class: 'btn btn-sm row-take', type: 'button', 'aria-label': `Take it: ${item.sentence}` }, icon('userPlus', { size: 14 }), 'Take it');
-    take.addEventListener('click', () => act(take, item.kind === 'callback'
-      ? { action: 'take', ticket_ref: item.ref }
-      : { action: 'take', booking_ref: item.ref }, 'It is yours now.'));
+    take.addEventListener('click', () => takeIt(take, item));
     return h('div', { class: 'row-owner' }, take);
+  }
+
+  /**
+   * "Take it" from the list. The row can be up to 20 seconds old, so the case
+   * is read first: if a colleague has just taken it, say so instead of taking
+   * it from them; otherwise take it with the version just read, so the server
+   * refuses if anything changes in between - the same guarantee the case
+   * page's own button has.
+   */
+  async function takeIt(button, item) {
+    const type = item.kind === 'callback' ? 'request' : 'booking';
+    button.disabled = true;
+    try {
+      const c = await api({ view: 'case', type, ref: item.ref });
+      if (c.header?.assigned_to) {
+        toast(`${c.header.assigned_to} has just taken this.`, 'info');
+      } else {
+        await post({ action: 'take', ...(type === 'request' ? { ticket_ref: item.ref } : { booking_ref: item.ref }), version: c.version });
+        toast('It is yours now.');
+      }
+      await load({ quiet: true });
+      refreshCounts();
+    } catch (err) {
+      toastError(err);
+      if (err.data?.stale) { await load({ quiet: true }); return; }
+      button.disabled = false;
+    }
   }
 
   /** Retry and set aside, right on the row: a failed message should not need three clicks. */
