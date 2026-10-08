@@ -854,6 +854,14 @@ test('the assistant answers in the chosen language only', () => {
   assert.match(systemPrompt({ channel: 'telegram' }), /EVERY REPLY CARRIES BOTH/, 'unchanged before a choice');
 });
 
+test('the assistant points at the menu by its buttons, which every channel shows - not by numbers', () => {
+  for (const channel of ['whatsapp', 'telegram']) {
+    const prompt = withTurn({ lang: 'en', channel }, () => systemPrompt({}));
+    assert.match(prompt, /Talk to an agent/, channel);
+    assert.doesNotMatch(prompt, /reply with the digit|offer those three again, numbered/, channel);
+  }
+});
+
 test('paperwork follows the client\'s choice when the caller has it', () => {
   const booking = { customer_name: 'شركة النيل' };
   assert.equal(bookingLanguage(booking), 'ar', 'from the script, as before');

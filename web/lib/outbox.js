@@ -31,7 +31,7 @@ import { db } from './supabase.js';
 import { sendMessage, sendDocument } from './telegram.js';
 import { audit, logEvent } from './audit.js';
 import { flush } from './background.js';
-import { M } from './flow/messages.js';
+import { M, TICKET_REOPEN } from './flow/messages.js';
 import * as kb from './flow/keyboards.js';
 import { storedLanguage } from './flow/language.js';
 import { currentLanguage, normaliseLanguage, withTurn } from './lang.js';
@@ -430,9 +430,10 @@ export function render(row) {
       return { text: text + tail, inline: kb.afterConfirmed() };
     }
 
+    // The words offer a person by the button that reaches one, so it comes along.
     case 'booking_rejected':
       if (!p.booking_ref) return null;
-      return { text: M.bookingRejected(p.booking_ref, p.reason ?? null), inline: kb.homeOnly() };
+      return { text: M.bookingRejected(p.booking_ref, p.reason ?? null), inline: kb.agentOrHome() };
 
     // A document the desk turned down is a request for something, worded the
     // same way; its own event so a template can say which paper.
@@ -475,9 +476,9 @@ export function render(row) {
       if (!p.ticket_ref) return null;
       const note = String(p.note ?? '').trim();
       const dept = p.department ? ` (${p.department})` : '';
-      const ar = `✅ تم حل طلبك ${p.ticket_ref}${dept}.${note ? `\n\n${note}` : ''}\n\nلو لسه في حاجة، ابعت 3 وهنفتح طلب جديد.`;
-      const en = `✅ Your ticket ${p.ticket_ref}${dept} has been resolved.${note ? `\n\n${note}` : ''}\n\nIf anything is still outstanding, reply 3 and we will open a new one.`;
-      return { text: phrase(ar, en), inline: kb.homeOnly() };
+      const ar = `✅ تم حل طلبك ${p.ticket_ref}${dept}.${note ? `\n\n${note}` : ''}\n\n${TICKET_REOPEN.ar}`;
+      const en = `✅ Your ticket ${p.ticket_ref}${dept} has been resolved.${note ? `\n\n${note}` : ''}\n\n${TICKET_REOPEN.en}`;
+      return { text: phrase(ar, en), inline: kb.agentOrHome() };
     }
 
     // The client's own copy of the paperwork, in the chat they booked from.

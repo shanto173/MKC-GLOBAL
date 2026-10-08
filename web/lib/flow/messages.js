@@ -28,6 +28,25 @@ import { languageSupported } from './language.js';
 const RULE = '━━━━━━━━━━━━';
 
 /**
+ * The main menu's third button, as it reads in each language (kb.agentButton).
+ * A message that sends a client to a person names this button, which every
+ * channel shows - never "reply 3" or "Contact our team", which only Telegram's
+ * numbered menu and old reply keyboard ever had.
+ */
+const AGENT = { ar: 'كلّم موظف', en: 'Talk to an agent' };
+
+/**
+ * The last line of "your ticket is resolved", wherever that is said: the
+ * outbox (WhatsApp), lib/notify.js (Telegram) and the desk's preview of both.
+ * One copy, so the three cannot drift apart. Each is sent with
+ * kb.agentOrHome(), the button it names.
+ */
+export const TICKET_REOPEN = {
+  ar: `لو لسه في حاجة، اضغط "${AGENT.ar}" وهنفتح طلب جديد.`,
+  en: `If anything is still outstanding, tap "${AGENT.en}" and we will open a new one.`,
+};
+
+/**
  * One message in the turn's language - or, before a choice, the two stacked
  * blocks Telegram can show. A half left empty is never chosen over the other.
  */
@@ -263,9 +282,9 @@ What I need right now is ${needEn}.`,
 
   cannotSkip: (needAr, needEn) => both(
     `مفهوم. للأسف مش هينفع نكمل الحجز من غير ${needAr} - هو اللي بنعرف بيه الوحدة. ` +
-    'لو مش معاك دلوقتي تقدر ترجع في أي وقت، أو اضغط "تواصل مع فريقنا".',
+    `لو مش معاك دلوقتي تقدر ترجع في أي وقت، أو اضغط "${AGENT.ar}".`,
     `Understood. We cannot go further without ${needEn} — it is how the unit is identified. ` +
-    'Come back whenever you have it, or choose "Contact our team".',
+    `Come back whenever you have it, or tap "${AGENT.en}".`,
   ),
 
   basicsComplete: () => both('✅ تمام! يلا نكمل. 🚀', '✅ Perfect! Let us continue. 🚀'),
@@ -438,11 +457,14 @@ What I need right now is ${needEn}.`,
     'Thank you for choosing MKY Forwarding! 😊',
   ),
 
+  // Sent with kb.agentOrHome(), so the button it names is under it on every
+  // channel. "Contact our team" was the label of Telegram's old reply
+  // keyboard, which a WhatsApp customer has never seen.
   bookingRejected: (ref, reason) => both(
     `للأسف ما قدرناش نأكد الطلب ${ref}.` + (reason ? `\nالسبب: ${reason}` : '') +
-    '\nلو حابب نراجعه مع حضرتك، اضغط "تواصل مع فريقنا".',
+    `\nلو حابب نراجعه مع حضرتك، اضغط "${AGENT.ar}".`,
     `We were not able to confirm request ${ref}.` + (reason ? `\nReason: ${reason}` : '') +
-    '\nIf you would like us to look at it with you, choose "Contact our team".',
+    `\nIf you would like us to look at it with you, tap "${AGENT.en}".`,
   ),
 
   needsClientAction: (ref, whatAr, whatEn) => both(

@@ -25,7 +25,7 @@ const { createFakeDb } = await import('./helpers/fake-db.mjs');
 const { fakeNetwork, withoutSchema, mockRes, MIGRATION_COLUMNS } = await import('./helpers/whatsapp.mjs');
 const { setClientForTests } = await import('../lib/supabase.js');
 const { invalidateSettings } = await import('../lib/settings.js');
-const { withLanguage } = await import('../lib/lang.js');
+const { withLanguage, withTurn } = await import('../lib/lang.js');
 const { resetLanguageSupportForTests } = await import('../lib/flow/language.js');
 const { M } = await import('../lib/flow/messages.js');
 const kb = await import('../lib/flow/keyboards.js');
@@ -674,4 +674,53 @@ test('a Telegram notification renders byte-for-byte as before when no language w
 
   const english = withLanguage('en', () => render(row));
   assert.ok(english.text.endsWith('\n\nTrack with: MKY-26002'));
+});
+
+// ---------------------------------------------------------------------------
+// Words that are true on every channel
+// ---------------------------------------------------------------------------
+
+/**
+ * What only Telegram has: "reply 3" (its numbered menu), the "Contact our team"
+ * reply-keyboard button, slash commands, the share-my-number button.
+ */
+const TELEGRAM_ONLY = /reply 3|send 3|ابعت 3|Contact our team|تواصل مع فريقنا|\/menu|\/start|Share my number|شارك رقمي/;
+const offersAgent = (inline) => (inline ?? []).flat().some((b) => b.callback_data === 'menu:contact');
+
+test('nothing the outbox sends a WhatsApp customer points at a button or command only Telegram has', () => {
+  const events = [
+    { event_type: 'ticket_resolved', payload: { ticket_ref: 'MKY-T-1', department: 'Customer Care', note: 'Released at the port.' } },
+    { event_type: 'booking_rejected', payload: { booking_ref: 'MKY-BKG-1', reason: 'The vessel is full.' } },
+    { event_type: 'booking_confirmed', payload: { booking_ref: 'MKY-BKG-1', vin: 'W1T9', make: 'Volvo', origin_port: 'Koper', destination_port: 'Suez Port' } },
+    { event_type: 'missing_information_requested', payload: { booking_ref: 'MKY-BKG-1', requested: 'The invoice' } },
+    { event_type: 'mrn_issued', payload: { mrn_number: '26LTVR610172694233' } },
+    { event_type: 'shipment_update', payload: { shipment_id: 'MKY-26001', update: 'Loaded on the vessel.' } },
+    { event_type: 'operations_message', payload: { text: 'We called the port.' } },
+  ];
+  for (const lang of [null, 'en', 'ar']) {
+    for (const row of events) {
+      const message = withTurn({ lang, channel: 'whatsapp' }, () => render(row));
+      assert.doesNotMatch(message.text, TELEGRAM_ONLY, `${row.event_type} (${lang ?? 'both'})`);
+    }
+  }
+
+  // Where a person is offered, it is by the button that reaches one - in both
+  // languages, saying the same thing.
+  for (const type of ['ticket_resolved', 'booking_rejected']) {
+    const row = events.find((e) => e.event_type === type);
+    const en = withTurn({ lang: 'en', channel: 'whatsapp' }, () => render(row));
+    const ar = withTurn({ lang: 'ar', channel: 'whatsapp' }, () => render(row));
+    assert.match(en.text, /Talk to an agent/, type);
+    assert.match(ar.text, /كلّم موظف/, type);
+    assert.ok(offersAgent(en.inline) && offersAgent(ar.inline), `${type} carries the agent button`);
+  }
+});
+
+test('the flow\'s own way out names the button WhatsApp actually shows', () => {
+  for (const lang of [null, 'en', 'ar']) {
+    const text = withTurn({ lang, channel: 'whatsapp' }, () => M.cannotSkip('رقم الشاسيه', 'the chassis number'));
+    assert.doesNotMatch(text, TELEGRAM_ONLY);
+    if (lang !== 'ar') assert.match(text, /Talk to an agent/);
+    if (lang !== 'en') assert.match(text, /كلّم موظف/);
+  }
 });

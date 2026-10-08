@@ -134,6 +134,15 @@ export function homeOnly() {
 }
 
 /**
+ * For a message that offers a person - a rejection, a closed ticket. The
+ * words say "tap Talk to an agent", so the button comes with them: on
+ * WhatsApp there is no standing keyboard to find it on.
+ */
+export function agentOrHome() {
+  return rows(agentButton(), homeButton());
+}
+
+/**
  * The language question. Each choice is written in its own language, because
  * it is read by someone who has not chosen yet.
  */

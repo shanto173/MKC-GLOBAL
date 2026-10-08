@@ -12,7 +12,7 @@
 
 import { render } from '../outbox.js';
 import { withTurn } from '../lang.js';
-import { both } from '../flow/messages.js';
+import { both, TICKET_REOPEN } from '../flow/messages.js';
 import { splitLanguages } from '../agent.js';
 import { DOC_LABEL } from '../ops/workflow.js';
 
@@ -153,10 +153,10 @@ export function ticketResolvedText(ticket, note = '', language = null) {
   const said = String(note ?? '').trim();
   const ar = `✅ تم حل طلبك ${ticket.ticket_ref} (${ticket.department}).`
     + (said ? `\n\n${said}` : '')
-    + '\n\nلو لسه في حاجة، ابعت 3 وهنفتح طلب جديد.';
+    + `\n\n${TICKET_REOPEN.ar}`;
   const en = `✅ Your ticket ${ticket.ticket_ref} (${ticket.department}) has been resolved.`
     + (said ? `\n\n${said}` : '')
-    + '\n\nIf anything is still outstanding, reply 3 and we will open a new one.';
+    + `\n\n${TICKET_REOPEN.en}`;
   if (language === 'ar') return ar;
   if (language === 'en') return en;
   // Exactly how notify.js joins the two halves, emoji mirroring included.

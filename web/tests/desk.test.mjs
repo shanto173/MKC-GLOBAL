@@ -696,6 +696,10 @@ test('the request-resolved preview is word for word what notify.js sends', async
   const sent = telegramCalls.find((c) => c.url.endsWith('/sendMessage'));
   assert.equal(preview.body.text, sent.body.text);
   assert.equal(ticketResolvedText(ticket, note, null), sent.body.text);
+  // The way back to a person is the button every channel shows, and it comes
+  // with the message - not "reply 3", which only Telegram's old menu knew.
+  assert.doesNotMatch(sent.body.text, /reply 3|ابعت 3/);
+  assert.match(JSON.stringify(sent.body.reply_markup ?? {}), /menu:contact/);
 });
 
 test('settings: every value checked, refused with a sentence, saved with its history', async () => {
