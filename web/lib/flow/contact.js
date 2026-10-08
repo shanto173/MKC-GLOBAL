@@ -622,6 +622,8 @@ async function raiseTicket(ticket, ctx, session) {
     directPhone: contact?.directPhone ?? null,
     start: desk?.start ?? null,
     tomorrow: desk?.tomorrow ?? true,
+    // Which way they will hear: the number, or this chat when they gave none.
+    phone: ticket.phone || null,
   });
 
   return reply(say(opened, kb.mainMenu()), {

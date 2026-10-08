@@ -10,6 +10,7 @@ import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
 import { phoneOnFile } from './clients.js';
+import { supportHours } from './settings.js';
 import {
   shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard, ticketAskCard, ticketCard, DEPARTMENT_MENU,
 } from './format.js';
@@ -1119,7 +1120,8 @@ const executors = {
       // The ticket goes to the customer as a card, in both languages, exactly
       // as it was taken down - so what the desk reads and what the customer
       // was told are the same thing.
-      display: ticketCard(data),
+      // Whether the desk is open now decides "shortly" or "during business hours".
+      display: ticketCard(data, { open: (await supportHours().catch(() => null))?.open ?? null }),
       verbatim: true,
       next_step: 'The ticket card has been sent to the customer as it is.',
     };

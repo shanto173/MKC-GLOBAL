@@ -656,17 +656,20 @@ What I need right now is ${needEn}.`,
     'To open this with the team, send in one message:\n• What the problem is\n• A phone number we can call you on',
   ),
 
-  // In hours: the team calls back. After hours: when. Urgent: marked so, and
-  // the direct line again, so it is in the last message the client reads.
-  ticketOpened: (ref, department, { urgent = false, directPhone = null, start = null, tomorrow = true } = {}) => both(
+  // In hours (start null): the team calls back shortly - on the number they
+  // gave, or here in the chat when they gave none. It said "during business
+  // hours", which read oddly at five in the afternoon. After hours: when.
+  // Urgent: marked so, and the direct line again, so it is in the last
+  // message the client reads.
+  ticketOpened: (ref, department, { urgent = false, directPhone = null, start = null, tomorrow = true, phone = null } = {}) => both(
     `🎫 اتفتح طلب رقم ${ref} مع قسم ${department}${urgent ? ' ومتعلّم إنه مستعجل' : ''}.\n` +
     (start === null
-      ? 'الفريق هيكلمك في مواعيد العمل.'
+      ? (phone ? `الفريق هيكلمك على ${phone} قريب.` : 'الفريق هيرد عليك هنا قريب.')
       : `الفريق هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.`) +
     (urgent && directPhone ? `\n☎️ ولحد ما يبدأوا، المسؤول عندنا على ${directPhone}.` : ''),
     `🎫 Ticket ${ref} has been opened with ${department}${urgent ? ' and marked urgent' : ''}.\n` +
     (start === null
-      ? 'The team will call you during business hours.'
+      ? (phone ? `The team will call you on ${phone} shortly.` : 'The team will get back to you here shortly.')
       : `The team will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.`) +
     (urgent && directPhone ? `\n☎️ Until then, our responsible person is on ${directPhone}.` : ''),
   ),

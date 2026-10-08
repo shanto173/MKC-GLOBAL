@@ -1623,6 +1623,31 @@ test('after hours, the tap is on the desk at once too, and an urgent one becomes
   assert.equal(ticket.priority, 'urgent', 'the desk sorts urgent first');
 });
 
+// The live test, 2026-10-08: at 17:29 Cairo time the ticket reply said "The
+// team will call you during business hours" - during business hours.
+test('a ticket opened while the desk is open says the team will call shortly, not "during business hours"', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+  const done = await h.text('I need help with the paperwork for my truck');
+  assert.doesNotMatch(said(done), /during business hours|في مواعيد العمل/);
+  assert.match(said(done), /The team will call you on \+201005551234 shortly/);
+
+  // With no number at all, the chat is how they will hear.
+  const chat = harness();
+  await chat.tap('menu:contact');
+  await chat.text('The booking reference on my PDF is wrong.');
+  const r = await chat.text('not now');
+  assert.match(said(r), /The team will get back to you here shortly/);
+
+  // The assistant's own ticket card, raised while the desk is open, says the same.
+  const { ticketCard } = await import('../lib/format.js');
+  const card = ticketCard({ ticket_ref: 'MKY-TKT-1', department: 'Customer Care', summary: 'x', contact: '+201005551234' }, { open: true });
+  assert.doesNotMatch(card, /during business hours/);
+  assert.match(card, /shortly/);
+  assert.match(ticketCard({ ticket_ref: 'MKY-TKT-2', department: 'Customer Care' }, { open: false }), /during business hours/);
+});
+
 test('a request the desk already closed is not reopened by the problem typed afterwards: it is a new one', async () => {
   const h = harness();
   h.db._tables.clients[0].phone = '+201005551234';
