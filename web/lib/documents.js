@@ -391,7 +391,8 @@ export async function documentStatus({ chatId, vin = null }) {
  * facts come out of it and all three come from rows:
  *   received  - a file of that type is attached to THIS request
  *   missing   - a required type with no file attached
- *   mismatched- a file whose own chassis number is not this request's
+ *   mismatched- a file whose own chassis number is not this request's, and
+ *               that no later file of its kind has put right
  *
  * A document that arrived for another vehicle is never counted as received and
  * never counted as missing: it is its own problem, and telling a client "still
@@ -470,6 +471,17 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
   const missing = required.filter((type) => !byType.has(type));
   const verified = mine.filter((d) => d.status === 'verified').map((d) => d.doc_type);
 
+  // A wrong-chassis paper the client has since replaced with the right one is
+  // behind them. It stays on file - it is the record of what was sent - but
+  // it is no longer reported: the document step said "that invoice shows
+  // another chassis" again with every later file, after the correct invoice
+  // had arrived. One sent AFTER the right one is new, and is reported.
+  const sameKind = (a, b) => a === b || (['brief', 'eur1'].includes(a) && ['brief', 'eur1'].includes(b));
+  const newer = (a, b) => (a.uploaded_at && b.uploaded_at && a.uploaded_at !== b.uploaded_at
+    ? a.uploaded_at > b.uploaded_at
+    : Number(a.id) > Number(b.id));
+  const outstanding = mismatched.filter((wrong) => !mine.some((right) => sameKind(right.doc_type, wrong.doc_type) && newer(right, wrong)));
+
   return {
     ok: true,
     required,
@@ -485,7 +497,7 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
     // file arrived and nothing else.
     verified_types: verified,
     missing,
-    mismatched: mismatched.map((d) => ({ type: d.doc_type, file: d.file_name, vin: d.vin })),
+    mismatched: outstanding.map((d) => ({ type: d.doc_type, file: d.file_name, vin: d.vin })),
     complete: missing.length === 0,
   };
 }

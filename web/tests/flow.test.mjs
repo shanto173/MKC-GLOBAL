@@ -1842,6 +1842,24 @@ test('regression: the same wrong chassis is reported once, not once per file', a
   assert.equal(warnings.length, 1, 'three mismatched papers, one warning');
 });
 
+test('regression: once the right invoice arrives, the warning about the wrong one is not repeated', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+  const wrong = await h.file(h.upload('invoice', { vin: 'ZZZ99999999999999', fileName: 'invoice-old.pdf' }));
+  assert.match(said(wrong), /but this booking is for/);
+
+  const fixed = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
+  assert.match(said(fixed), /Invoice received/);
+  assert.doesNotMatch(said(fixed), /but this booking is for/, 'the right invoice is in; the wrong one is behind us');
+
+  const next = await h.file(h.upload('brief', { vin: 'W1T96340310484233' }));
+  assert.doesNotMatch(said(next), /but this booking is for/);
+
+  // A wrong paper of a type still outstanding is still worth saying.
+  const wrongMrn = await h.file(h.upload('mrn', { vin: 'ZZZ99999999999999' }));
+  assert.match(said(wrongMrn), /but this booking is for/);
+});
+
 test('regression: an all-but-empty draft can still be cancelled', async () => {
   // The client gives a chassis number, is told the unit is already booked, and
   // the draft behind them - which has nothing on it but a VIN - is dropped.
