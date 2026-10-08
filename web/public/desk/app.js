@@ -98,8 +98,10 @@ function drawNav(active, query = {}) {
   }, icon(n.icon, { size: 20 }), h('span', {}, n.label), badge(n))));
 
   // Who is signed in, top right on every size - on a phone the sidebar is
-  // hidden, and Sign out used to go with it.
-  const menu = h('details', { class: 'menu menu-right me-menu' },
+  // hidden, and Sign out used to go with it. Redrawn with the counts every
+  // 20 seconds, so an open menu stays open.
+  const wasOpen = Boolean($('#me .me-menu')?.open);
+  const menu = h('details', { class: 'menu menu-right me-menu', open: wasOpen },
     h('summary', { 'aria-label': `Signed in as ${session.name}. Account menu` },
       avatar(session.name, { size: 'sm' }), h('span', { class: 'me-label' }, session.name), icon('down', { size: 14 })),
     h('div', { class: 'menu-list', role: 'menu' },
