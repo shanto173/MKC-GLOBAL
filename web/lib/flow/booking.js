@@ -20,7 +20,7 @@
  */
 
 import { S, FLOWS, BASIC_FIELDS } from './states.js';
-import { M, FIELD_LABELS, DOC_LABELS, both, pair } from './messages.js';
+import { M, FIELD_LABELS, DOC_LABELS, both, pair, portName } from './messages.js';
 import { pick, routeArrow } from '../lang.js';
 import * as kb from './keyboards.js';
 import {
@@ -1331,7 +1331,9 @@ export async function confirmationCard(booking, documentState = null) {
     `📱 ${pair('الموبايل', 'Phone')}: ${phone}`,
     `🚘 ${pair('الشاسيه', 'Chassis · VIN')}: ${booking.vin ?? '—'}`,
     `🚗 ${pair('الماركة', 'Make')}: ${[booking.make, booking.model].filter(Boolean).join(' ') || '—'}`,
-    `🌍 ${pair('خط الشحن', 'Route')}: ${booking.origin_port ?? '—'} ${routeArrow()} ${booking.destination_port ?? '—'}`,
+    // The Egyptian port in Arabic for a chat that chose Arabic; the booking
+    // keeps the name customs use, and so does a card read by both.
+    `🌍 ${pair('خط الشحن', 'Route')}: ${booking.origin_port ?? '—'} ${routeArrow()} ${booking.destination_port ? portName(booking.destination_port) : '—'}`,
     '',
     `📄 ${pair('المستندات', 'Documents')}:`,
     ...(docLines.length ? docLines : ['—']),

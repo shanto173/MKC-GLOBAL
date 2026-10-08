@@ -117,6 +117,19 @@ export const DESTINATION_PORTS = [
   'Suez Port',
 ];
 
+/**
+ * The same five ports as an Arabic chat names them. Only ever what a customer
+ * reads: the booking keeps the English name above, which is what customs and
+ * the paperwork use, and lib/bookings.js matchPort() understands either.
+ */
+export const DESTINATION_PORTS_AR = {
+  'Alexandria Port (incl. El Dekheila)': 'ميناء الإسكندرية (شامل الدخيلة)',
+  'Port Said': 'ميناء بورسعيد',
+  'Damietta Port': 'ميناء دمياط',
+  'Ain Sokhna Port': 'ميناء العين السخنة',
+  'Suez Port': 'ميناء السويس',
+};
+
 export const ORIGIN_COUNTRIES = [
   'European Union',
   'United Kingdom',

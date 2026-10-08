@@ -23,7 +23,18 @@
 
 import { pick, currentChannel, currentLanguage } from '../lang.js';
 import { displayPhone } from '../phone.js';
+import { DESTINATION_PORTS_AR } from '../config.js';
 import { languageSupported } from './language.js';
+
+/** An Egyptian port in Arabic, for the Arabic half; anything else as it is. */
+const portAr = (port) => DESTINATION_PORTS_AR[port] ?? port;
+
+/**
+ * A port as this turn names it: in Arabic for a chat that chose Arabic, as
+ * the booking spells it otherwise - one line read by both before a choice
+ * keeps the paperwork's name.
+ */
+export const portName = (port) => (currentLanguage() === 'ar' ? portAr(port) : port);
 
 const RULE = '━━━━━━━━━━━━';
 
@@ -232,7 +243,7 @@ export const M = {
   vinAlreadyBooked: (b) => both(
     `✅ الوحدة دي محجوزة بالفعل.\n\n` +
     `رقم الحجز: ${b.booking_ref}\n` +
-    `خط الشحن: ${b.origin_port} ← ${b.destination_port}\n\n` +
+    `خط الشحن: ${b.origin_port} ← ${portAr(b.destination_port)}\n\n` +
     'مش محتاج تبعت طلب تاني.',
     `✅ This unit is already booked.\n\n` +
     `Booking Ref: ${b.booking_ref}\n` +
@@ -245,12 +256,13 @@ export const M = {
     '🌍 هتشحن من فين؟ اكتب المدينة أو ميناء الشحن (فيلنيوس، كلايبيدا، أنتويرب…).',
     '🌍 Where does it ship from? The city or port of loading (Vilnius, Klaipeda, Antwerp…).',
   ),
+  // The Arabic half lists the ports in Arabic; matchPort() takes them back.
   askDestination: (ports) => both(
-    `🇪🇬 وميناء الوصول في مصر؟\n${ports.map((p) => `• ${p}`).join('\n')}`,
+    `🇪🇬 وميناء الوصول في مصر؟\n${ports.map((p) => `• ${portAr(p)}`).join('\n')}`,
     `🇪🇬 And the Egyptian destination port?\n${ports.map((p) => `• ${p}`).join('\n')}`,
   ),
   destinationNotServed: (value, ports) => both(
-    `⚠️ "${value}" مش من الموانئ اللي بنخدمها. اختار من دول:\n${ports.map((p) => `• ${p}`).join('\n')}`,
+    `⚠️ "${value}" مش من الموانئ اللي بنخدمها. اختار من دول:\n${ports.map((p) => `• ${portAr(p)}`).join('\n')}`,
     `⚠️ "${value}" is not a port we serve. Please choose one of:\n${ports.map((p) => `• ${p}`).join('\n')}`,
   ),
 
@@ -447,7 +459,7 @@ What I need right now is ${needEn}.`,
     `رقم الحجز: ${b.booking_ref}\n` +
     `الشاسيه: ${b.vin}\n` +
     `الماركة: ${b.make}\n` +
-    `خط الشحن: ${b.origin_port} ← ${b.destination_port}\n\n` +
+    `خط الشحن: ${b.origin_port} ← ${portAr(b.destination_port)}\n\n` +
     'شكراً لاختيارك MKY Forwarding! 😊',
     `🎉 Your booking is confirmed!\n\n` +
     `Booking Ref: ${b.booking_ref}\n` +
