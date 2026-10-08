@@ -238,9 +238,12 @@ export function openViewer(ctx) {
           return h('tr', { class: c && !c.match ? 'is-mismatch' : '' },
             h('th', { scope: 'row' }, f.label),
             h('td', { dir: 'auto', class: f.field === 'vin' || f.field === 'mrn' ? 'mono' : '' }, String(f.value), f.typed ? h('span', { class: 'muted small' }, ' (typed)') : null),
+            // The verdict is one unbreakable word; a differing value is its
+            // own piece, free to wrap onto the next line in a narrow column.
             h('td', {}, c ? h('span', { class: `match ${c.match ? 'match-yes' : 'match-no'}` },
-              icon(c.match ? 'check' : 'alert', { size: 13 }), c.match ? ' Matches' : ` Differs: ${c.booking}`,
-              c.against && c.against !== 'the booking' ? h('span', { class: 'muted small' }, ` (${c.against.replace(/^the /, '')})`) : null)
+              icon(c.match ? 'check' : 'alert', { size: 13 }), c.match ? 'Matches' : 'Differs:',
+              c.match ? null : h('span', { class: 'match-value' }, c.booking),
+              c.against && c.against !== 'the booking' ? h('span', { class: 'match-value muted small' }, `(${c.against.replace(/^the /, '')})`) : null)
               : h('span', { class: 'muted' }, '—')));
         }))));
   }

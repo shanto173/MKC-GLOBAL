@@ -863,6 +863,12 @@ test('the viewer draws a PDF itself, at the screen\'s pixel density, with the br
   }
 });
 
+test('"Matches" in the viewer\'s narrow column is never broken mid-word', () => {
+  const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk', 'desk.css'), 'utf8');
+  const rule = css.match(/\n\.match\s*\{[^}]*\}/)?.[0] ?? '';
+  assert.match(rule, /white-space:\s*nowrap/, 'the cell allows breaks anywhere; the verdict must not take them');
+});
+
 test('no file of the desk ever builds HTML from data', () => {
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk');
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
