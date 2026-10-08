@@ -12,6 +12,7 @@
 
 import { createHash } from 'node:crypto';
 import { config, whatsappConfigured } from './config.js';
+import { db } from './supabase.js';
 import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
 import { splitLanguages } from './agent.js';
@@ -237,6 +238,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
   // On WhatsApp the outbox also knows the 24-hour window: outside it the
   // decision goes as the event's approved template, or waits for one.
   if (booking.chat_id && canMessage(booking.channel)) {
+    const key = `${confirmed ? 'booking_confirmed' : 'booking_rejected'}:${booking.booking_ref}`;
     const queued = await enqueue({
       channel: booking.channel,
       chatId: booking.chat_id,
@@ -244,7 +246,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
       eventType: confirmed ? 'booking_confirmed' : 'booking_rejected',
       entityType: 'booking',
       entityId: booking.booking_ref,
-      idempotencyKey: `${confirmed ? 'booking_confirmed' : 'booking_rejected'}:${booking.booking_ref}`,
+      idempotencyKey: key,
       payload: {
         booking_ref: booking.booking_ref,
         vin: booking.vin,
@@ -264,6 +266,8 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
     result.chat = queued.ok;
     result.channel = booking.channel;
     result.queued = queued.queued;
+    // The row's key, so whoever drains next can ask what became of it.
+    result.key = key;
     if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
 
     // Their copy of the confirmed paperwork, as its own row. A rejection gets
@@ -345,6 +349,7 @@ export async function notifyTicketResolved(ticket, { operator = 'operations' } =
   // ticket closed days after the client last wrote can only be a template.
   if (ticket.chat_id && ticket.channel === 'whatsapp' && canMessage('whatsapp')) {
     const marker = ticket.resolved_at ?? createHash('sha1').update(note).digest('hex').slice(0, 10);
+    const key = `ticket_resolved:${ticket.ticket_ref}:${marker}`;
     const queued = await enqueue({
       channel: 'whatsapp',
       chatId: ticket.chat_id,
@@ -352,13 +357,14 @@ export async function notifyTicketResolved(ticket, { operator = 'operations' } =
       eventType: 'ticket_resolved',
       entityType: 'support_ticket',
       entityId: ticket.ticket_ref,
-      idempotencyKey: `ticket_resolved:${ticket.ticket_ref}:${marker}`,
+      idempotencyKey: key,
       payload: { ticket_ref: ticket.ticket_ref, department: ticket.department ?? null, note: note || null },
     });
     await drain({ limit: 5 }).catch(() => null);
     result.whatsapp = queued.ok;
     result.chat = queued.ok;
     result.channel = 'whatsapp';
+    result.key = key;
     if (!queued.ok) result.errors.push(`outbox: ${queued.error}`);
     return result;
   }
@@ -383,11 +389,87 @@ export async function notifyTicketResolved(ticket, { operator = 'operations' } =
     { author: 'system', language, staffName: operator },
   );
   result.telegram = sent.ok;
+  result.chat = sent.ok;
+  result.channel = 'telegram';
+  // Sent here and now rather than queued, so its answer is already final.
+  result.delivered = sent.ok;
   if (!sent.ok) {
     result.errors.push(`telegram: ${sent.error}`);
     console.error('ticket resolved message failed:', sent.error);
   }
   return result;
+}
+
+const CHANNEL_WORDS = { telegram: 'Telegram', whatsapp: 'WhatsApp' };
+
+/**
+ * Was the customer reached? Asked after the drain that follows a decision, so
+ * the answer is about the message itself, not only about it being queued.
+ *
+ * The desk used to warn "could NOT be told" whenever neither Telegram nor
+ * email had been used - which is every WhatsApp customer, including the ones
+ * reading the message as the warning appeared. The warning now means what it
+ * says: the customer's own channel could not take the message and no email
+ * went either.
+ *
+ * A message WhatsApp is holding for a template that is not approved yet, or
+ * for a customer who wrote STOP, is not a failure: it is queued, and goes the
+ * moment they write. Saying "contact them directly" about it sends somebody to
+ * the phone for a message that is already on its way.
+ *
+ * @param {{chat?: boolean, telegram?: boolean, email?: boolean, channel?: string,
+ *          key?: string, delivered?: boolean}} told  what a notify* function returned
+ * @returns {Promise<{reached: 'sent'|'queued'|'held'|'email'|'failed'|'none', warn: boolean, words: string}>}
+ */
+export async function customerReached(told) {
+  const email = Boolean(told?.email);
+  const queued = Boolean(told?.chat ?? told?.telegram);
+  const where = CHANNEL_WORDS[told?.channel] ?? 'the chat';
+  const viaEmail = email ? ' They were told by email.' : '';
+
+  if (!queued) {
+    return email
+      ? { reached: 'email', warn: false, words: 'The customer was told by email.' }
+      : { reached: 'none', warn: true, words: 'The customer could NOT be told - contact them directly.' };
+  }
+  if (told.delivered || !told.key) {
+    return { reached: 'sent', warn: false, words: `The customer was told on ${where}.` };
+  }
+
+  const { data: row } = await db().from('notification_outbox')
+    .select('*').eq('idempotency_key', told.key).maybeSingle()
+    .then((r) => r, () => ({ data: null }));
+
+  if (!row || row.status === 'sent') {
+    return row
+      ? { reached: 'sent', warn: false, words: `The customer was told on ${where}.` }
+      : { reached: 'queued', warn: false, words: `The message to the customer is queued on ${where}.${viaEmail}` };
+  }
+  if (row.status === 'dead' || row.status === 'failed') {
+    const why = row.last_error ? ` (${String(row.last_error).slice(0, 160)})` : '';
+    return email
+      ? { reached: 'email', warn: false, words: `${where} refused the message${why}; the customer was told by email.` }
+      : { reached: 'failed', warn: true, words: `The customer could NOT be told: ${where} refused the message${why}. Contact them directly.` };
+  }
+  if (row.delivery_status === 'needs_template') {
+    return {
+      reached: 'held', warn: false,
+      words: `Queued - it goes when they write to us: ${where} only lets us write first with an approved `
+        + `template, and there is none for this message yet.${viaEmail}`,
+    };
+  }
+  if (row.delivery_status === 'opted_out') {
+    return {
+      reached: 'held', warn: false,
+      words: `Queued - it goes when they write to us again: the customer wrote STOP on ${where}. `
+        + `Call them if it cannot wait.${viaEmail}`,
+    };
+  }
+  // Still pending: either behind other messages in the queue, or refused once
+  // for a reason worth another try. Neither is the desk's to chase yet.
+  return Number(row.attempt_count) > 0
+    ? { reached: 'queued', warn: false, words: `Not delivered yet - it will be tried again automatically.${viaEmail}` }
+    : { reached: 'queued', warn: false, words: `The message to the customer is queued on ${where} and goes out shortly.${viaEmail}` };
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@
 
 import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
-import { notifyBookingDecision } from '../../lib/notify.js';
+import { notifyBookingDecision, customerReached } from '../../lib/notify.js';
 import { signedUrl } from '../../lib/storage.js';
 import { createShipmentFromBooking } from '../../lib/shipments.js';
 import { knownOperator } from './users.js';
@@ -249,18 +249,23 @@ async function decide(req, res) {
       needs_client_action: { requested, at: new Date().toISOString(), by: who.name ?? String(operator) },
     }).eq('booking_ref', ref);
 
+    const key = `missing_information:${ref}:${hashOf(requested)}`;
     const queued = await enqueue({
       chatId: updated.chat_id,
       clientId: updated.client_id ?? null,
+      channel: updated.channel ?? undefined,
       eventType: 'missing_information_requested',
       entityType: 'booking',
       entityId: ref,
       // Keyed on the text, so asking for a SECOND thing later sends a second
       // message, while a double-click on the same request sends one.
-      idempotencyKey: `missing_information:${ref}:${hashOf(requested)}`,
+      idempotencyKey: key,
       payload: { booking_ref: ref, requested },
     });
-    told = { telegram: queued.ok, email: false, errors: queued.ok ? [] : [queued.error] };
+    told = {
+      telegram: queued.ok, chat: queued.ok, channel: updated.channel ?? 'telegram', key,
+      email: false, errors: queued.ok ? [] : [queued.error],
+    };
   } else {
     told = await notifyBookingDecision(updated, status, note, {
       shipmentId: shipment?.ok ? shipment.shipment_id : null,
@@ -295,13 +300,21 @@ async function decide(req, res) {
   // whatever does not go out.
   await drain({ limit: 5 }).catch(() => null);
 
-  if (told.telegram || told.email) {
+  // Two of the actions say nothing to the customer, so there is nothing to
+  // report about reaching them. For the rest, the question is asked of the
+  // message after the drain - on whichever channel the customer is on.
+  const silent = ['cancelled', 'under_review'].includes(status);
+  const outcome = silent ? null : await customerReached(told);
+
+  // "Told" when the message went, or is simply queued behind the drain; not
+  // while WhatsApp holds it, and not when it was refused.
+  if (outcome && ['sent', 'queued', 'email'].includes(outcome.reached)) {
     await db().from('bookings').update({ customer_told_at: new Date().toISOString() }).eq('booking_ref', ref);
   }
 
-  if (!told.telegram && !told.email && !['cancelled', 'under_review'].includes(status)) {
-    warnings.push('The customer could NOT be told - contact them directly.');
-  }
+  // Only a customer who genuinely could not be reached is a warning; a message
+  // waiting for them to write is said as what it is, not as a failure.
+  if (outcome?.warn) warnings.push(outcome.words);
 
   res.status(200).json({
     ok: true,
@@ -310,6 +323,7 @@ async function decide(req, res) {
     shipment: shipment?.ok ? { shipment_id: shipment.shipment_id, existed: shipment.existed } : null,
     shipment_error: shipment && !shipment.ok ? shipment.error : null,
     warnings,
-    customer_told: told,
+    notices: outcome && !outcome.warn ? [outcome.words] : [],
+    customer_told: outcome ? { ...told, reached: outcome.reached, words: outcome.words, warn: outcome.warn } : told,
   });
 }

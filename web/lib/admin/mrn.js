@@ -20,6 +20,8 @@ import { config } from '../config.js';
 import { db } from '../supabase.js';
 import { knownOperator } from '../../api/admin/users.js';
 import { enqueue, drain } from '../outbox.js';
+import { customerReached } from '../notify.js';
+import { channelOf } from '../channels.js';
 import { completeTask } from '../operations.js';
 import { audit } from '../audit.js';
 
@@ -144,8 +146,9 @@ async function act(req, res) {
       .in('status', ['open', 'in_progress']);
   }
 
+  let told = null;
   if (queued && request.chat_id) {
-    await enqueue({
+    const sent = await enqueue({
       chatId: request.chat_id,
       clientId: request.client_id ?? null,
       eventType: queued.eventType,
@@ -155,6 +158,10 @@ async function act(req, res) {
       payload: queued.payload,
     });
     await drain({ limit: 5 }).catch(() => null);
+    // Whether the customer actually has it, in words the desk can repeat.
+    told = await customerReached({ chat: sent.ok, channel: channelOf(request.chat_id), key: queued.key });
+  } else if (queued) {
+    told = await customerReached({ chat: false });
   }
 
   await audit({
@@ -166,5 +173,5 @@ async function act(req, res) {
     metadata: { booking_ref: request.booking_ref, status: patch.status },
   });
 
-  res.status(200).json({ ok: true, request: updated[0] });
+  res.status(200).json({ ok: true, request: updated[0], customer_told: told });
 }

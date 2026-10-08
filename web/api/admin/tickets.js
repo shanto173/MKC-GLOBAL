@@ -11,7 +11,7 @@
 
 import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
-import { notifyTicketResolved } from '../../lib/notify.js';
+import { notifyTicketResolved, customerReached } from '../../lib/notify.js';
 import { knownOperator } from './users.js';
 
 export default async function handler(req, res) {
@@ -119,7 +119,11 @@ async function decide(req, res) {
   let told = null;
   if (status === 'resolved') {
     told = await notifyTicketResolved({ ...ticket, resolution_note: note }, { operator: who.name ?? operator });
-    if (told.telegram) {
+    // Asked of the message on whichever channel the ticket came from. Reading
+    // `telegram` alone left every WhatsApp ticket recorded as never told.
+    const outcome = await customerReached(told);
+    told = { ...told, reached: outcome.reached, words: outcome.words, warn: outcome.warn };
+    if (['sent', 'queued', 'email'].includes(outcome.reached)) {
       await db().from('support_tickets').update({ customer_told_at: new Date().toISOString() }).eq('ticket_ref', ref)
         .then(() => {}, () => {});   // absent before the migration; not worth failing over
     }

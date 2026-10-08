@@ -114,6 +114,23 @@ export function renderCase({ route, main, refreshCounts }) {
     refreshCounts();
   }
 
+  /**
+   * After an action that tells the customer: what the server found when it
+   * asked whether they were reached, in its words and in the tone it deserves.
+   * Nothing is assumed here any more - "The customer is being told" used to be
+   * said even when the message had been refused, and a red "could NOT be told"
+   * appeared for WhatsApp customers who were reading the message.
+   */
+  async function afterTelling(done, r) {
+    await after(done);
+    const warned = new Set(r?.warnings ?? []);
+    for (const w of warned) toast(w, 'bad', { timeout: 15000 });
+    const told = r?.customer_told;
+    if (told?.words && !warned.has(told.words)) {
+      toast(told.words, told.warn ? 'bad' : told.reached === 'sent' ? 'ok' : 'info', { timeout: told.warn ? 15000 : 9000 });
+    }
+  }
+
   /** A refusal because the case moved on: say who did what, and show the latest. */
   async function stale(err) {
     toast(err.message, 'info', { timeout: 9000 });
@@ -492,7 +509,8 @@ export function renderCase({ route, main, refreshCounts }) {
         run: async (dlg) => {
           if (!ta.value.trim()) throw new Error('Write what they should send.');
           const r = await post({ action: 'request_info', booking_ref: ref, requested: ta.value.trim(), version, action_key: dlg.key });
-          await after(r.duplicate ? 'They were already asked exactly this.' : 'Sent. The booking now waits for the customer.');
+          if (r.duplicate) await after('They were already asked exactly this.');
+          else await afterTelling('Asked. The booking now waits for the customer.', r);
         },
       }],
       onStale: stale,
@@ -522,8 +540,7 @@ export function renderCase({ route, main, refreshCounts }) {
         run: async (dlg) => {
           const r = await post({ action: 'confirm', booking_ref: ref, version, action_key: dlg.key });
           const ship = r.shipment?.shipment_id ? ` Shipment ${r.shipment.shipment_id} is open.` : '';
-          await after(`Confirmed.${ship}`);
-          for (const w of r.warnings ?? []) toast(w, 'bad', { timeout: 15000 });
+          await afterTelling(`Confirmed.${ship}`, r);
         },
       }],
       onStale: stale,
@@ -544,8 +561,8 @@ export function renderCase({ route, main, refreshCounts }) {
         label: 'Reject and tell the customer', kind: 'danger', busy: 'Rejecting…',
         run: async (dlg) => {
           if (!ta.value.trim()) throw new Error('Say why — the customer is told the reason.');
-          await post({ action: 'reject', booking_ref: ref, note: ta.value.trim(), version, action_key: dlg.key });
-          await after('Rejected. The customer is being told.');
+          const r = await post({ action: 'reject', booking_ref: ref, note: ta.value.trim(), version, action_key: dlg.key });
+          await afterTelling('Rejected.', r);
         },
       }],
       onStale: stale,
@@ -642,8 +659,8 @@ export function renderCase({ route, main, refreshCounts }) {
         label: 'Record and tell the customer', kind: 'primary', busy: 'Recording…',
         run: async () => {
           if (!input.value.trim()) throw new Error('Type the MRN.');
-          await post({ action: 'issue_mrn', ...target, ...(requestRef ? { request_ref: requestRef } : {}), mrn_number: input.value.trim().toUpperCase(), version });
-          await after('MRN recorded. The customer is being told.');
+          const r = await post({ action: 'issue_mrn', ...target, ...(requestRef ? { request_ref: requestRef } : {}), mrn_number: input.value.trim().toUpperCase(), version });
+          await afterTelling('MRN recorded.', r);
         },
       }],
       onStale: stale,
@@ -663,8 +680,8 @@ export function renderCase({ route, main, refreshCounts }) {
         label: 'Send to customer', kind: 'primary', busy: 'Sending…',
         run: async () => {
           if (!ta.value.trim()) throw new Error('Write what you need.');
-          await post({ action: 'mrn_need_info', request_ref: ref, requested: ta.value.trim(), version });
-          await after('Sent. The application waits for the customer.');
+          const r = await post({ action: 'mrn_need_info', request_ref: ref, requested: ta.value.trim(), version });
+          await afterTelling('Asked. The application waits for the customer.', r);
         },
       }],
       onStale: stale,
@@ -685,8 +702,8 @@ export function renderCase({ route, main, refreshCounts }) {
         label: 'Resolve and tell the customer', kind: 'primary', busy: 'Sending…',
         run: async () => {
           if (!ta.value.trim()) throw new Error('Say what was done — the customer is told this.');
-          await post({ action: 'request_resolve', ticket_ref: ref, note: ta.value.trim(), version });
-          await after('Resolved. The customer is being told.');
+          const r = await post({ action: 'request_resolve', ticket_ref: ref, note: ta.value.trim(), version });
+          await afterTelling('Resolved.', r);
         },
       }],
       onStale: stale,

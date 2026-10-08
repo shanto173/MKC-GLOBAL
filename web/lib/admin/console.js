@@ -37,6 +37,7 @@ import { config } from '../config.js';
 import { db } from '../supabase.js';
 import { audit } from '../audit.js';
 import { enqueue, drain } from '../outbox.js';
+import { customerReached } from '../notify.js';
 import { createTask, completeTask } from '../operations.js';
 import { requiredDocuments } from '../settings.js';
 import { openMrnRequest } from '../mrn.js';
@@ -558,6 +559,7 @@ async function requestInfo(req, res, who) {
 
   const key = actionKeyOf(req.body);
   const customer = await customerFor({ clientId: booking.client_id, channel: booking.channel ?? 'telegram', chatId: booking.chat_id });
+  const idempotencyKey = `request_info:${ref}:${hash(requested)}${key ? `:${key}` : ''}`;
   const queued = await enqueue({
     chatId: booking.chat_id,
     clientId: booking.client_id ?? null,
@@ -566,7 +568,7 @@ async function requestInfo(req, res, who) {
     entityType: 'booking',
     entityId: ref,
     language: customer.language,
-    idempotencyKey: `request_info:${ref}:${hash(requested)}${key ? `:${key}` : ''}`,
+    idempotencyKey,
     payload: { booking_ref: ref, requested },
   });
   await drain({ limit: 5 }).catch(() => null);
@@ -578,7 +580,12 @@ async function requestInfo(req, res, who) {
     });
   }
 
-  res.status(200).json({ ok: true, queued: queued.ok, duplicate: queued.ok && !queued.queued, status: 'needs_client_action' });
+  // What became of the message, so the desk says "sent", "waiting for them to
+  // write" or "not delivered" rather than "sent" in every case.
+  const told = await customerReached({ chat: queued.ok, channel: booking.channel ?? 'telegram', key: idempotencyKey });
+  res.status(200).json({
+    ok: true, queued: queued.ok, duplicate: queued.ok && !queued.queued, status: 'needs_client_action', customer_told: told,
+  });
 }
 
 /**

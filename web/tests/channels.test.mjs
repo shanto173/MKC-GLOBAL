@@ -19,9 +19,10 @@ process.env.WHATSAPP_PHONE_NUMBER_ID = 'PNID';
 process.env.WHATSAPP_APP_SECRET = 'app-secret';
 process.env.WHATSAPP_VERIFY_TOKEN = 'verify-me';
 process.env.TELEGRAM_BOT_TOKEN = 'tg-token';
+process.env.ADMIN_SECRET = 'desk-secret';
 
 const { createFakeDb } = await import('./helpers/fake-db.mjs');
-const { fakeNetwork, withoutSchema, MIGRATION_COLUMNS } = await import('./helpers/whatsapp.mjs');
+const { fakeNetwork, withoutSchema, mockRes, MIGRATION_COLUMNS } = await import('./helpers/whatsapp.mjs');
 const { setClientForTests } = await import('../lib/supabase.js');
 const { invalidateSettings } = await import('../lib/settings.js');
 const { withLanguage } = await import('../lib/lang.js');
@@ -535,6 +536,88 @@ test('a free-form message Meta later reports as outside the window waits for a t
   net.reset();
   await drain();
   assert.deepEqual(net.sent().map((m) => m.type), ['template']);
+});
+
+// ---------------------------------------------------------------------------
+// The desk deciding a WhatsApp booking: was the customer told?
+// ---------------------------------------------------------------------------
+
+const decideBooking = (await import('../api/admin/bookings.js')).default;
+const ticketsApi = (await import('../api/admin/tickets.js')).default;
+
+/** A WhatsApp booking with the desk, and a desk with one person on it. */
+function deskSetup({ lastWrote = 1 * HOUR, seed = {} } = {}) {
+  return setup({
+    lastWrote,
+    seed: {
+      bookings: [{ ...BOOKING, status: 'under_review' }],
+      ops_users: [{ name: 'Sara', role: 'ops_agent', active: true }],
+      ...seed,
+    },
+  });
+}
+
+async function decide(action, extra = {}) {
+  const res = mockRes();
+  await decideBooking({
+    method: 'POST', query: { secret: 'desk-secret' }, headers: {},
+    body: { booking_ref: BOOKING.booking_ref, action, operator: 'Sara', ...extra },
+  }, res);
+  return res;
+}
+
+const NOT_TOLD = /could NOT be told/;
+
+test('confirming a WhatsApp booking the customer received on WhatsApp warns of nothing', async () => {
+  const db = deskSetup();
+  const res = await decide('confirm');
+  assert.equal(res.statusCode, 200);
+
+  const said = net.sent().map((m) => m.interactive?.body?.text ?? m.text?.body ?? '').join('\n');
+  assert.match(said, /MKY-BKG-261007-A1/, 'the confirmation reached them on WhatsApp');
+  assert.ok(!res.body.warnings.some((w) => NOT_TOLD.test(w)), `no false alarm: ${res.body.warnings.join(' | ')}`);
+  assert.equal(res.body.customer_told.reached, 'sent');
+  assert.match(res.body.customer_told.words, /WhatsApp/);
+  assert.ok(db._tables.bookings[0].customer_told_at, 'recorded as told');
+});
+
+test('a rejection held for an unapproved template is queued for when they write, not "could not be told"', async () => {
+  // Thirty hours since they wrote, and TEMPLATES has nothing for a rejection.
+  const db = deskSetup({ lastWrote: 30 * HOUR });
+  const res = await decide('reject', { note: 'The vessel is full this month.' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(net.sent().length, 0, 'nothing went as free text outside the window');
+
+  assert.deepEqual(res.body.warnings, []);
+  assert.equal(res.body.customer_told.reached, 'held');
+  assert.match(res.body.customer_told.words, /when they write/i);
+  assert.equal(db._tables.bookings[0].customer_told_at ?? null, null, 'not told yet, so not recorded as told');
+});
+
+test('WhatsApp refusing the message, with no email to fall back on, is the one case that warns', async () => {
+  deskSetup();
+  net.failNext(131026, 'Message undeliverable');
+  const res = await decide('reject', { note: 'We do not serve that port.' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.customer_told.reached, 'failed');
+  assert.ok(res.body.warnings.some((w) => NOT_TOLD.test(w)), 'the desk is told to contact them');
+});
+
+test('a ticket resolved on WhatsApp is recorded as told', async () => {
+  const db = setup({
+    seed: {
+      support_tickets: [{ ticket_ref: 'MKY-T-9', status: 'open', channel: 'whatsapp', chat_id: WA, client_id: 7, department: 'Customer Care' }],
+      ops_users: [{ name: 'Sara', role: 'ops_agent', active: true }],
+    },
+  });
+  const res = mockRes();
+  await ticketsApi({
+    method: 'POST', query: { secret: 'desk-secret' }, headers: {},
+    body: { ticket_ref: 'MKY-T-9', action: 'resolve', note: 'We called the port; the truck is released.', operator: 'Sara' },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.customer_told.reached, 'sent');
+  assert.ok(db._tables.support_tickets[0].customer_told_at, 'stamped, as a Telegram ticket always was');
 });
 
 // ---------------------------------------------------------------------------
