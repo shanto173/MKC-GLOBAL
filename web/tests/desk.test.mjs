@@ -1075,6 +1075,28 @@ test('the desk number is set in Settings and is the one the bot gives; the old e
   assert.equal(view.body.values.operations_phone, '+20 3 111 2222', 'and the page shows what is set');
 });
 
+// The live test, 2026-10-08: an urgent after-hours customer was told to ring
+// "our responsible person directly on +48 512 345 678" - the placeholder the
+// setup seeded as direct_phone, and the number the tests and docs use.
+test('Settings says when the direct line still looks like the example number from the setup', async () => {
+  rows('bot_settings').push({ key: 'direct_phone', value: '+48 512 345 678' });
+  invalidateSettings();
+  const view = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(view.status, 200);
+  assert.equal(view.body.values.direct_phone, '+48 512 345 678', 'the value is shown as it is - nothing is changed');
+  assert.match(view.body.warnings.direct_phone, /looks like the example number/);
+
+  const saved = await post({ action: 'settings_write', changes: { direct_phone: '+48 512-345-678' } }, 'Ariful');
+  assert.equal(saved.status, 200, 'saving it is not refused');
+  assert.match(saved.body.warnings.direct_phone, /looks like the example number/);
+
+  const real = await post({ action: 'settings_write', changes: { direct_phone: '+20 100 222 3333' } }, 'Ariful');
+  assert.equal(real.status, 200);
+  assert.equal(real.body.warnings?.direct_phone ?? null, null);
+  const after = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(after.body.warnings?.direct_phone ?? null, null);
+});
+
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {
   const add = await post({ action: 'user_save', name: 'Mona', role: 'ops_agent' }, 'Ariful');
   assert.equal(add.status, 200);
