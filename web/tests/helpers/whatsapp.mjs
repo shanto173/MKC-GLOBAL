@@ -285,3 +285,42 @@ export const MIGRATION_COLUMNS = {
 };
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Makes chosen database calls slow, the way Supabase was in the live test:
+ * every call `match(table, query)` picks waits - for `release()`, or for
+ * `delayMs` when one is given - before it runs. `waiting` counts the calls
+ * that have been held, so a test can see the write it is holding is there.
+ *
+ * `match` sees the fake's query: `q.op` is 'select' | 'insert' | 'update' |
+ * 'upsert' | 'delete', `q.payload` what is being written.
+ */
+export function gateCalls(db, match, { delayMs = null, times = Infinity } = {}) {
+  let open;
+  const gate = new Promise((resolve) => { open = resolve; });
+  const state = { waiting: 0, release: () => open() };
+  const from = db.from.bind(db);
+  db.from = (name) => {
+    const q = from(name);
+    const run = q.run.bind(q);
+    q.run = async () => {
+      if (state.waiting < times && match(name, q)) {
+        state.waiting++;
+        await (delayMs != null ? sleep(delayMs) : gate);
+      }
+      return run();
+    };
+    return q;
+  };
+  return state;
+}
+
+/** Polls until `check()` is true, for at most `ms`. Returns whether it became true. */
+export async function waitUntil(check, ms = 3000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (check()) return true;
+    await sleep(10);
+  }
+  return Boolean(check());
+}

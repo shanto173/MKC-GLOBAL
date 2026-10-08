@@ -23,7 +23,8 @@
  */
 
 import { S, FLOWS, AWAITING_TEXT, ACCEPTS_DOCUMENTS } from './states.js';
-import { loadSession, saveSession, resetSession } from './store.js';
+import { loadSession, startSessionWrite, sessionAfter } from './store.js';
+import { defer } from '../background.js';
 import { flowReady } from './ready.js';
 import { storedLanguage, rememberLanguage, languageSupported } from './language.js';
 import { M, DOC_LABELS } from './messages.js';
@@ -58,15 +59,23 @@ const reply = (messages, patch = {}) => ({ messages: [].concat(messages), patch 
  *          waId?: string, language?: 'en'|'ar'|null}} ctx
  *   `waId` is a WhatsApp sender's number (E.164 digits, no +); `language` is
  *   one the transport already knows, used when none is stored.
- * @returns {Promise<{handled: boolean, messages: Array, state: string, language: 'en'|'ar'|null}>}
+ * @param {{awaitSave?: boolean}} [opts]
+ *   awaitSave  false hands the result back as soon as the reply is decided,
+ *              with the session write still going: `saved` resolves when it
+ *              has landed. The transports send first and wait for `saved`
+ *              before they mark the message done, so a slow write delays the
+ *              bookkeeping, not the customer. Everything else - the website,
+ *              scripts, tests - keeps the old contract by default.
+ * @returns {Promise<{handled: boolean, messages: Array, state: string, language: 'en'|'ar'|null,
+ *                    saved: Promise<void>}>}
  */
-export async function runFlow(input, ctx) {
+export async function runFlow(input, ctx, { awaitSave = true } = {}) {
   // Migration 008 not applied: the flow has nowhere to keep its state, so it
   // stands aside completely and the previous engine answers. Returning
   // handled:false rather than an error is what keeps the bot alive through a
   // deploy that beat its migration.
   if (!(await flowReady())) {
-    return { handled: false, messages: [], state: S.MAIN_MENU, degraded: true };
+    return { handled: false, messages: [], state: S.MAIN_MENU, degraded: true, saved: Promise.resolve() };
   }
 
   // The session and the client's language are read side by side: one wait on
@@ -76,7 +85,14 @@ export async function runFlow(input, ctx) {
 
   // Everything said this turn is said in that language, and worded for that
   // channel - including what the handlers say from deep inside.
-  return withTurn({ lang: language, channel: ctx.channel }, () => turn(session, error, input, ctx, language));
+  const result = await withTurn({ lang: language, channel: ctx.channel }, () => turn(session, error, input, ctx, language));
+  const saved = result.saved ?? Promise.resolve();
+  // Whatever the caller does next, the function does not return before the
+  // write has landed (lib/background.js): a write left running when the
+  // response goes out may never happen at all on a serverless platform.
+  defer(saved);
+  if (awaitSave) await saved;
+  return { ...result, saved };
 }
 
 /** The client's stored choice. The website widget is never asked, so has none. */
@@ -110,8 +126,8 @@ async function turn(session, error, input, ctx, language) {
     // Nothing to say - the assistant answers. But a language just learned from
     // the message, and the language question it closed, are still worth
     // writing down.
-    if (Object.keys(result.patch ?? {}).length) await saveSession(session, result.patch);
-    return { handled: false, messages: [], state: result.patch?.current_state ?? session.current_state, language: spoken };
+    const saved = Object.keys(result.patch ?? {}).length ? startSessionWrite(session, result.patch) : undefined;
+    return { handled: false, messages: [], state: result.patch?.current_state ?? session.current_state, language: spoken, saved };
   }
 
   // A turn that said nothing and changed nothing - one file of several, read
@@ -142,16 +158,19 @@ async function turn(session, error, input, ctx, language) {
   const patch = { ...(result.patch ?? {}) };
   patch.context = { ...(patch.context ?? session.context ?? {}), offered };
 
-  const saved = await saveSession(session, patch);
+  // Started, not waited for: the reply is decided, and the caller chooses
+  // whether to send it before the write lands (see runFlow).
+  const next = sessionAfter(session, patch);
+  const saved = startSessionWrite(session, patch);
   logEvent('flow_transition', {
     chat_id: String(ctx.chatId),
     from: session.current_state,
-    to: saved.current_state,
+    to: next.current_state,
     kind: input.kind,
     correlation_id: ctx.correlationId,
   });
 
-  return { handled: true, messages: result.messages ?? [], state: saved.current_state, offered, language: spoken };
+  return { handled: true, messages: result.messages ?? [], state: next.current_state, offered, language: spoken, saved };
 }
 
 // ---------------------------------------------------------------------------
@@ -449,9 +468,11 @@ async function acknowledge(session, answered, documents, ctx, { first }) {
 
 async function handleCommand(session, command, ctx) {
   switch (command) {
+    // No separate reset write first: the patch below is that reset, and the
+    // turn writes it once. A second write in front of the reply was a second
+    // chance for a slow database to hold the menu back.
     case '/start':
     case '/menu':
-      await resetSession(session);
       return reply(say(M.welcome(ctx.userName), kb.mainMenu()), {
         active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
       });
@@ -500,8 +521,8 @@ async function handleCallback(session, callback, ctx) {
 
   if (ns === 'menu') {
     switch (action) {
+      // The patch is the reset; see /menu above.
       case 'home':
-        await resetSession(session);
         return reply(say(M.menu(), kb.mainMenu()), {
           active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
         });

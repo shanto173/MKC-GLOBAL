@@ -14,7 +14,7 @@
 
 import { db } from '../supabase.js';
 import { normaliseLanguage } from '../lang.js';
-import { sessionKey } from './store.js';
+import { sessionKey, sessionSettled } from './store.js';
 
 // Learned once per process: a missing column does not appear mid-flight.
 let supported = null;
@@ -54,6 +54,8 @@ export async function storedLanguage({ channel, chatId, clientId = null }) {
   }
 
   if (chatId == null) return null;
+  // A language chosen last turn may still be on its way to the session row.
+  await sessionSettled(channel, chatId);
   const { data, error } = await db()
     .from('conversation_sessions').select('language').eq('id', sessionKey(channel, chatId)).maybeSingle();
   if (error) { noteError(error); return null; }
