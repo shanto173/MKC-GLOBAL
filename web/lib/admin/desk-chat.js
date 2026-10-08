@@ -505,6 +505,9 @@ const messageOut = (m, retried) => ({
   author: m.author,
   staff_name: m.staff_name ?? null,
   ...displayBody(m),
+  // A file's own name, so the desk can show it as a file - the body of a
+  // file message is only its caption, often empty.
+  file_name: m.payload?.file_name ?? null,
   language: m.language ?? null,
   booking_ref: m.booking_ref ?? null,
   status: m.status,

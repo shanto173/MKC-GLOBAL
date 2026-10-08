@@ -561,6 +561,22 @@ test('the conversation comes back as data: failures in words, customer text unto
   assert.ok(r.body.bookings.some((b) => b.booking_ref === 'MKY-BKG-2'));
 });
 
+test('a file the customer sent comes back with its own name, the caption kept as the body', async () => {
+  rows('chat_messages').push(
+    { id: 40, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'document', body: null, payload: { file_name: 'فاتورة-7710.pdf', media_id: 'm1' }, status: 'received', created_at: iso(60_000) },
+    { id: 41, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'in', author: 'client', kind: 'image', body: 'the chassis plate', payload: { file_name: null }, status: 'received', created_at: iso(30_000) },
+  );
+  const r = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  const file = r.body.messages.find((m) => m.id === 40);
+  assert.equal(file.kind, 'document');
+  assert.equal(file.file_name, 'فاتورة-7710.pdf', 'the name exactly as sent, for the desk to show as a file');
+  assert.ok(!file.body, 'no caption, so no words');
+  const photo = r.body.messages.find((m) => m.id === 41);
+  assert.equal(photo.file_name, null);
+  assert.equal(photo.body, 'the chassis plate');
+  assert.equal(r.body.messages.find((m) => m.id === 1).file_name, null, 'a text message has no file name');
+});
+
 test('before the migration the conversation says when history starts, and sending still works', async () => {
   setup({}, { missingTables: ['chat_messages'] });
   const r = await get({ view: 'chat', channel: 'telegram', chat_id: '555' });
