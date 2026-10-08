@@ -775,6 +775,46 @@ test('the request-resolved preview is word for word what notify.js sends', async
   assert.match(JSON.stringify(sent.body.reply_markup ?? {}), /menu:contact/);
 });
 
+// The live test, 2026-10-08: the customer sent an invoice for the wrong
+// chassis, then the right one, which the desk verified. "Ask for a new one" on
+// the wrong one still asked the customer for "A new Invoice" and put the
+// booking back on them - and the answer carried no told/not-told words, so
+// the desk showed no toast.
+
+test('asking for a new copy of a paper already put right sets the wrong one aside, without asking again', async () => {
+  rows('booking_documents').push({
+    id: 104, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'invoice', status: 'received', vin: 'YV2RT40A8FB799999',
+    storage_path: '1/MKY-BKG-1/inv-wrong.pdf', mime_type: 'application/pdf', extraction_ok: true, extracted: { ok: true, vin: 'YV2RT40A8FB799999' },
+    uploaded_at: iso(6 * 3600_000),
+  });
+  // The right invoice (101) is in, for this chassis, and checked.
+  rows('booking_documents').find((d) => d.id === 101).status = 'verified';
+  const outboxBefore = rows('notification_outbox').length;
+
+  const r = await post({ action: 'reject_document', document_id: 104, reason_code: 'wrong_vin', reason: 'chassis on this invoice is different' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'rejected');
+  assert.equal(r.body.set_aside, true);
+  assert.equal(r.body.replaced_by.id, 101);
+  assert.match(r.body.customer_told.words, /already sent a correct Invoice/);
+  assert.match(r.body.customer_told.words, /not asked/);
+  assert.equal(r.body.customer_told.warn, false);
+  assert.equal(rows('notification_outbox').length, outboxBefore, 'nothing sent to the customer');
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').status, 'pending_review', 'the booking is not put back on them');
+  assert.equal(rows('booking_documents').find((d) => d.id === 104).status, 'rejected');
+});
+
+test('asking for a new copy of a paper not yet put right asks the customer, and says whether they were told', async () => {
+  const r = await post({ action: 'reject_document', document_id: 102, reason_code: 'wrong_vin', reason: 'chassis on this CMR is different' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'replacement_requested');
+  assert.ok(r.body.customer_told.words, 'words for the toast, like every other action that messages the customer');
+  assert.equal(typeof r.body.customer_told.warn, 'boolean');
+  assert.ok(['sent', 'queued', 'held', 'failed', 'none', 'email'].includes(r.body.customer_told.reached));
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').status, 'needs_client_action');
+  assert.ok(rows('notification_outbox').some((o) => o.event_type === 'document_rejected' && o.entity_id === 'MKY-BKG-1'));
+});
+
 /** A request's call-back tasks as the bot writes them - and as it wrote them before 2026-10-08. */
 function callbackTasks() {
   const t = rows('support_tickets')[0];

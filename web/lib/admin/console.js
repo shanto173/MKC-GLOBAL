@@ -47,7 +47,7 @@ import shipmentsApi from '../../api/admin/shipments.js';
 import mrnApi from './mrn.js';
 import {
   readiness, canTransition, statusLabel, statusWords, statusTone, canTransitionRequest, requestStatusLabel,
-  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES,
+  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES, DOC_LABEL,
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
@@ -489,6 +489,47 @@ async function reviewDocument(req, res, who, verify, ctx) {
 
   const code = String(req.body.reason_code ?? 'other');
   const note = String(req.body.reason ?? '').trim().slice(0, 300);
+  const { data: booking } = doc.booking_ref
+    ? await db().from('bookings').select('client_id, chat_id, channel, customer_name, vin')
+      .eq('booking_ref', doc.booking_ref).maybeSingle()
+    : { data: null };
+
+  // A paper the customer has already put right is not asked for again. In the
+  // live test the wrong-chassis invoice was sent back after the right one had
+  // been checked, and the customer was asked for "A new Invoice" they had
+  // already sent, with the booking put back on them. The wrong one is set
+  // aside instead - kept, as the record of what was sent - and the desk is
+  // told why nobody was asked. `ask_anyway` asks regardless.
+  const replacement = req.body.ask_anyway === true ? null : await putRight(doc, booking);
+  if (replacement) {
+    const { error } = await db().from('booking_documents').update({
+      status: 'rejected',
+      rejection_code: code,
+      rejection_reason: note || null,
+      reviewed_at: new Date().toISOString(),
+      verified_by: who.name,
+    }).eq('id', id);
+    if (error) return res.status(500).json({ error: 'We could not save that.' });
+    await audit({
+      actor_type: 'operator', actor_id: who.name, action: 'document_set_aside',
+      entity_type: 'booking_document', entity_id: String(id),
+      metadata: { doc_type: doc.doc_type, booking_ref: doc.booking_ref, reason_code: code, replaced_by: replacement.id },
+    });
+    const label = DOC_LABEL[doc.doc_type] ?? 'document';
+    const state = replacement.status === 'verified' ? 'checked' : 'for this chassis, not checked yet';
+    return res.status(200).json({
+      ok: true,
+      status: 'rejected',
+      set_aside: true,
+      replaced_by: { id: replacement.id, doc_type: replacement.doc_type, status: replacement.status },
+      customer_told: {
+        reached: 'not_asked',
+        warn: false,
+        words: `Set aside. The customer already sent a correct ${label} (${state}), so they were not asked for another.`,
+      },
+    });
+  }
+
   const { error } = await db().from('booking_documents').update({
     status: 'replacement_requested',
     rejection_code: code,
@@ -500,30 +541,33 @@ async function reviewDocument(req, res, who, verify, ctx) {
 
   // The old file stays. It is the record of what was sent, and a replacement
   // that arrives later points back at it.
-  let told = null;
+  let told = { reached: 'none', warn: true, words: 'This document is on no booking, so there was no customer to ask. Contact them directly.' };
   if (doc.booking_ref) {
-    const { data: booking } = await db().from('bookings').select('client_id, chat_id, channel, customer_name')
-      .eq('booking_ref', doc.booking_ref).maybeSingle();
     await db().from('bookings').update({ status: 'needs_client_action' })
       .eq('booking_ref', doc.booking_ref)
       .in('status', ['pending_review', 'under_review']);
 
-    const customer = await customerFor({ clientId: booking?.client_id, channel: booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id), chatId: booking?.chat_id ?? doc.chat_id });
+    const channel = booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id);
+    const customer = await customerFor({ clientId: booking?.client_id, channel, chatId: booking?.chat_id ?? doc.chat_id });
+    const idempotencyKey = `doc_replacement:${id}:${code}`;
     const queued = await enqueue({
       chatId: booking?.chat_id ?? doc.chat_id,
       clientId: booking?.client_id ?? null,
-      channel: booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id),
+      channel,
       // Its own event, so on WhatsApp outside the 24 hours the template that
       // carries it says "send a new document", not "we need information".
       eventType: 'document_rejected',
       entityType: 'booking',
       entityId: doc.booking_ref,
       language: customer.language,
-      idempotencyKey: `doc_replacement:${id}:${code}`,
+      idempotencyKey,
       payload: { booking_ref: doc.booking_ref, ...replacementRequest(doc.doc_type, code, note) },
     });
     await drain({ limit: 5 }).catch(() => null);
-    told = { queued: queued.ok, duplicate: queued.ok && !queued.queued };
+    // Told or not, in the same words every other action that messages the
+    // customer uses, so the desk can say so. This answered only "queued".
+    const reached = await customerReached({ chat: queued.ok, channel, key: idempotencyKey });
+    told = { queued: queued.ok, duplicate: queued.ok && !queued.queued, ...reached };
   }
 
   await audit({
@@ -706,6 +750,27 @@ async function mrnAction(req, res, who, action) {
     },
   };
   return mrnApi(proxied, res);
+}
+
+/**
+ * Another paper of the same kind on this booking that has put this one right:
+ * checked by the desk, or carrying the booking's own chassis. Brief and EUR.1
+ * count as one kind, as they do for the requirement (lib/documents.js).
+ *
+ * @returns {Promise<object|null>} that document, or null
+ */
+async function putRight(doc, booking) {
+  if (!doc.booking_ref) return null;
+  const { data: others } = await db().from('booking_documents')
+    .select('id, doc_type, status, vin, uploaded_at').eq('booking_ref', doc.booking_ref).is('deleted_at', null);
+  const kind = (t) => (['brief', 'eur1'].includes(t) ? 'transport' : t);
+  const norm = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const chassis = norm(booking?.vin);
+  const right = (others ?? []).filter((d) => d.id !== doc.id && kind(d.doc_type) === kind(doc.doc_type)
+    && (d.status === 'verified'
+      || (['received', 'pending_verification'].includes(d.status) && chassis && norm(d.vin) === chassis)));
+  // A checked one first: that is the one the desk has already vouched for.
+  return right.find((d) => d.status === 'verified') ?? right[0] ?? null;
 }
 
 /** Closes the review task once a document is checked, so the work queue agrees with the record. */
