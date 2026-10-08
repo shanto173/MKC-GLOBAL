@@ -507,7 +507,7 @@ At 1920 px the list fills the content width, and the extra goes to the customer 
   - everything the server marks `more` under an icon-only "…" menu.
 - **980 px and below**: one column, the conversation 640 px tall, the header not sticky.
 - **Phone**: a sticky **Case / Chat** switch under the header.
-  - "Chat" shows the conversation at the full height of the screen with the composer in reach, and hides the work.
+  - "Chat" hides the work and shrinks the header to the reference and its badges. The conversation fills the rest of the screen above the tab bar, with the composer in reach without scrolling.
   - "Case" shows the work, with the primary action in a bottom bar once the Next step card scrolls away. That bar has a "Chat" button that switches panes.
 
 ### Document viewer

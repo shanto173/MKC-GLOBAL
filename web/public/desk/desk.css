@@ -1154,7 +1154,10 @@ a.result:hover .result-title { color: var(--brand-700); }
   .case[data-pane="work"] .case-side { display: none; }
   .case[data-pane="chat"] .case-main { display: none; }
   .case[data-pane="chat"] .sticky-bar { display: none; }
-  .case-side { height: calc(100dvh - var(--top-h) - 64px - 58px - env(safe-area-inset-bottom)); min-height: 420px; }
+  /* In the Chat pane the header shrinks to its title, and the conversation fills
+     what is left above the tab bar, so the composer is in reach without scrolling. */
+  .case[data-pane="chat"] .case-facts, .case[data-pane="chat"] .case-head-side { display: none; }
+  .case-side { height: calc(100dvh - var(--top-h) - var(--case-head-h) - 64px - 78px - env(safe-area-inset-bottom)); min-height: 360px; }
   .check-item { grid-template-columns: 32px minmax(0, 1fr) auto; }
   .kv { grid-template-columns: minmax(0, 1fr); }
   .kv-key { border-top: 1px solid var(--line); padding-bottom: 0; min-height: 0; }
@@ -1219,6 +1222,14 @@ a.result:hover .result-title { color: var(--brand-700); }
   .result { grid-template-columns: 28px minmax(0, 1fr) auto; }
   .result > svg:last-child { display: none; }
   .toasts, .toasts[popover] { bottom: calc(70px + env(safe-area-inset-bottom)); }
+}
+
+/* Short laptop screens (1280×800 at 125%): the transcript keeps the height. */
+@media (max-height: 860px) and (min-width: 761px) {
+  .convo-head { padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
+  .convo-state { display: none; }
+  .composer { padding: var(--sp-2) var(--sp-3); }
+  .composer-input { min-height: 52px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

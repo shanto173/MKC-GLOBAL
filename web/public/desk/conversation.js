@@ -90,18 +90,27 @@ export function mountConversation(container, { channel, chatId, target, draftKey
   // Whether the newest message is in view. While it is, the transcript stays
   // pinned to the bottom even when its box changes size (the page header
   // settling, the composer growing, a phone keyboard opening).
+  // A scroll the desk made itself does not count as the person scrolling
+  // away: the browser reports it a frame later, after the composer has been
+  // drawn and the box has shrunk, and it would read as "not at the end".
   let pinned = true;
-  function toEnd() {
+  let ownScrollUntil = 0;
+  const stickToEnd = () => {
+    ownScrollUntil = performance.now() + 250;
     transcript.scrollTop = transcript.scrollHeight;
+  };
+  function toEnd() {
+    stickToEnd();
     pinned = true;
     pill.hidden = true;
   }
   transcript.addEventListener('scroll', () => {
+    if (performance.now() < ownScrollUntil) return;
     pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 60;
     if (pinned) pill.hidden = true;
   });
   if ('ResizeObserver' in window) {
-    new ResizeObserver(() => { if (pinned) transcript.scrollTop = transcript.scrollHeight; }).observe(transcript);
+    new ResizeObserver(() => { if (pinned) stickToEnd(); }).observe(transcript);
   }
 
   // -- header ---------------------------------------------------------------
