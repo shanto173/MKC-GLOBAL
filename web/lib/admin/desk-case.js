@@ -580,8 +580,13 @@ export async function mrnCase(req, res, who) {
       .in('entity_id', [ref, m.booking_ref].filter(Boolean)).order('created_at', { ascending: false }).limit(40),
     notesFor(ref),
   ]);
+  // The application's own channel: its chat says which, and the booking's
+  // channel is only the fallback for an application with no chat. The page
+  // read booking?.channel and, with no booking, fell back to Telegram.
+  const chatId = m.chat_id ?? booking?.chat_id ?? null;
+  const channel = m.chat_id ? channelOf(m.chat_id) : booking?.channel ?? (chatId ? channelOf(chatId) : null);
   const customer = await customerFor({
-    clientId: m.client_id ?? booking?.client_id, channel: booking?.channel ?? channelOf(m.chat_id ?? booking?.chat_id), chatId: m.chat_id ?? booking?.chat_id,
+    clientId: m.client_id ?? booking?.client_id, channel, chatId,
     name: booking?.customer_name, contact: booking?.customer_contact,
   });
 
@@ -597,8 +602,12 @@ export async function mrnCase(req, res, who) {
     mrn: {
       request_ref: m.request_ref, booking_ref: m.booking_ref ?? null, status: m.status, mrn_number: m.mrn_number ?? null,
       supplied: m.supplied_information?.notes ?? [], missing: m.missing_information ?? [], notes: m.operations_notes ?? null,
+      channel, chat_id: chatId,
     },
-    booking: booking ? { booking_ref: booking.booking_ref, status_words: statusWords(booking.status), customer_name: booking.customer_name } : null,
+    booking: booking ? {
+      booking_ref: booking.booking_ref, status_words: statusWords(booking.status), customer_name: booking.customer_name,
+      channel: booking.channel ?? channelOf(booking.chat_id, null),
+    } : null,
     customer,
     next_step: {
       owner: meta.owner, owner_words: turnWords(meta.owner), owner_tone: TURN[meta.owner]?.tone ?? 'gray',
@@ -610,7 +619,7 @@ export async function mrnCase(req, res, who) {
     notes,
     history: (auditRows ?? []).map(describeActivity),
     last_change: (auditRows ?? [])[0] ? describeActivity(auditRows[0]) : null,
-    conversation: { channel: booking?.channel ?? channelOf(m.chat_id ?? booking?.chat_id), chat_id: m.chat_id ?? booking?.chat_id ?? null },
+    conversation: { channel, chat_id: chatId },
   });
 }
 

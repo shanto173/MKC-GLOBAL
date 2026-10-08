@@ -48,6 +48,7 @@ import mrnApi from './mrn.js';
 import {
   readiness, canTransition, statusLabel, statusWords, statusTone, canTransitionRequest, requestStatusLabel,
   requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES, DOC_LABEL,
+  requestStatusTone, MRN_STATUS,
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
@@ -899,8 +900,19 @@ async function shipmentList(req, res) {
   if (filter === 'delivered') query.eq('delivery_status', 'Complete');
   else if (filter !== 'all') query.neq('delivery_status', 'Complete');
 
+  // How many each filter holds, whichever is shown, so the filter tabs can
+  // carry their numbers. Counted, not fetched.
+  const [all, delivered] = await Promise.all([
+    db().from('shipments').select('shipment_id', { count: 'exact', head: true }),
+    db().from('shipments').select('shipment_id', { count: 'exact', head: true }).eq('delivery_status', 'Complete'),
+  ]);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: 'We could not load shipments.' });
+  const counts = all.error || delivered.error ? null : {
+    active: (all.count ?? 0) - (delivered.count ?? 0),
+    delivered: delivered.count ?? 0,
+    all: all.count ?? 0,
+  };
 
   let rows = (data ?? []).map((s) => ({
     shipment_id: s.shipment_id,
@@ -921,7 +933,7 @@ async function shipmentList(req, res) {
     rows = rows.filter((s) => [s.shipment_id, s.booking_ref, s.customer_name, s.vin, s.vessel]
       .some((v) => String(v ?? '').toLowerCase().includes(q)));
   }
-  res.status(200).json({ filter, total: rows.length, milestones: SHIPMENT_MILESTONES, rows });
+  res.status(200).json({ filter, total: rows.length, counts, milestones: SHIPMENT_MILESTONES, rows });
 }
 
 /** GET view=shipment&id= */
@@ -1084,14 +1096,15 @@ async function search(req, res) {
       key: 'mrn', title: 'MRN applications',
       items: mrn.map((m) => ({
         title: `${m.request_ref}${m.booking_ref ? ` · ${m.booking_ref}` : ''}`, detail: [m.vin, m.mrn_number].filter(Boolean).join(' · '),
-        status_words: mrnStatusWords(m.status), link: { type: 'mrn', ref: m.request_ref },
+        status_words: mrnStatusWords(m.status), tone: MRN_STATUS[m.status]?.tone ?? 'gray', link: { type: 'mrn', ref: m.request_ref },
       })),
     },
     {
       key: 'requests', title: 'Call-backs and requests',
       items: tickets.map((t) => ({
         title: `${t.ticket_ref} · ${t.customer ?? ''}`.trim(), detail: [t.contact, t.summary ? String(t.summary).slice(0, 80) : null].filter(Boolean).join(' · '),
-        status_words: requestStatusWords(t.status), link: { type: 'request', ref: t.ticket_ref },
+        // A tone like every other result, so the badge is not grey.
+        status_words: requestStatusWords(t.status), tone: requestStatusTone(t.status), link: { type: 'request', ref: t.ticket_ref },
       })),
     },
   ].filter((g) => g.items.length);

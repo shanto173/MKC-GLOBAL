@@ -16,13 +16,29 @@
 import { db } from '../supabase.js';
 import { supportHours } from '../settings.js';
 import {
-  OPEN_STATUSES, DOC_LABEL, readiness, REQUEST_OPEN, REQUEST_TYPE, MRN_OPEN, statusWords,
+  OPEN_STATUSES, DOC_LABEL, readiness, REQUEST_OPEN, REQUEST_TYPE, MRN_OPEN, MRN_STATUS, statusWords, statusTone,
+  requestStatusLabel, requestStatusTone, mrnStatusWords,
 } from '../ops/workflow.js';
 import {
-  enrichAll, isMissingTable, todayCheck, unreadable, customerFor,
+  enrichAll, isMissingTable, todayCheck, unreadable, customerFor, bookingVersion, ticketVersion, mrnVersion,
 } from './desk-shared.js';
 import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
+
+/** What each of the desk's tones means, for a screen that names its own. */
+const MEANING = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
+
+/**
+ * A row's status as the badge shows it: a short label, the server's tone, and
+ * what that tone means. Every kind of row carries one, so the desk never has
+ * to read a status back out of the sentence - which breaks the day the
+ * sentence is reworded.
+ */
+export function statusBadge(label, tone = 'gray') {
+  const t = MEANING[tone] ? tone : 'gray';
+  return { label, tone: t, meaning: MEANING[t] };
+}
 
 const PROBLEM_DAYS = 14;
 export const TABS = ['needs_us', 'waiting', 'done'];
@@ -162,6 +178,17 @@ export async function inboxItems() {
   const docsByRef = new Map();
   for (const d of docs ?? []) docsByRef.set(d.booking_ref, [...(docsByRef.get(d.booking_ref) ?? []), d]);
 
+  // What a booking's version is made of that the queue view does not carry,
+  // so each row's version is the one its case page gives (bookingVersion) and
+  // "Take it" can be sent straight from the list. The latest application per
+  // booking, as loadBooking reads it: mrn_requests comes newest first.
+  const { data: contacts } = refs.length
+    ? await db().from('bookings').select('booking_ref, customer_contact').in('booking_ref', refs)
+    : { data: [] };
+  const contactOf = new Map((contacts ?? []).map((b) => [b.booking_ref, b.customer_contact ?? null]));
+  const latestMrn = new Map();
+  for (const m of mrnQ.data ?? []) if (m.booking_ref && !latestMrn.has(m.booking_ref)) latestMrn.set(m.booking_ref, m);
+
   const enriched = await enrichAll(open, { docsByRef });
   const items = [];
 
@@ -185,6 +212,9 @@ export async function inboxItems() {
       overdue: Boolean(r.overdue),
       is_new: r.status === 'pending_review',
       status_words: statusWords(r.status),
+      status: statusBadge(statusWords(r.status), statusTone(r.status)),
+      version: bookingVersion({ ...r, customer_contact: contactOf.get(r.booking_ref) ?? null },
+        docsByRef.get(r.booking_ref) ?? [], latestMrn.get(r.booking_ref) ?? null),
       since: r.waiting_since,
     });
 
@@ -208,6 +238,8 @@ export async function inboxItems() {
         assigned_to: r.assigned_to ?? null,
         priority: 'normal',
         since: d.uploaded_at,
+        status: statusBadge('Unreadable', 'red'),
+        version: null,
         problem: { type: 'document', id: d.id },
       });
     }
@@ -230,6 +262,9 @@ export async function inboxItems() {
       assigned_to: r.assigned_to ?? null,
       priority: r.priority ?? 'normal',
       status_words: statusWords(r.status),
+      status: statusBadge(statusWords(r.status), statusTone(r.status)),
+      // Decided: nothing is taken from here, so no version is worked out.
+      version: null,
       since: r.confirmed_at,
     });
   }
@@ -260,6 +295,8 @@ export async function inboxItems() {
       priority: t.priority ?? 'normal',
       after_hours: afterHours,
       unowned: isOpen && !t.assigned_to,
+      status: statusBadge(requestStatusLabel(t.status), requestStatusTone(t.status)),
+      version: ticketVersion(t),
       since: !isOpen ? doneAt : (t.status_changed_at || t.created_at),
     });
   }
@@ -267,11 +304,28 @@ export async function inboxItems() {
   // MRN applications that are not already a booking row: a booking still open
   // shows its MRN as its own next step, and two rows for one job is noise.
   const openRefs = new Set(refs);
-  for (const m of mrnQ.data ?? []) {
+  const mrnRows = (mrnQ.data ?? []).filter((m) => {
     const isOpen = MRN_OPEN.includes(m.status);
-    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) continue;
-    if (isOpen && m.booking_ref && openRefs.has(m.booking_ref)) continue;
+    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) return false;
+    return !(isOpen && m.booking_ref && openRefs.has(m.booking_ref));
+  });
+  // Who the application is for, and on which channel: the row named the
+  // booking reference and no channel, so the desk could not say whose it was.
+  const mrnBookingRefs = [...new Set(mrnRows.map((m) => m.booking_ref).filter(Boolean))];
+  const { data: mrnBookings } = mrnBookingRefs.length
+    ? await db().from('bookings').select('booking_ref, customer_name, channel, chat_id, client_id').in('booking_ref', mrnBookingRefs)
+    : { data: [] };
+  const mrnBookingOf = new Map((mrnBookings ?? []).map((b) => [b.booking_ref, b]));
+  for (const m of mrnRows) {
     const tab = m.status === 'issued' ? 'done' : m.status === 'missing_information' ? 'waiting' : 'needs_us';
+    const b = m.booking_ref ? mrnBookingOf.get(m.booking_ref) ?? null : null;
+    const chatId = m.chat_id ?? b?.chat_id ?? null;
+    // The application's own chat decides its channel; the booking's says the
+    // same thing, and is the fallback for an application with no chat.
+    const channel = m.chat_id ? channelOf(m.chat_id) : b?.channel ?? (chatId ? channelOf(chatId) : null);
+    const name = b?.customer_name
+      || (chatId || m.client_id ? (await customerFor({ clientId: m.client_id ?? b?.client_id ?? null, channel, chatId }).catch(() => null))?.name : null)
+      || m.booking_ref || 'MRN application';
     items.push({
       id: `mrn:${m.request_ref}`,
       kind: 'mrn',
@@ -279,13 +333,16 @@ export async function inboxItems() {
       tab,
       tone: tab === 'needs_us' ? 'blue' : tab === 'waiting' ? 'amber' : 'green',
       sentence: mrnSentence(m),
-      who: m.booking_ref ?? 'MRN application',
-      detail: [m.request_ref, m.vin].filter(Boolean).join(' · '),
+      who: name,
+      detail: [m.booking_ref, m.request_ref, m.vin].filter(Boolean).join(' · '),
       ref: m.request_ref,
+      booking_ref: m.booking_ref ?? null,
       link: { type: 'mrn', ref: m.request_ref },
-      channel: null,
+      channel,
       assigned_to: null,
       priority: 'normal',
+      status: statusBadge(mrnStatusWords(m.status), MRN_STATUS[m.status]?.tone ?? 'gray'),
+      version: mrnVersion(m),
       since: tab === 'done' ? m.issued_at : (m.submitted_at || m.created_at),
     });
   }
@@ -340,8 +397,12 @@ async function problemItems({ since, handled, chatSetAside = new Map() }) {
       first_failed: entries[0].at,
     };
 
+    // Held is waiting for something (a template, a customer who wrote STOP),
+    // not broken: amber, as the held rows have always been worded.
+    const badgeFor = (heldWhy) => (heldWhy ? statusBadge('Held', 'amber') : statusBadge('Not delivered', 'red'));
+
     if (entries.length === 1 && !lost) {
-      out.push({ ...last.item, problem: { ...last.item.problem, ...summary } });
+      out.push({ ...last.item, status: badgeFor(last.held), version: null, problem: { ...last.item.problem, ...summary } });
       continue;
     }
 
@@ -371,6 +432,8 @@ async function problemItems({ since, handled, chatSetAside = new Map() }) {
       channel: last.channel,
       priority: 'normal',
       since: last.at,
+      status: lost ? statusBadge('Not on WhatsApp', 'red') : badgeFor(held ? last.held : null),
+      version: null,
       problem: {
         type: 'chat',
         id: key.slice('chat:'.length),

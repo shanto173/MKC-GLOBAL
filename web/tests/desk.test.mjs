@@ -775,6 +775,93 @@ test('the request-resolved preview is word for word what notify.js sends', async
   assert.match(JSON.stringify(sent.body.reply_markup ?? {}), /menu:contact/);
 });
 
+// ---------------------------------------------------------------------------
+// What the redesigned desk reads from the server instead of guessing
+// ---------------------------------------------------------------------------
+
+const TONES = ['blue', 'amber', 'green', 'red', 'gray'];
+const MEANINGS = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
+
+/** Two MRN applications that are rows of their own: one for a decided booking, one for a WhatsApp chat with none. */
+function mrnApplications() {
+  rows('mrn_requests').push(
+    { id: 31, request_ref: 'MKY-MRN-31', booking_ref: 'MKY-BKG-3', chat_id: '555', client_id: 1, status: 'approved', created_at: iso(3600_000), submitted_at: iso(3600_000) },
+    { id: 32, request_ref: 'MKY-MRN-32', booking_ref: null, chat_id: WA, client_id: 2, status: 'submitted', created_at: iso(1800_000), submitted_at: iso(1800_000) },
+  );
+}
+
+test('every inbox row says its status as a label and a tone, not just a sentence to read it from', async () => {
+  mrnApplications();
+  failures('wa:999000000005', 2);
+  for (const tab of ['needs_us', 'waiting', 'done']) {
+    const r = await get({ view: 'inbox', tab });
+    for (const item of r.body.items) {
+      assert.ok(item.status?.label, `${item.id} has a status label`);
+      assert.ok(TONES.includes(item.status.tone), `${item.id}: ${item.status.tone}`);
+      assert.equal(item.status.meaning, MEANINGS[item.status.tone], `${item.id} says what its tone means`);
+    }
+  }
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const byId = Object.fromEntries(r.body.items.map((i) => [i.id, i]));
+  assert.deepEqual(byId['request:MKY-T-1'].status, { label: 'New', tone: 'blue', meaning: 'info' });
+  assert.deepEqual(byId['mrn:MKY-MRN-31'].status, { label: 'Approved — record the number', tone: 'blue', meaning: 'info' });
+  assert.deepEqual(byId['mrn:MKY-MRN-32'].status, { label: 'New application', tone: 'blue', meaning: 'info' });
+  assert.equal(byId['chat:whatsapp:wa:999000000005'].status.label, 'Not on WhatsApp');
+  assert.equal(byId['message:3'].status.label, 'Not delivered');
+  assert.equal(byId['document:103'].status.label, 'Unreadable');
+  assert.equal(byId['booking:MKY-BKG-1'].status.label, 'New request', 'a booking says what its status_words say');
+  assert.equal(byId['booking:MKY-BKG-1'].status_words, 'New request', 'and status_words is still there');
+});
+
+test('an MRN row names the customer and their channel, not the booking reference', async () => {
+  mrnApplications();
+  const r = await get({ view: 'inbox', filter: 'mrn' });
+  const byRef = Object.fromEntries(r.body.items.filter((i) => i.kind === 'mrn').map((i) => [i.ref, i]));
+  assert.equal(byRef['MKY-MRN-31'].who, 'Nile Motors');
+  assert.equal(byRef['MKY-MRN-31'].channel, 'telegram');
+  assert.equal(byRef['MKY-MRN-31'].booking_ref, 'MKY-BKG-3');
+  assert.match(byRef['MKY-MRN-31'].detail, /MKY-BKG-3/);
+  assert.equal(byRef['MKY-MRN-32'].channel, 'whatsapp');
+  assert.notEqual(byRef['MKY-MRN-32'].who, 'MRN application');
+
+  // And the case page says the application's own channel.
+  const c = await get({ view: 'case', type: 'mrn', ref: 'MKY-MRN-32' });
+  assert.equal(c.body.mrn.channel, 'whatsapp');
+  assert.equal(c.body.conversation.channel, 'whatsapp');
+});
+
+test('inbox rows carry their record\'s version, so taking one needs no second read', async () => {
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const booking = r.body.items.find((i) => i.id === 'booking:MKY-BKG-1');
+  const callback = r.body.items.find((i) => i.id === 'request:MKY-T-1');
+  const bookingCase = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  const requestCase = await get({ view: 'case', type: 'request', ref: 'MKY-T-1' });
+  assert.equal(booking.version, bookingCase.body.version);
+  assert.equal(callback.version, requestCase.body.version);
+
+  assert.equal((await post({ action: 'take', booking_ref: 'MKY-BKG-1', version: booking.version })).status, 200);
+  assert.equal((await post({ action: 'take', ticket_ref: 'MKY-T-1', version: callback.version })).status, 200);
+});
+
+test('call-backs and MRN applications found by search have a tone, like bookings', async () => {
+  mrnApplications();
+  const r = await get({ view: 'search', q: 'MKY' });
+  const requests = r.body.groups.find((g) => g.key === 'requests');
+  assert.ok(requests.items.length);
+  for (const i of requests.items) assert.ok(TONES.includes(i.tone), JSON.stringify(i));
+  const mrn = r.body.groups.find((g) => g.key === 'mrn');
+  for (const i of mrn.items) assert.ok(TONES.includes(i.tone), JSON.stringify(i));
+});
+
+test('the shipments list counts each filter, whichever one is shown', async () => {
+  rows('shipments').push({ shipment_id: 'MKY-26002', customer_name: 'Nile Motors', status: 'Delivered', delivery_status: 'Complete', updated_at: iso(3600_000) });
+  for (const filter of ['active', 'delivered', 'all']) {
+    const r = await get({ view: 'shipments', filter });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.counts, { active: 1, delivered: 1, all: 2 }, filter);
+  }
+});
+
 // The live test, 2026-10-08: the customer sent an invoice for the wrong
 // chassis, then the right one, which the desk verified. "Ask for a new one" on
 // the wrong one still asked the customer for "A new Invoice" and put the
