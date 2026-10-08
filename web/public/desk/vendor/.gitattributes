@@ -1,0 +1,4 @@
+# Third-party files, kept byte for byte as published: a test compares them
+# with node_modules, and core.autocrlf would otherwise rewrite their line
+# endings on a Windows checkout.
+* -text

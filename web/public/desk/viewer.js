@@ -20,6 +20,28 @@ const TYPABLE_LABELS = {
   vin: 'Chassis (VIN)', mrn: 'MRN', acid: 'ACID', eur1: 'EUR.1 number', make: 'Make', model: 'Model', document_date: 'Date on the document',
 };
 
+/** Pages drawn in the viewer; a longer file is for "Open in a new tab". */
+const MAX_PAGES = 20;
+
+/**
+ * pdf.js, loaded the first time a PDF is opened - a desk that never opens one
+ * never downloads it. The copy in vendor/pdfjs is byte for byte the pdfjs-dist
+ * the server reads papers with (a test holds them together); it is served
+ * from here, not a CDN, so the desk depends on nobody else to show a paper.
+ */
+let pdfjsLoading = null;
+function pdfjs() {
+  if (!pdfjsLoading) {
+    pdfjsLoading = import('./vendor/pdfjs/pdf.min.js').then((lib) => {
+      lib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
+      return lib;
+    });
+    // A failed load is tried again next time, not remembered as a failure.
+    pdfjsLoading.catch(() => { pdfjsLoading = null; });
+  }
+  return pdfjsLoading;
+}
+
 /**
  * @param {{caseRef: string, docId: number, getData: () => object, reload: () => Promise<object>,
  *          onStale: Function, refreshCounts: Function}} ctx
@@ -28,6 +50,7 @@ export function openViewer(ctx) {
   let docId = ctx.docId;
   let urlInfo = null;
   let retriedUrl = false;
+  let drawing = 0;         // which drawing of a PDF is current; an older one stops
 
   const fileArea = h('div', { class: 'viewer-file' });
   const info = h('div', { class: 'viewer-info' });
@@ -109,7 +132,8 @@ export function openViewer(ctx) {
       frame = h('img', { class: 'viewer-img', src: urlInfo.url, alt: `${doc.label} as sent by the customer` });
       frame.addEventListener('error', () => expired(doc));
     } else if (mime === 'application/pdf' || /\.pdf$/i.test(doc.file_name ?? '')) {
-      frame = h('iframe', { class: 'viewer-pdf', src: urlInfo.url, title: `${doc.label} (PDF)` });
+      frame = h('div', { class: 'viewer-pages', role: 'region', tabindex: '0', 'aria-label': `${doc.label} (PDF)` },
+        h('p', { class: 'viewer-loading' }, 'Opening the file…'));
     } else {
       frame = h('div', { class: 'viewer-nofile' }, icon('file', { size: 32 }), h('p', {}, 'This kind of file cannot be shown here.'));
     }
@@ -118,6 +142,67 @@ export function openViewer(ctx) {
     if (urlInfo.expires_at && new Date(urlInfo.expires_at) < new Date()) return expired(doc);
     fill(fileArea, frame, h('div', { class: 'viewer-file-bar' },
       h('span', { class: 'muted small' }, doc.file_name ?? ''), open));
+    // Drawn once it is on the page, so it knows how wide it has to be.
+    if (frame.classList.contains('viewer-pages')) drawPdf(frame, doc, urlInfo.url);
+  }
+
+  /**
+   * A PDF drawn by pdf.js, one canvas per page, at the screen's own pixel
+   * density.
+   *
+   * Not the browser's viewer in an iframe any more. Edge's and Chrome's PDF
+   * viewer runs in a frame of its own, and above 100% display scaling - which
+   * most laptops run at, 125 or 150% - it laid the page out at the wrong
+   * scale inside the iframe: shoved to one side and cut off, or not painted
+   * at all. Chrome on Android shows nothing for a PDF in an iframe. Canvases
+   * sized by devicePixelRatio look the same, and sharp, at any scale.
+   *
+   * If pdf.js cannot run here - an old browser, a link that will not be read
+   * this way - the browser's viewer is used as it always was, and "Open in a
+   * new tab" is beside it either way.
+   */
+  async function drawPdf(box, doc, url) {
+    const turn = ++drawing;
+    const stale = () => turn !== drawing || doc.id !== docId || !box.isConnected;
+    let pdf = null;
+    try {
+      const [lib, bytes] = await Promise.all([pdfjs(), fetch(url).then(async (res) => {
+        if (!res.ok) throw Object.assign(new Error(`The file link answered ${res.status}.`), { status: res.status });
+        return new Uint8Array(await res.arrayBuffer());
+      })]);
+      if (stale()) return;
+      pdf = await lib.getDocument({ data: bytes, isEvalSupported: false }).promise;
+      const pages = Math.min(pdf.numPages, MAX_PAGES);
+      const dpr = window.devicePixelRatio || 1;
+      for (let n = 1; n <= pages; n++) {
+        const page = await pdf.getPage(n);
+        if (stale()) return;
+        // Fitted to the width there is, and drawn with as many device pixels
+        // as the screen has for it; CSS then shows it at that width.
+        const width = Math.max(200, box.clientWidth - 24);
+        const fit = width / page.getViewport({ scale: 1 }).width;
+        const viewport = page.getViewport({ scale: fit * dpr });
+        const canvas = h('canvas', {
+          class: 'viewer-page', width: Math.floor(viewport.width), height: Math.floor(viewport.height),
+          role: 'img', 'aria-label': `Page ${n} of ${pdf.numPages}`,
+        });
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        if (stale()) return;
+        // The first page replaces "Opening the file…" as soon as it is drawn.
+        if (n === 1) fill(box, canvas); else add(box, canvas);
+      }
+      if (pdf.numPages > pages) {
+        add(box, h('p', { class: 'muted small viewer-more' }, `Showing the first ${pages} of ${pdf.numPages} pages. Open it in a new tab for the rest.`));
+      }
+    } catch (err) {
+      if (stale()) return;
+      // A link that died between being handed out and being read: once more, fresh.
+      if (err?.status >= 400 && err.status < 500 && !retriedUrl) { expired(doc); return; }
+      box.replaceWith(h('iframe', { class: 'viewer-pdf', src: url, title: `${doc.label} (PDF)` }));
+    } finally {
+      // The pages are pixels on canvases now; the parsed file is not needed.
+      pdf?.destroy().catch(() => null);
+    }
   }
 
   // -- what the bot read, and the decision ---------------------------------------

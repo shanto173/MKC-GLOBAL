@@ -843,6 +843,26 @@ test('why a message failed, in words', () => {
   assert.match(failureWords('something odd'), /It did not go through: something odd/);
 });
 
+test('the viewer draws a PDF itself, at the screen\'s pixel density, with the browser\'s own viewer only as a fallback', () => {
+  const web = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const desk = path.join(web, 'public', 'desk');
+  const viewer = readFileSync(path.join(desk, 'viewer.js'), 'utf8');
+  // Edge's and Chrome's PDF viewer, inside an iframe, laid the page out at the
+  // wrong scale above 100% display scaling - shifted, cut off, or blank.
+  assert.match(viewer, /devicePixelRatio/);
+  assert.match(viewer, /vendor\/pdfjs\/pdf\.min\.js/);
+  assert.match(viewer, /viewer-pdf/, 'the iframe is still there for a browser pdf.js cannot run in');
+
+  // Byte for byte the pdfjs-dist the server reads papers with, so the two
+  // cannot drift. After `npm update` moves it, copy build/pdf.min.mjs and
+  // build/pdf.worker.min.mjs over these again.
+  for (const [mine, theirs] of [['pdf.min.js', 'pdf.min.mjs'], ['pdf.worker.min.js', 'pdf.worker.min.mjs']]) {
+    const vendored = readFileSync(path.join(desk, 'vendor', 'pdfjs', mine));
+    const installed = readFileSync(path.join(web, 'node_modules', 'pdfjs-dist', 'build', theirs));
+    assert.ok(vendored.equals(installed), `public/desk/vendor/pdfjs/${mine} is not node_modules/pdfjs-dist/build/${theirs}`);
+  }
+});
+
 test('no file of the desk ever builds HTML from data', () => {
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk');
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
