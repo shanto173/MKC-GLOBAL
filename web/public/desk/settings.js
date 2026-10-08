@@ -9,8 +9,10 @@
  */
 
 import {
-  h, icon, api, post, toast, emptyState, errorState, skeleton, session, ago, add, fill,
+  h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill,
 } from './ui.js';
+
+const SECTIONS = [['team', 'Team', 'users'], ['hours', 'Hours and phone', 'hours'], ['docs', 'Documents', 'file'], ['whatsapp', 'WhatsApp', 'whatsapp'], ['replies', 'Saved replies', 'reply']];
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
@@ -19,29 +21,45 @@ const TIMEZONES = ['Africa/Cairo', 'Europe/Vilnius', 'Europe/Berlin', 'Europe/Lo
 
 export function renderSettings({ main }) {
   if (!session.can('settings')) {
-    add(main, emptyState('Only an administrator can change settings.', 'Ask an administrator if something here needs changing.'));
+    add(main, emptyState('Only an administrator can change settings.', 'Ask an administrator if something here needs changing.', null, { icon: 'lock', tone: 'locked' }));
     return null;
   }
-  const root = h('div', { class: 'settings' }, skeleton(10));
-  add(main, 
+  const root = h('div', { class: 'settings' }, h('div'), h('div', { class: 'settings-body' }, skeleton(6, { kind: 'cards' })));
+  add(main,
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Settings'),
       h('p', { class: 'page-sub' }, 'Changes reach the bot within a minute. Every change is recorded with your name.'))),
     root);
 
   let data = null;
+  let spy = null;
   async function load() {
     try {
       data = await api({ view: 'settings' });
     } catch (err) {
-      fill(root, errorState(err.message, () => load()));
+      fill(root, h('div'), h('div', { class: 'settings-body' }, errorState(err, () => load())));
       return;
     }
-    fill(root, 
-      h('nav', { class: 'jump', 'aria-label': 'Settings sections' },
-        [['team', 'Team'], ['hours', 'Hours and phone'], ['docs', 'Documents'], ['whatsapp', 'WhatsApp'], ['replies', 'Saved replies']]
-          .map(([id, label]) => h('a', { href: `#/settings`, onclick: (e) => { e.preventDefault(); document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth' }); } }, label))),
-      teamCard(), hoursCard(), docsCard(), whatsappCard(), repliesCard());
+    // The sections, always in reach on the left; the one in view is marked.
+    const links = {};
+    const nav = h('nav', { class: 'settings-nav', 'aria-label': 'Settings sections' },
+      SECTIONS.map(([id, label, ic]) => {
+        links[id] = h('a', { href: '#/settings', onclick: (e) => { e.preventDefault(); document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+          icon(ic, { size: 16 }), label);
+        return links[id];
+      }));
+    const body = h('div', { class: 'settings-body' }, teamCard(), hoursCard(), docsCard(), whatsappCard(), repliesCard());
+    fill(root, nav, body);
+    spy?.disconnect();
+    if ('IntersectionObserver' in window) {
+      spy = new IntersectionObserver((entries) => {
+        const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (!top) return;
+        const id = top.target.id.replace(/^set-/, '');
+        for (const [k, a] of Object.entries(links)) a.setAttribute('aria-current', k === id ? 'true' : 'false');
+      }, { rootMargin: '-80px 0px -55% 0px' });
+      for (const c of body.children) spy.observe(c);
+    }
   }
 
   /** Saves some settings, shows each field's error beside it, and reloads. */
@@ -63,7 +81,7 @@ export function renderSettings({ main }) {
         }
         card.querySelector('.field-error:not([hidden])')?.scrollIntoView({ block: 'center' });
       } else {
-        toast(err.message, err.data?.stale ? 'info' : 'bad');
+        toastError(err);
         if (err.data?.stale) await load();
       }
     } finally {
@@ -77,7 +95,7 @@ export function renderSettings({ main }) {
     return c ? h('span', { class: 'muted small' }, `Last changed by ${c.by} ${ago(c.at)}`) : null;
   };
   const card = (id, title, sub, ...children) => h('section', { class: 'card', id: `set-${id}`, 'aria-labelledby': `set-${id}-t` },
-    h('div', { class: 'card-head' }, h('h2', { id: `set-${id}-t` }, title), sub ? h('p', { class: 'card-sub' }, sub) : null),
+    h('div', { class: 'card-head' }, h('h2', { id: `set-${id}-t` }, icon(SECTIONS.find(([k]) => k === id)?.[2] ?? 'settings', { size: 17 }), title), sub ? h('p', { class: 'card-sub' }, sub) : null),
     ...children);
 
   // -- team -------------------------------------------------------------------
@@ -86,7 +104,7 @@ export function renderSettings({ main }) {
       const role = h('select', { class: 'input input-small', 'aria-label': `Role for ${u.name}` },
         data.roles.map((r) => h('option', { value: r.role, selected: r.role === u.role }, r.words)));
       const active = h('input', { type: 'checkbox', checked: u.active, 'aria-label': `${u.name} can sign in` });
-      const saveBtn = h('button', { class: 'btn btn-small', type: 'button', hidden: true }, 'Save');
+      const saveBtn = h('button', { class: 'btn btn-sm btn-primary', type: 'button', hidden: true }, 'Save');
       const changed = () => { saveBtn.hidden = role.value === u.role && active.checked === u.active; };
       role.addEventListener('change', changed);
       active.addEventListener('change', changed);
@@ -97,14 +115,14 @@ export function renderSettings({ main }) {
           toast(`${u.name} updated.`);
           await load();
         } catch (err) {
-          toast(err.message, 'bad');
+          toastError(err);
           saveBtn.disabled = false;
         }
       });
       return h('tr', { class: u.active ? '' : 'is-inactive' },
-        h('th', { scope: 'row' }, u.name, u.name === session.name ? h('span', { class: 'muted small' }, ' (you)') : null),
-        h('td', {}, role),
-        h('td', {}, h('label', { class: 'check' }, active, h('span', {}, u.active ? 'Active' : 'Switched off'))),
+        h('th', { scope: 'row' }, h('span', { class: 'team-name' }, avatar(u.name), h('span', {}, u.name, u.name === session.name ? h('span', { class: 'muted small' }, ' (you)') : null))),
+        h('td', { 'data-label': 'Role' }, role),
+        h('td', { 'data-label': 'Can sign in' }, h('label', { class: 'check' }, active, u.active ? badge('Active', 'green', { small: true }) : badge('Switched off', 'gray', { small: true }))),
         h('td', { class: 'muted small' }, u.last_seen ? `Seen ${ago(u.last_seen)}` : 'Not seen yet'),
         h('td', {}, saveBtn));
     });
@@ -123,12 +141,12 @@ export function renderSettings({ main }) {
         toast(`${name.value.trim()} can now sign in with the desk password.`);
         await load();
       } catch (err) {
-        toast(err.message, 'bad');
+        toastError(err);
       }
     });
 
     return card('team', 'Team', 'Who can sign in, and what they may do. Agents work cases; supervisors also hand out work and set priority; administrators also change settings.',
-      h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain' },
+      h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain team-table' },
         h('thead', {}, h('tr', {}, ['Name', 'Role', 'Can sign in', 'Last seen', ''].map((c) => h('th', { scope: 'col' }, c)))),
         h('tbody', {}, rows))),
       add);
@@ -218,7 +236,7 @@ export function renderSettings({ main }) {
     const c = card('whatsapp', 'WhatsApp templates',
       'After 24 hours without a message from the customer, WhatsApp only delivers approved templates. Names must match WhatsApp Manager exactly; the same name is used in English and Arabic.');
     const form = h('form', {},
-      h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain' },
+      h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain template-table' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Message'), h('th', { scope: 'col' }, 'Template name'), h('th', { scope: 'col' }, 'Filled with'))),
         h('tbody', {}, rows))),
       errorSlot('whatsapp_templates'),
@@ -256,7 +274,7 @@ export function renderSettings({ main }) {
         ar.addEventListener('input', () => { r.ar = ar.value; });
         return h('div', { class: 'reply-edit' },
           h('div', { class: 'reply-edit-head' }, title,
-            h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: () => { list.splice(i, 1); paint(); } }, 'Remove')),
+            h('button', { class: 'btn btn-ghost btn-sm btn-danger-ghost', type: 'button', onclick: () => { list.splice(i, 1); paint(); } }, 'Remove')),
           h('div', { class: 'form-grid' },
             h('div', { class: 'field' }, h('span', { class: 'label' }, 'English'), en),
             h('div', { class: 'field' }, h('span', { class: 'label' }, 'Arabic'), ar)));
@@ -281,5 +299,5 @@ export function renderSettings({ main }) {
   }
 
   load();
-  return null;
+  return { dispose() { spy?.disconnect(); } };
 }

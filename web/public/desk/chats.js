@@ -9,7 +9,7 @@
  */
 
 import {
-  h, clear, icon, api, channelBadge, chip, timeEl, emptyState, errorState, skeleton, debounce, add, fill,
+  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill,
 } from './ui.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
@@ -21,15 +21,15 @@ export function renderChats({ route, main }) {
   let limit = 50;
   let convo = null;
 
-  const listEl = h('div', { class: 'chat-list' }, skeleton(8));
-  const search = h('input', { class: 'input', type: 'search', placeholder: 'Find a chat by name, phone or reference', 'aria-label': 'Find a chat', value: q });
+  const listEl = h('div', { class: 'chat-list' }, skeleton(8, { kind: 'rows' }));
+  const search = h('input', { class: 'input', type: 'search', placeholder: 'Find by name, phone or reference', 'aria-label': 'Find a chat', value: q });
   const pane = h('section', { class: 'chat-pane', 'aria-label': 'Conversation' });
   const notice = h('p', { class: 'convo-notice', hidden: true });
 
   add(main, h('div', { class: `chats${open ? ' chats-open' : ''}` },
     h('div', { class: 'chats-side' },
       h('div', { class: 'page-head page-head-tight' }, h('h1', {}, 'Chats')),
-      h('div', { class: 'chats-search' }, search),
+      h('label', { class: 'search-field' }, icon('search', { size: 16 }), search),
       notice,
       listEl),
     pane));
@@ -39,7 +39,7 @@ export function renderChats({ route, main }) {
     try {
       data = await api({ view: 'chats', q, limit });
     } catch (err) {
-      if (!quiet) fill(listEl, errorState(err.message, () => loadList()));
+      if (!quiet) fill(listEl, errorState(err, () => loadList()));
       return;
     }
     notice.hidden = !data.notice;
@@ -51,13 +51,14 @@ export function renderChats({ route, main }) {
     clear(listEl);
     if (!chats.length) {
       add(listEl, emptyState(q ? 'No chat matches that.' : 'No conversations yet.',
-        q ? 'Try a phone number without spaces, or a booking reference.' : 'Chats appear here when customers write to the bot.'));
+        q ? 'Try a phone number without spaces, or a booking reference.' : 'Chats appear here when customers write to the bot.', null,
+        { icon: q ? 'search' : 'chats' }));
       return;
     }
     add(listEl, h('ul', { class: 'chat-rows' }, chats.map((c) => h('li', {}, chatRow(c)))));
     if (data.has_more) {
       add(listEl, h('div', { class: 'more' }, h('button', {
-        class: 'btn btn-small', type: 'button', onclick: () => { limit += 50; loadList(); },
+        class: 'btn btn-sm', type: 'button', onclick: () => { limit += 50; loadList(); },
       }, `Show more (${data.total - data.chats.length} more)`)));
     }
   }
@@ -70,21 +71,23 @@ export function renderChats({ route, main }) {
       href: linkFor({ type: 'chat', channel: c.channel, chat_id: c.chat_id }),
       'aria-current': active ? 'page' : null,
     },
-    h('span', { class: 'chat-row-top' },
-      h('bdi', { class: 'chat-name' }, c.name),
-      c.last ? timeEl(c.last.at) : c.at ? timeEl(c.at) : null),
-    h('span', { class: 'chat-row-bottom' },
-      channelBadge(c.channel, { compact: true }),
-      h('span', { class: 'chat-last', dir: 'auto' }, c.last ? `${who}${c.last.body}` : 'No messages logged yet'),
-      c.failed ? chip(`${c.failed} failed`, 'red') : null,
-      c.opted_out ? chip('STOP', 'red') : null,
-      c.unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'sr-only' }, 'New message')) : null));
+    avatar(c.name, { size: 'lg', channel: c.channel }),
+    h('span', { class: 'chat-row-body' },
+      h('span', { class: 'chat-row-top' },
+        h('bdi', { class: 'chat-name' }, c.name),
+        c.last ? timeEl(c.last.at) : c.at ? timeEl(c.at) : null),
+      h('span', { class: 'chat-row-bottom' },
+        who ? h('span', { class: 'chat-last' }, who, h('bdi', {}, c.last.body))
+          : h('span', { class: 'chat-last', dir: 'auto' }, c.last ? c.last.body : 'No messages logged yet'),
+        c.failed ? badge(`${c.failed} failed`, 'red', { small: true }) : null,
+        c.opted_out ? badge('STOP', 'red', { small: true, icon: 'lock' }) : null,
+        c.unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'sr-only' }, 'New message')) : null)));
   }
 
   if (open) {
     const bookingsEl = h('div', { class: 'chat-bookings' });
     const convoEl = h('div', { class: 'chat-convo' });
-    add(pane, 
+    add(pane,
       h('a', { class: 'back back-mobile', href: '#/chats' }, icon('back', { size: 16 }), 'All chats'),
       bookingsEl, convoEl);
     // Their bookings, so a question about "my truck" is one click from its case.
@@ -92,12 +95,12 @@ export function renderChats({ route, main }) {
       clear(bookingsEl);
       const requests = (d.requests ?? []).filter((r) => r.open);
       if (!d.bookings?.length && !requests.length) return;
-      add(bookingsEl, h('p', { class: 'chat-bookings-title' }, 'Their bookings and requests'),
+      add(bookingsEl, h('span', { class: 'chat-bookings-title' }, 'Their bookings and requests'),
         h('div', { class: 'chat-bookings-list' },
           d.bookings.map((b) => h('a', { class: 'pill', href: linkFor({ type: 'booking', ref: b.booking_ref }) },
-            h('span', { class: 'mono' }, b.booking_ref), chip(b.status_words, b.tone))),
+            h('span', { class: 'mono' }, b.booking_ref), badge(b.status_words, b.tone, { small: true }))),
           requests.map((r) => h('a', { class: 'pill', href: linkFor({ type: 'request', ref: r.ticket_ref }) },
-            h('span', {}, r.ticket_ref), chip(r.status_words, 'blue')))));
+            icon('phone', { size: 13 }), h('span', { class: 'mono' }, r.ticket_ref), badge(r.status_words, 'blue', { small: true })))));
     };
     convo = mountConversation(convoEl, {
       channel, chatId, target: { channel, chat_id: chatId }, draftKey: `chat:${channel}:${chatId}`,
@@ -105,7 +108,7 @@ export function renderChats({ route, main }) {
       onLoad: drawBookings,
     });
   } else {
-    add(pane, emptyState('Pick a conversation.', 'Customers on WhatsApp and Telegram are listed together, with new messages first.'));
+    add(pane, emptyState('Pick a conversation.', 'Customers on WhatsApp and Telegram are listed together, with new messages first.', null, { icon: 'chats' }));
   }
 
   search.addEventListener('input', debounce(() => { q = search.value.trim(); loadList(); }, 300));

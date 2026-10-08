@@ -12,7 +12,7 @@
  */
 
 import {
-  h, icon, api, post, toast, chip, when, dialog, add, fill,
+  h, icon, api, post, toast, toastError, badge, when, dialog, add, fill,
 } from './ui.js';
 import { previewBox } from './preview.js';
 
@@ -53,11 +53,13 @@ export function openViewer(ctx) {
   let drawing = 0;         // which drawing of a PDF is current; an older one stops
 
   const fileArea = h('div', { class: 'viewer-file' });
-  const info = h('div', { class: 'viewer-info' });
-  const nav = h('div', { class: 'viewer-nav' });
-  const body = h('div', { class: 'viewer' }, fileArea, info);
+  // What the bot read scrolls; the decision under it stays in view.
+  const info = h('div', { class: 'viewer-scroll' });
+  const foot = h('div', { class: 'viewer-foot' });
+  const nav = h('div', { class: 'viewer-nav', role: 'group', 'aria-label': 'Documents in this case' });
+  const body = h('div', { class: 'viewer' }, fileArea, h('div', { class: 'viewer-info' }, info, foot));
 
-  const dlg = dialog({ title: 'Document', body: [nav, body], size: 'xl', actions: [] });
+  const dlg = dialog({ title: 'Document', body, size: 'xl', actions: [], extra: nav });
   dlg.el.addEventListener('keydown', (e) => {
     if (e.target.closest('input, textarea, select')) return;
     if (e.key === 'ArrowRight') step(1);
@@ -85,10 +87,10 @@ export function openViewer(ctx) {
     const list = allDocs();
     const i = list.findIndex((d) => d.id === docId);
     dlg.el.querySelector('.dialog-title').textContent = `${doc.label} · ${ctx.caseRef}`;
-    fill(nav, 
-      h('button', { class: 'btn btn-small btn-quiet', type: 'button', disabled: i <= 0, onclick: () => step(-1) }, icon('left', { size: 14 }), 'Previous'),
+    fill(nav,
+      h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: i <= 0, onclick: () => step(-1), title: 'Previous document (←)' }, icon('left', { size: 14 }), 'Previous'),
       h('span', { class: 'viewer-count' }, `${i + 1} of ${list.length}`),
-      h('button', { class: 'btn btn-small btn-quiet', type: 'button', disabled: i >= list.length - 1, onclick: () => step(1) }, 'Next', icon('right', { size: 14 })));
+      h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: i >= list.length - 1, onclick: () => step(1), title: 'Next document (→)' }, 'Next', icon('right', { size: 14 })));
     if (reloadFile) { urlInfo = null; retriedUrl = false; loadFile(doc); }
     drawInfo(doc);
   }
@@ -125,7 +127,7 @@ export function openViewer(ctx) {
 
   function showFile(doc) {
     const mime = String(urlInfo.mime_type ?? doc.mime_type ?? '');
-    const open = h('a', { class: 'btn btn-small btn-quiet', href: urlInfo.url, target: '_blank', rel: 'noopener noreferrer' },
+    const open = h('a', { class: 'btn btn-sm btn-ghost', href: urlInfo.url, target: '_blank', rel: 'noopener noreferrer' },
       icon('external', { size: 14 }), 'Open in a new tab');
     let frame;
     if (mime.startsWith('image/')) {
@@ -141,7 +143,7 @@ export function openViewer(ctx) {
     // it, ask again rather than show a broken frame.
     if (urlInfo.expires_at && new Date(urlInfo.expires_at) < new Date()) return expired(doc);
     fill(fileArea, frame, h('div', { class: 'viewer-file-bar' },
-      h('span', { class: 'muted small' }, doc.file_name ?? ''), open));
+      h('span', { class: 'file-name' }, icon('file', { size: 14 }), h('bdi', { dir: 'ltr', title: doc.file_name ?? '' }, doc.file_name ?? '')), open));
     // Drawn once it is on the page, so it knows how wide it has to be.
     if (frame.classList.contains('viewer-pages')) drawPdf(frame, doc, urlInfo.url);
   }
@@ -211,9 +213,9 @@ export function openViewer(ctx) {
     const actions = d.document_actions;
     const mismatch = doc.checks.filter((c) => !c.match);
 
-    fill(info, 
+    fill(info,
       h('div', { class: 'viewer-status' },
-        chip(doc.status_words, doc.tone),
+        badge(doc.status_words, doc.tone),
         h('span', { class: 'muted small' }, `Arrived ${when(doc.uploaded_at)}`)),
       // Each check names what it was held to: the booking, or - for an MRN
       // printed on another paper - the customer's MRN declaration.
@@ -222,8 +224,9 @@ export function openViewer(ctx) {
           mismatch.map((c) => `${c.label}: the document says ${c.document}, ${c.against ?? 'the booking'} says ${c.booking}.`).join(' '))) : null,
       doc.reading ? h('div', { class: 'callout callout-gray' }, h('p', {}, 'The bot is still reading this file. Look again in a moment.')) : null,
       doc.unreadable ? typeIn(doc, actions) : readTable(doc),
-      doc.typed_by ? h('p', { class: 'muted small' }, `Values typed by ${doc.typed_by}.`) : null,
-      decision(doc, actions));
+      doc.typed_by ? h('p', { class: 'muted small' }, `Values typed by ${doc.typed_by}.`) : null);
+    fill(foot, decision(doc, actions));
+    info.scrollTop = 0;
   }
 
   function readTable(doc) {
@@ -271,12 +274,19 @@ export function openViewer(ctx) {
         draw();
       } catch (err) {
         if (err.data?.stale) { dlg.close(); return ctx.onStale(err); }
-        toast(err.message, 'bad');
+        toastError(err);
       }
     });
     return form;
   }
 
+  /**
+   * The two decisions about a paper. The primary button follows the
+   * evidence: when the paper does not match the booking or could not be read,
+   * "Ask for a new one" is the primary and "Looks right" becomes "Looks right
+   * anyway" - the button a person reaches for first is the one the evidence
+   * supports.
+   */
   function decision(doc, actions) {
     if (doc.status === 'replacement_requested') {
       return h('div', { class: 'viewer-decided' }, icon('refresh', { size: 16 }),
@@ -284,13 +294,14 @@ export function openViewer(ctx) {
     }
     const box = h('div', { class: 'viewer-actions' });
     const verified = doc.status === 'verified';
+    const doubtful = !verified && (doc.checks.some((c) => !c.match) || doc.unreadable);
     const ok = h('button', {
-      class: 'btn btn-primary', type: 'button', 'aria-disabled': actions.verify.enabled ? null : 'true', title: actions.verify.reason,
-    }, icon('check', { size: 15 }), verified ? 'Checked' : 'Looks right');
+      class: `btn ${doubtful ? 'btn-secondary' : 'btn-primary'}`, type: 'button', 'aria-disabled': actions.verify.enabled ? null : 'true', title: actions.verify.reason,
+    }, icon('check', { size: 15 }), verified ? 'Checked' : doubtful ? 'Looks right anyway' : 'Looks right');
     if (verified) ok.disabled = true;
     const bad = h('button', {
-      class: 'btn', type: 'button', 'aria-disabled': actions.reject.enabled ? null : 'true', title: actions.reject.reason,
-    }, 'Ask for a new one');
+      class: `btn ${doubtful ? 'btn-primary' : 'btn-secondary'}`, type: 'button', 'aria-disabled': actions.reject.enabled ? null : 'true', title: actions.reject.reason,
+    }, icon('refresh', { size: 15 }), 'Ask for a new one');
 
     ok.addEventListener('click', async () => {
       if (!actions.verify.enabled) return toast(actions.verify.reason, 'info');
@@ -305,7 +316,7 @@ export function openViewer(ctx) {
         if (next) { docId = next.id; draw({ reloadFile: true }); } else draw();
       } catch (err) {
         if (err.data?.stale) { dlg.close(); return ctx.onStale(err); }
-        toast(err.message, 'bad');
+        toastError(err);
         ok.disabled = false;
       }
     });
@@ -314,9 +325,10 @@ export function openViewer(ctx) {
       askForNew(doc, actions);
     });
 
-    add(box, ok, bad);
-    if (!actions.verify.enabled && actions.verify.reason) add(box, h('p', { class: 'reason' }, actions.verify.reason));
-    return box;
+    // The primary first, wherever it is.
+    add(box, doubtful ? [bad, ok] : [ok, bad]);
+    const why = [actions.verify, actions.reject].find((a) => !a.enabled && a.reason)?.reason;
+    return [box, why ? h('p', { class: 'reason' }, why) : null];
   }
 
   /** Why, a note, the exact message in the customer's language, then send. */
@@ -332,14 +344,14 @@ export function openViewer(ctx) {
     reasons.addEventListener('change', pv.update);
     note.addEventListener('input', pv.update);
 
-    const back = h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => draw() }, 'Back');
-    const send = h('button', { class: 'btn btn-primary', type: 'button' }, 'Send to customer');
+    const back = h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => draw() }, icon('back', { size: 15 }), 'Back');
+    const send = h('button', { class: 'btn btn-primary', type: 'button' }, icon('send', { size: 15 }), h('span', {}, 'Send to customer'));
     let sending = false;
     send.addEventListener('click', async () => {
       if (sending) return;
       sending = true;
       send.disabled = true;
-      send.textContent = 'Sending…';
+      send.lastChild.textContent = 'Sending…';
       try {
         await post({ action: 'reject_document', document_id: doc.id, reason_code: reasonCode(), reason: note.value.trim(), version });
         toast(`Asked for a new ${doc.label}. The booking now waits for the customer.`);
@@ -348,20 +360,22 @@ export function openViewer(ctx) {
         draw();
       } catch (err) {
         if (err.data?.stale) { dlg.close(); return ctx.onStale(err); }
-        toast(err.message, 'bad');
+        toastError(err);
         send.disabled = false;
-        send.textContent = 'Send to customer';
+        send.lastChild.textContent = 'Send to customer';
       } finally {
         sending = false;
       }
     });
 
-    fill(info, 
+    fill(info,
       h('h3', { class: 'viewer-h' }, `Ask for a new ${doc.label}`),
       reasons,
-      h('label', { class: 'label' }, 'Note to the customer'), note,
-      pv.el,
-      h('div', { class: 'viewer-actions' }, send, back));
+      h('div', { class: 'field' }, h('label', { class: 'label', for: 'reject-note' }, 'Note to the customer'), note),
+      pv.el);
+    note.id = 'reject-note';
+    fill(foot, h('div', { class: 'viewer-actions' }, send, back));
+    info.scrollTop = 0;
     pv.now();
     reasons.querySelector('input:checked')?.focus();
   }

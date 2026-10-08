@@ -1,11 +1,17 @@
 /**
  * The case page: a booking, a call-back or an MRN application - same layout.
  *
- * The top says what this is and whose move it is. The "Next step" card says
- * the one thing to do and has the one button that does it; everything else is
- * secondary and quieter. Below: the papers, the details (correctable), notes
- * that never leave the desk, and what has happened so far. On the right, the
- * conversation with the customer.
+ * A sticky header across the top says what this is, its state, whose move it
+ * is and who has it. Below, two columns: the work on the left, the
+ * conversation with the customer on the right, full height, its composer
+ * always in reach.
+ *
+ * The "Next step" card is the anchor of the left column: the one thing to do
+ * and the one primary button that does it; everything else is secondary and
+ * quieter. Once it scrolls out of view, that primary button appears in the
+ * header instead - never two copies on screen at once. Below it: the papers,
+ * the details (correctable in place, one line at a time), notes that never
+ * leave the desk, and what has happened so far.
  *
  * Every action sends the version of the case this page was drawn from. If a
  * colleague changed the case meanwhile, the server refuses with who and when,
@@ -13,7 +19,8 @@
  */
 
 import {
-  h, clear, icon, api, post, toast, chip, timeEl, ago, when, emptyState, errorState, skeleton, actionButton, dialog, draft, session, add, fill, lines,
+  h, icon, api, post, toast, toastError, badge, avatar, timeEl, ago, when, emptyState, errorState, skeleton, actionButton,
+  dialog, draft, session, add, fill, lines,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
 import { openViewer } from './viewer.js';
@@ -23,18 +30,19 @@ import { linkFor } from './inbox.js';
 const TURN_TONE = { ops: 'blue', client: 'amber', none: 'green' };
 const TURN_WORDS = { ops: 'Our turn', client: 'Customer’s turn', none: 'Nothing to do' };
 const CHECK_ICON = {
-  checked: ['check', 'green'], received: ['circle', 'blue'], mismatch: ['alert', 'red'], unreadable: ['alert', 'red'],
-  replacement: ['refresh', 'amber'], missing: ['circle', 'amber'], reading: ['clock', 'gray'],
+  checked: ['check', 'green'], received: ['eye', 'blue'], mismatch: ['alert', 'red'], unreadable: ['alert', 'red'],
+  replacement: ['refresh', 'amber'], missing: ['clock', 'amber'], reading: ['clock', 'gray'],
 };
 const DETAIL_LABELS = {
   customer_name: 'Customer name', customer_contact: 'Phone or email', company: 'Company', vin: 'Chassis (VIN)',
   make: 'Make', model: 'Model', origin_port: 'Loading port', destination_port: 'Destination',
 };
+const HISTORY_SHOWN = 6;
 
 export function renderCase({ route, main, refreshCounts }) {
   const [type, ref] = route.parts;
   if (!['booking', 'request', 'mrn'].includes(type) || !ref) {
-    add(main, emptyState('There is nothing to show here.', null, h('a', { class: 'btn', href: '#/inbox' }, 'Back to the inbox')));
+    add(main, emptyState('There is nothing to show here.', null, h('a', { class: 'btn', href: '#/inbox' }, 'Back to the inbox'), { icon: 'inbox' }));
     return null;
   }
 
@@ -44,13 +52,33 @@ export function renderCase({ route, main, refreshCounts }) {
   let convo = null;
   let openedDoc = false;
 
-  const root = h('div', { class: 'case' }, skeleton(10));
+  const root = h('div', { class: 'case', 'data-pane': 'work' }, skeleton(9, { kind: 'cards' }));
   add(main, root);
 
   const headEl = h('header', { class: 'case-head' });
   const mainCol = h('div', { class: 'case-sections' });
   const side = h('aside', { class: 'case-side', id: 'conversation', 'aria-label': 'Conversation with the customer' });
   const sticky = h('div', { class: 'sticky-bar' });
+
+  // On a phone the two columns are two panes; this switches between them.
+  const paneButtons = {};
+  const showPane = (pane) => {
+    root.dataset.pane = pane;
+    for (const [k, b] of Object.entries(paneButtons)) b.setAttribute('aria-pressed', String(k === pane));
+    window.scrollTo(0, 0);
+  };
+  const switcher = h('div', { class: 'case-switch' }, h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' },
+    ['work', 'chat'].map((p) => {
+      paneButtons[p] = h('button', { class: 'seg-item', type: 'button', 'aria-pressed': String(p === 'work'), onclick: () => showPane(p) },
+        icon(p === 'work' ? 'file' : 'chats', { size: 15 }), p === 'work' ? 'Case' : 'Chat');
+      return paneButtons[p];
+    })));
+
+  // The conversation column is sticky under the header, so it needs the
+  // header's real height - which changes when the facts wrap.
+  const sizer = 'ResizeObserver' in window ? new ResizeObserver(() => {
+    root.style.setProperty('--case-head-h', `${headEl.offsetHeight}px`);
+  }) : null;
 
   /**
    * @param {{quiet?: boolean, own?: boolean}} opts
@@ -63,7 +91,7 @@ export function renderCase({ route, main, refreshCounts }) {
     try {
       fresh = await api({ view: 'case', type, ref });
     } catch (err) {
-      if (!quiet) fill(root, errorState(err.status === 404 ? err.message : (err.message || 'We could not load this case.'), err.status === 404 ? null : () => load()));
+      if (!quiet) fill(root, errorState(err, err.status === 404 || err.status === 403 ? null : () => load()));
       return null;
     }
     // Two different questions. Did the CASE change (its version: what a
@@ -76,9 +104,8 @@ export function renderCase({ route, main, refreshCounts }) {
     const changed = shown !== drawnAs;
     data = fresh;
     if (!root.contains(headEl)) {
-      // The header sits in the left column so the conversation can run the
-      // full height on the right, its composer in view without scrolling.
-      fill(root, h('div', { class: 'case-grid' }, h('div', { class: 'case-main' }, headEl, mainCol), side), sticky);
+      fill(root, headEl, switcher, h('div', { class: 'case-grid' }, h('div', { class: 'case-main' }, mainCol), side), sticky);
+      sizer?.observe(headEl);
       convo = mountConversation(side, {
         channel: data.conversation.channel,
         chatId: data.conversation.chat_id,
@@ -143,7 +170,7 @@ export function renderCase({ route, main, refreshCounts }) {
 
   function draw() {
     drawHead();
-    fill(mainCol, 
+    fill(mainCol,
       nextStepCard(),
       warnings(),
       type === 'booking' && data.asked ? askedCard() : null,
@@ -166,28 +193,36 @@ export function renderCase({ route, main, refreshCounts }) {
       hd.route ? h('span', {}, hd.route) : null,
       hd.submitted_at ? h('span', {}, 'Came in ', timeEl(hd.submitted_at, ago(hd.submitted_at))) : null,
     ].filter(Boolean);
+    const p = data.next_step.primary;
 
-    fill(headEl, 
-      h('a', { class: 'back', href: '#/inbox' }, icon('back', { size: 16 }), 'Inbox'),
+    fill(headEl,
       h('div', { class: 'case-title-row' },
+        h('a', { class: 'back', href: '#/inbox' }, icon('back', { size: 16 }), 'Inbox'),
         h('h1', { class: 'case-ref' }, hd.ref),
-        chip(hd.status_words, hd.tone),
-        chip(TURN_WORDS[hd.turn] ?? TURN_WORDS.none, TURN_TONE[hd.turn] ?? 'gray', 'chip-outline'),
-        hd.priority === 'urgent' ? chip('Urgent', 'red') : hd.priority === 'high' ? chip('High priority', 'amber') : null),
+        badge(hd.status_words, hd.tone),
+        badge(TURN_WORDS[hd.turn] ?? TURN_WORDS.none, TURN_TONE[hd.turn] ?? 'gray', { outline: true, icon: 'user' }),
+        hd.priority === 'urgent' ? badge('Urgent', 'red') : hd.priority === 'high' ? badge('High priority', 'amber', { icon: 'alert' }) : null),
       h('p', { class: 'case-facts' }, facts.flatMap((f, i) => (i ? [h('span', { class: 'dot', 'aria-hidden': 'true' }, '·'), f] : [f]))),
-      ownership());
+      h('div', { class: 'case-head-side' },
+        ownership(),
+        p ? actionButton(p, () => run(p), { cls: 'case-head-primary' }) : null));
   }
 
   /** Who has this case, and the one control that changes that. */
   function ownership() {
     const t = data.take;
-    if (!t) return data.header.assigned_to ? h('p', { class: 'case-owner' }, icon('user', { size: 14 }), `${data.header.assigned_to} has this`) : null;
+    if (!t) {
+      return data.header.assigned_to
+        ? h('span', { class: 'case-owner' }, avatar(data.header.assigned_to, { size: 'sm' }), `${data.header.assigned_to} has this`)
+        : null;
+    }
     // A request is put back with request_assign; a booking has its own unassign.
     const body = t.action === 'unassign' && type === 'request' ? { action: 'request_assign', clear: true } : { action: t.action };
+    const who = t.state === 'mine' ? session.name : t.state === 'other' ? data.header.assigned_to : null;
     return h('div', { class: `case-owner owner-${t.state}` },
-      icon('user', { size: 14 }), h('span', {}, t.words),
-      actionButton({ ...t, kind: t.state === 'nobody' ? 'secondary' : 'quiet' }, (e, b) => quick(b, body,
-        t.action === 'unassign' ? 'Put back for anyone to take.' : 'It is yours now.'), { cls: 'btn-small' }));
+      who ? avatar(who, { size: 'sm' }) : icon('userX', { size: 16 }), h('span', {}, t.words),
+      actionButton({ ...t, kind: t.state === 'mine' ? 'ghost' : 'secondary' }, (e, b) => quick(b, body,
+        t.action === 'unassign' ? 'Put back for anyone to take.' : 'It is yours now.'), { cls: 'btn-sm', iconName: t.state === 'nobody' ? 'userPlus' : null }));
   }
 
   function nextStepCard() {
@@ -196,18 +231,18 @@ export function renderCase({ route, main, refreshCounts }) {
     const shown = n.secondary.filter((s) => !s.more);
     const more = n.secondary.filter((s) => s.more);
     return h('section', { class: `card next next-${tone}`, 'aria-labelledby': 'next-title' },
-      h('p', { class: 'eyebrow' }, 'Next step'),
+      h('div', { class: 'next-eyebrow' }, h('span', { class: 'eyebrow' }, 'Next step')),
       h('h2', { class: 'next-title', id: 'next-title' }, n.title),
       n.detail ? h('p', { class: 'next-detail' }, n.detail) : null,
       h('div', { class: 'next-actions' },
-        n.primary ? actionButton(n.primary, () => run(n.primary), { cls: 'btn-large', showReason: true }) : null,
-        shown.map((s) => actionButton({ ...s, kind: s.kind === 'danger' ? 'danger-quiet' : 'quiet' }, () => run(s))),
+        n.primary ? actionButton(n.primary, () => run(n.primary), { cls: 'btn-lg', showReason: true }) : null,
+        shown.map((s) => actionButton({ ...s, kind: s.kind === 'danger' ? 'danger-ghost' : 'secondary' }, () => run(s))),
         more.length ? moreMenu(more) : null));
   }
 
   function moreMenu(items) {
     const menu = h('details', { class: 'menu' },
-      h('summary', { class: 'btn btn-quiet' }, 'More', icon('down', { size: 14 })),
+      h('summary', { class: 'btn btn-ghost btn-icon', 'aria-label': 'More actions', title: 'More actions' }, icon('more', { size: 18 })),
       h('div', { class: 'menu-list', role: 'menu' }, items.map((s) => {
         const item = h('button', {
           class: `menu-item${s.kind === 'danger' ? ' menu-danger' : ''}`, type: 'button', role: 'menuitem',
@@ -241,31 +276,41 @@ export function renderCase({ route, main, refreshCounts }) {
     return out.length ? h('div', { class: 'warnings' }, out) : null;
   }
 
+  /** A card with the system's header: a title (with an optional icon), a quiet note, tools on the right. */
+  const card = (id, title, { sub = null, tools = null, cls = '', ic = null } = {}, ...body) => h('section', { class: `card ${cls}`.trim(), 'aria-labelledby': id },
+    h('div', { class: 'card-head' },
+      h('h2', { id }, ic ? icon(ic, { size: 16 }) : null, title),
+      sub || tools ? h('div', { class: 'card-tools' }, sub ? h('span', { class: 'card-sub' }, sub) : null, tools) : null),
+    ...body);
+
   function documentsCard() {
     const list = data.checklist;
-    return h('section', { class: 'card', 'aria-labelledby': 'docs-title' },
-      h('div', { class: 'card-head' },
-        h('h2', { id: 'docs-title' }, 'Documents'),
-        h('p', { class: 'card-sub' }, list.length ? `${list.filter((c) => c.state === 'checked').length} of ${list.length} checked` : '')),
+    const checked = list.filter((c) => c.state === 'checked').length;
+    const meter = list.length ? h('span', { class: 'progress', title: `${checked} of ${list.length} checked` },
+      h('span', { class: 'progress-bar', 'aria-hidden': 'true' }, list.map((c) => h('span', { class: `is-${(CHECK_ICON[c.state] ?? ['', 'gray'])[1]}` }))),
+      `${checked} of ${list.length} checked`) : null;
+    const fileOf = (id) => data.documents.find((d) => d.id === id)?.file_name ?? null;
+    const item = ({ state, label, words, document_id: docId, tone: wordsTone }) => {
+      const [ic, tone] = CHECK_ICON[state] ?? ['file', 'gray'];
+      const needsEyes = ['received', 'mismatch', 'unreadable'].includes(state);
+      const file = docId ? fileOf(docId) : null;
+      return h('li', { class: `check-item check-${state}${docId ? ' is-openable' : ''}` },
+        h('span', { class: `check-icon tone-${tone}`, 'aria-hidden': 'true' }, icon(ic, { size: 16 })),
+        h('span', { class: 'check-main' },
+          h('span', { class: 'check-label' }, label),
+          h('span', { class: `check-words tone-text-${wordsTone ?? tone}` }, words),
+          file ? h('bdi', { class: 'check-file', dir: 'ltr', title: file }, file) : null),
+        docId
+          ? h('button', { class: `btn btn-sm ${needsEyes ? 'btn-secondary' : 'btn-ghost'}`, type: 'button', onclick: () => openDoc(docId), 'aria-label': `${needsEyes ? 'Check' : 'View'} the ${label}` },
+            icon(needsEyes ? 'eye' : 'file', { size: 14 }), needsEyes ? 'Check' : 'View')
+          : h('span', { 'aria-hidden': 'true' }));
+    };
+    return card('docs-title', 'Documents', { tools: meter, ic: 'file' },
       data.required_note ? h('p', { class: 'muted' }, data.required_note) : null,
-      list.length ? h('ul', { class: 'checklist' }, list.map((c) => {
-        const [ic, tone] = CHECK_ICON[c.state] ?? ['circle', 'gray'];
-        return h('li', { class: `check-row check-${c.state}` },
-          h('span', { class: `check-icon tone-text-${tone}` }, icon(ic, { size: 18 })),
-          h('span', { class: 'check-label' }, c.label),
-          h('span', { class: `check-words tone-text-${tone}` }, c.words),
-          c.document_id
-            ? h('button', { class: 'btn btn-small', type: 'button', onclick: () => openDoc(c.document_id) },
-              ['received', 'mismatch', 'unreadable'].includes(c.state) ? 'Check' : 'View')
-            : h('span', { class: 'check-none' }, '—'));
-      })) : null,
+      list.length ? h('ul', { class: 'checklist' }, list.map((c) => item(c))) : null,
       data.other_documents.length ? h('div', { class: 'other-docs' },
         h('h3', {}, 'Other files'),
-        h('ul', { class: 'checklist' }, data.other_documents.map((d) => h('li', { class: 'check-row' },
-          h('span', { class: 'check-icon' }, icon('file', { size: 18 })),
-          h('span', { class: 'check-label' }, d.label),
-          h('span', { class: 'check-words' }, d.status_words),
-          h('button', { class: 'btn btn-small', type: 'button', onclick: () => openDoc(d.id) }, 'View'))))) : null);
+        h('ul', { class: 'checklist' }, data.other_documents.map((d) => item({ state: 'other', label: d.label, words: d.status_words, document_id: d.id, tone: 'gray' })))) : null);
   }
 
   /**
@@ -276,89 +321,86 @@ export function renderCase({ route, main, refreshCounts }) {
   function askedCard() {
     const a = data.asked;
     const answers = a.answers ?? [];
-    return h('section', { class: 'card', 'aria-labelledby': 'asked-booking-title' },
-      h('div', { class: 'card-head' },
-        h('h2', { id: 'asked-booking-title' }, 'What we asked the customer'),
-        a.at ? h('p', { class: 'card-sub' }, [a.by, timeEl(a.at, when(a.at))].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))) : null),
-      a.requested ? h('div', { class: 'said-block' }, lines(a.requested)) : null,
-      answers.length
-        ? h('div', {}, h('h3', {}, 'Their answer'),
-          h('ul', { class: 'said' }, answers.map((x) => h('li', {},
-            h('span', { class: 'muted' }, when(x.at)), ' ',
-            x.text ? h('bdi', { dir: 'auto' }, x.text) : null,
-            (x.documents ?? []).map((d) => [' ', d.id
-              ? h('button', { class: 'link-btn', type: 'button', onclick: () => openDoc(d.id) }, d.label)
-              : h('span', {}, d.label)])))))
-        : h('p', { class: 'muted' }, 'No answer yet.'));
+    return card('asked-booking-title', 'What we asked the customer', {
+      ic: 'reply',
+      sub: a.at ? [a.by, timeEl(a.at, when(a.at))].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x])) : null,
+    },
+    a.requested ? h('div', { class: 'said-block' }, lines(a.requested)) : null,
+    answers.length
+      ? h('div', {}, h('h3', {}, 'Their answer'),
+        h('ul', { class: 'said' }, answers.map((x) => h('li', {},
+          h('span', { class: 'muted' }, when(x.at)),
+          x.text ? h('bdi', { dir: 'auto' }, x.text) : null,
+          (x.documents ?? []).map((d) => (d.id
+            ? h('button', { class: 'link-btn', type: 'button', onclick: () => openDoc(d.id) }, d.label)
+            : h('span', {}, d.label)))))))
+      : h('p', { class: 'muted', style: { marginTop: '12px' } }, 'No answer yet.'));
   }
 
   function mrnCard() {
     const m = data.mrn;
-    return h('section', { class: 'card', 'aria-labelledby': 'mrn-title' },
-      h('div', { class: 'card-head' }, h('h2', { id: 'mrn-title' }, 'MRN — MKY is getting it'), chip(m.status_words, m.mrn_number ? 'green' : 'blue')),
-      h('dl', { class: 'details' },
-        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : 'Not issued yet'),
+    return card('mrn-title', 'MRN — MKY is getting it', { ic: 'stamp', tools: badge(m.status_words, m.mrn_number ? 'green' : 'blue') },
+      h('dl', { class: 'kv' },
+        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
         m.request_ref ? row('Application', h('a', { href: linkFor({ type: 'mrn', ref: m.request_ref }) }, m.request_ref)) : null),
       m.supplied.length ? h('div', {}, h('h3', {}, 'What the customer told us'),
-        h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), ' ', h('bdi', { dir: 'auto' }, s.text))))) : null);
+        h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), h('bdi', { dir: 'auto' }, s.text))))) : null);
   }
 
   function requestCard() {
     const r = data.request;
-    return h('section', { class: 'card', 'aria-labelledby': 'asked-title' },
-      h('div', { class: 'card-head' }, h('h2', { id: 'asked-title' }, 'What the customer asked')),
+    return card('asked-title', 'What the customer asked', { ic: 'phone' },
       h('div', { class: 'said-block' }, lines(r.summary || 'They did not say.')),
-      h('dl', { class: 'details' },
-        row('Call them on', r.contact ? h('a', { href: `tel:${r.contact.replace(/[^\d+]/g, '')}` }, h('bdi', {}, r.contact)) : 'No number given — reply in the chat'),
+      h('dl', { class: 'kv', style: { marginTop: '8px' } },
+        row('Call them on', r.contact ? h('a', { href: `tel:${r.contact.replace(/[^\d+]/g, '')}`, class: 'strong' }, h('bdi', {}, r.contact)) : 'No number given — reply in the chat'),
         row('Department', r.department),
         r.booking_ref ? row('About booking', h('a', { href: linkFor({ type: 'booking', ref: r.booking_ref }) }, r.booking_ref)) : null,
         r.resolution_note ? row('They were told', h('bdi', { dir: 'auto' }, r.resolution_note)) : null),
       data.bookings?.length ? h('div', {}, h('h3', {}, 'Their bookings'),
         h('ul', { class: 'mini-list' }, data.bookings.map((b) => h('li', {},
-          h('a', { href: linkFor({ type: 'booking', ref: b.booking_ref }) }, b.booking_ref), ' ',
-          chip(b.status_words, b.tone), ' ', [b.make, b.vin].filter(Boolean).join(' · '))))) : null);
+          h('a', { href: linkFor({ type: 'booking', ref: b.booking_ref }), class: 'mono' }, b.booking_ref),
+          badge(b.status_words, b.tone, { small: true }),
+          h('span', { class: 'muted small' }, [b.make, b.vin].filter(Boolean).join(' · ')))))) : null);
   }
 
   function applicationCard() {
     const m = data.mrn;
-    return h('section', { class: 'card', 'aria-labelledby': 'app-title' },
-      h('div', { class: 'card-head' }, h('h2', { id: 'app-title' }, 'The application')),
-      h('dl', { class: 'details' },
-        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : 'Not issued yet'),
-        data.booking ? row('Booking', h('span', {}, h('a', { href: linkFor({ type: 'booking', ref: data.booking.booking_ref }) }, data.booking.booking_ref), ` · ${data.booking.status_words}`)) : row('Booking', 'None linked'),
+    return card('app-title', 'The application', { ic: 'stamp' },
+      h('dl', { class: 'kv' },
+        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
+        data.booking ? row('Booking', h('span', {}, h('a', { href: linkFor({ type: 'booking', ref: data.booking.booking_ref }) }, data.booking.booking_ref), ` · ${data.booking.status_words}`)) : row('Booking', h('span', { class: 'kv-empty' }, 'None linked')),
         m.missing?.length ? row('Still needed', m.missing.join(', ')) : null,
         m.notes ? row('Desk notes', h('bdi', { dir: 'auto' }, m.notes)) : null),
       m.supplied.length ? h('div', {}, h('h3', {}, 'What the customer told us'),
-        h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), ' ', h('bdi', { dir: 'auto' }, s.text))))) : null);
+        h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), h('bdi', { dir: 'auto' }, s.text))))) : null);
   }
 
-  // -- details, correctable in place ------------------------------------------
+  // -- details, correctable in place, one line at a time ---------------------------
   function detailsCard() {
     const b = data.booking;
-    const dl = h('dl', { class: 'details details-edit' });
-    for (const [field, label] of Object.entries(DETAIL_LABELS)) add(dl, ...detailRow(field, label, b[field]));
-    return h('section', { class: 'card', 'aria-labelledby': 'details-title' },
-      h('div', { class: 'card-head' },
-        h('h2', { id: 'details-title' }, 'Details'),
-        h('p', { class: 'card-sub' }, b.editable ? 'Correct a mistake in place. Every change is recorded with who made it.' : (b.edit_reason ?? ''))),
+    const dl = h('dl', { class: 'kv' });
+    for (const [field, label] of Object.entries(DETAIL_LABELS)) add(dl, detailRow(field, label, b[field]));
+    return card('details-title', 'Details', { ic: 'note', sub: b.editable ? 'Select ✎ on a line to correct it. Every change is recorded.' : (b.edit_reason ?? '') },
       dl,
-      h('p', { class: 'muted small' }, `MRN: ${b.mrn_choice === 'mky_issue' ? 'MKY is getting it' : b.mrn_choice === 'existing' ? 'the customer has it' : 'not said'}${b.mrn_number ? ` · ${b.mrn_number}` : ''}`));
+      h('p', { class: 'kv-foot' }, `MRN: ${b.mrn_choice === 'mky_issue' ? 'MKY is getting it' : b.mrn_choice === 'existing' ? 'the customer has it' : 'not said'}${b.mrn_number ? ` · ${b.mrn_number}` : ''}`));
   }
 
   function detailRow(field, label, value) {
-    const dt = h('dt', {}, label);
-    const dd = h('dd', {});
+    const dd = h('dd', { class: 'kv-val' });
+    const wrap = h('div', { class: 'kv-row' }, h('dt', { class: 'kv-key' }, label), dd);
     const show = () => {
-      fill(dd, 
-        h('bdi', { class: field === 'vin' ? 'mono' : '' }, value || '—'),
-        data.booking.editable ? h('button', { class: 'link-btn', type: 'button', onclick: edit, 'aria-label': `Correct ${label.toLowerCase()}` }, 'Correct') : null);
+      wrap.classList.remove('is-editing');
+      fill(dd,
+        value ? h('bdi', { class: field === 'vin' ? 'mono' : '' }, value) : h('span', { class: 'kv-text kv-empty' }, 'Not given'),
+        data.booking.editable ? h('button', { class: 'icon-btn kv-edit', type: 'button', onclick: edit, 'aria-label': `Correct ${label.toLowerCase()}`, title: `Correct ${label.toLowerCase()}` }, icon('pencil', { size: 15 })) : null);
     };
     const edit = () => {
       const version = data.version;
+      wrap.classList.add('is-editing');
       const input = h('input', { class: `input${field === 'vin' ? ' mono' : ''}`, value: value ?? '', 'aria-label': label, dir: 'auto' });
       const err = h('p', { class: 'form-error', role: 'alert', hidden: true });
-      const save = h('button', { class: 'btn btn-primary btn-small', type: 'button' }, 'Save');
-      const cancel = h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: show }, 'Cancel');
+      const save = h('button', { class: 'btn btn-primary btn-sm', type: 'button' }, 'Save');
+      const cancel = h('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => { show(); dd.querySelector('.kv-edit')?.focus(); } }, 'Cancel');
       const submit = async () => {
         save.disabled = true;
         try {
@@ -373,16 +415,16 @@ export function renderCase({ route, main, refreshCounts }) {
       };
       save.addEventListener('click', submit);
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') show(); });
-      fill(dd, h('span', { class: 'inline-edit' }, input, save, cancel), err);
+      fill(dd, h('span', { class: 'kv-form' }, input, save, cancel, err));
       input.focus();
       input.select();
     };
     show();
-    return [dt, dd];
+    return wrap;
   }
 
   function row(label, value) {
-    return [h('dt', {}, label), h('dd', {}, value ?? '—')];
+    return h('div', { class: 'kv-row' }, h('dt', { class: 'kv-key' }, label), h('dd', { class: 'kv-val' }, value ?? '—'));
   }
 
   // -- notes: unmistakably internal ---------------------------------------------
@@ -391,7 +433,7 @@ export function renderCase({ route, main, refreshCounts }) {
     const ta = h('textarea', { class: 'input', rows: '2', dir: 'auto', 'aria-label': 'Internal note', placeholder: 'For the team only…' });
     ta.value = draft.get(key);
     ta.addEventListener('input', () => draft.set(key, ta.value));
-    const save = h('button', { class: 'btn btn-small', type: 'button', disabled: !session.can('notes') }, 'Save note');
+    const save = h('button', { class: 'btn', type: 'button', disabled: !session.can('notes') }, 'Save note');
     save.addEventListener('click', async () => {
       if (ta.value.trim().length < 2) return toast('Write the note first.', 'info');
       save.disabled = true;
@@ -400,15 +442,12 @@ export function renderCase({ route, main, refreshCounts }) {
         draft.set(key, '');
         await after('Note saved.');
       } catch (e) {
-        toast(e.message, 'bad');
+        toastError(e);
         save.disabled = false;
       }
     });
     const notes = data.notes ?? [];
-    return h('section', { class: 'card notes', 'aria-labelledby': 'notes-title' },
-      h('div', { class: 'card-head' },
-        h('h2', { id: 'notes-title' }, icon('lock', { size: 15 }), 'Internal notes'),
-        h('p', { class: 'card-sub notes-badge' }, 'Never sent to the customer')),
+    return card('notes-title', 'Internal notes', { cls: 'notes', ic: 'lock', tools: h('span', { class: 'notes-badge' }, 'Never sent to the customer') },
       session.can('notes') ? h('div', { class: 'note-compose' }, ta, save) : null,
       notes.length ? h('ul', { class: 'note-list' }, notes.map((n) => h('li', { class: 'note' },
         h('p', { class: 'note-meta' }, h('strong', {}, n.author), ' · ', timeEl(n.at, when(n.at))),
@@ -421,36 +460,38 @@ export function renderCase({ route, main, refreshCounts }) {
     const list = h('ol', { class: 'timeline' });
     const toggle = h('button', { class: 'link-btn', type: 'button' });
     const paint = () => {
-      fill(list, ...(showAll ? items : items.slice(0, 8)).map((a) => h('li', {},
+      fill(list, ...(showAll ? items : items.slice(0, HISTORY_SHOWN)).map((a) => h('li', {},
         timeEl(a.at, when(a.at)), h('span', {}, h('strong', {}, a.who), ` ${a.what}`))));
-      toggle.textContent = showAll ? 'Show less' : `Show all (${items.length})`;
-      toggle.hidden = items.length <= 8;
+      toggle.textContent = showAll ? 'Show less' : `Show all ${items.length}`;
+      toggle.hidden = items.length <= HISTORY_SHOWN;
     };
     toggle.addEventListener('click', () => { showAll = !showAll; paint(); });
     paint();
-    return h('section', { class: 'card', 'aria-labelledby': 'history-title' },
-      h('div', { class: 'card-head' }, h('h2', { id: 'history-title' }, 'History')),
+    return card('history-title', 'History', { ic: 'clock' },
       items.length ? [list, toggle] : h('p', { class: 'muted' }, 'Nothing recorded yet.'));
   }
 
   /**
-   * On a phone the primary action stays in reach at the bottom of the screen -
-   * shown once the Next step card itself has scrolled out of view.
+   * The primary action stays in reach once the Next step card has scrolled
+   * out of view: in the case header on a desktop, in a bar at the bottom of
+   * the screen on a phone. Never both copies at once.
    */
   let watcher = null;
   function drawSticky() {
     watcher?.disconnect();
-    const card = mainCol.querySelector('.next');
-    if (card && 'IntersectionObserver' in window) {
-      watcher = new IntersectionObserver(([e]) => sticky.classList.toggle('is-visible', !e.isIntersecting));
-      watcher.observe(card);
+    const nextCard = mainCol.querySelector('.next');
+    const hidden = (v) => { sticky.classList.toggle('is-visible', v); root.classList.toggle('next-hidden', v); };
+    if (nextCard && 'IntersectionObserver' in window) {
+      const top = (document.querySelector('.top')?.offsetHeight ?? 56) + (getComputedStyle(headEl).position === 'sticky' ? headEl.offsetHeight : 0);
+      watcher = new IntersectionObserver(([e]) => hidden(!e.isIntersecting), { rootMargin: `-${top}px 0px 0px 0px` });
+      watcher.observe(nextCard);
     } else {
-      sticky.classList.add('is-visible');
+      hidden(true);
     }
     const p = data.next_step.primary;
-    fill(sticky, 
+    fill(sticky,
       p ? actionButton(p, () => run(p), { cls: 'btn-block' }) : h('span', { class: 'sticky-words' }, data.next_step.title),
-      data.conversation.chat_id ? h('a', { class: 'btn', href: '#conversation', onclick: (e) => { e.preventDefault(); side.scrollIntoView({ behavior: 'smooth' }); } }, icon('chats', { size: 16 }), 'Chat') : null);
+      data.conversation.chat_id ? h('button', { class: 'btn', type: 'button', onclick: () => showPane('chat') }, icon('chats', { size: 16 }), 'Chat') : null);
   }
 
   // -------------------------------------------------------------------------
@@ -500,7 +541,7 @@ export function renderCase({ route, main, refreshCounts }) {
       await after(ok);
     } catch (e) {
       if (e.data?.stale) return stale(e);
-      toast(e.message, 'bad');
+      toastError(e);
     } finally {
       if (button) button.disabled = false;
     }
@@ -553,7 +594,7 @@ export function renderCase({ route, main, refreshCounts }) {
       subtitle: 'Confirming tells the customer and opens the shipment. It cannot be undone here.',
       body: [
         warning ? h('div', { class: 'callout callout-amber' }, icon('alert', { size: 16 }), h('p', {}, warning, ' You can still confirm if you are sure.')) : null,
-        h('dl', { class: 'details details-compact' },
+        h('dl', { class: 'kv kv-compact', style: { marginTop: warning ? '12px' : '0' } },
           row('Customer', h('bdi', {}, b.customer_name)),
           row('Chassis', h('span', { class: 'mono' }, b.vin)),
           row('Vehicle', [b.make, b.model].filter(Boolean).join(' ') || '—'),
@@ -744,6 +785,7 @@ export function renderCase({ route, main, refreshCounts }) {
     },
     dispose() {
       watcher?.disconnect();
+      sizer?.disconnect();
       document.querySelectorAll('dialog[open]').forEach((d) => d.close());
     },
   };

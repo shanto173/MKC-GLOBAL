@@ -7,14 +7,15 @@
  * dir="auto", so Arabic runs right to left and English left to right, line by
  * line, whatever the rest of the page is doing.
  *
- * The composer knows the channel's rules. On WhatsApp it says how long the
- * 24-hour window has left, and when it has closed it says so and offers the
- * one thing that can still be sent. It never pretends it can send something
- * the server will refuse.
+ * The composer knows the channel's rules. Right above it, a banner says the
+ * state of the channel: how long the WhatsApp window has left, that it has
+ * closed (with the one thing that can still be sent), or that the customer
+ * wrote STOP. It never pretends it can send something the server will refuse.
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, chip, channelBadge, clock, dayLabel, draft, session, safeGet, safeSet, errorState, skeleton, add, fill, lines,
+  h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelBadge, avatar, clock, dayLabel, draft, session, safeGet, safeSet,
+  errorState, skeleton, add, fill, lines,
 } from './ui.js';
 
 const STATUS_MARK = {
@@ -26,6 +27,7 @@ const STATUS_MARK = {
   failed: ['Not delivered', 'alert'],
 };
 const KIND_WORDS = { document: 'File', image: 'Photo', template: 'Template', audio: 'Voice note', video: 'Video', location: 'Location', sticker: 'Sticker' };
+const FILE_KINDS = ['document', 'image', 'video', 'audio'];
 const LANG = { ar: 'Arabic', en: 'English' };
 
 /** Remembers, per browser, the newest customer message each chat has shown - for "unread". */
@@ -54,7 +56,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
   add(container, head, notice, h('div', { class: 'transcript-wrap' }, transcript, pill), composer);
 
   if (!chatId) {
-    add(head, h('h2', { class: 'convo-title' }, 'Conversation'));
+    add(head, h('div', { class: 'convo-who' }, h('h2', { class: 'convo-title' }, 'Conversation')));
     add(transcript, h('p', { class: 'convo-empty' }, 'This customer has no chat linked, so there is no conversation to show or answer.'));
     return { refresh() {}, dispose() {} };
   }
@@ -64,7 +66,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     try {
       data = await api({ view: 'chat', channel, chat_id: chatId });
     } catch (err) {
-      if (!quiet) fill(transcript, errorState(err.message || 'We could not load the conversation.', () => load()));
+      if (!quiet) fill(transcript, errorState(err.message ? err : 'We could not load the conversation.', () => load()));
       return;
     }
     drawHead();
@@ -85,31 +87,41 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     if (mode !== composerMode) { composerMode = mode; drawComposer(); }
   }
 
+  // Whether the newest message is in view. While it is, the transcript stays
+  // pinned to the bottom even when its box changes size (the page header
+  // settling, the composer growing, a phone keyboard opening).
+  let pinned = true;
   function toEnd() {
     transcript.scrollTop = transcript.scrollHeight;
+    pinned = true;
     pill.hidden = true;
   }
   transcript.addEventListener('scroll', () => {
-    if (transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 60) pill.hidden = true;
+    pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 60;
+    if (pinned) pill.hidden = true;
   });
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(() => { if (pinned) transcript.scrollTop = transcript.scrollHeight; }).observe(transcript);
+  }
 
   // -- header ---------------------------------------------------------------
   function drawHead() {
     const c = data.customer;
-    fill(head, 
+    fill(head,
+      avatar(c.name, { size: 'lg', channel: c.channel }),
       h('div', { class: 'convo-who' },
         h('h2', { class: 'convo-title' }, h('bdi', {}, c.name)),
         h('div', { class: 'convo-chips' },
-          channelBadge(c.channel),
+          c.channel ? tag(channelBadge(c.channel)) : null,
           // Not chosen means the bot writes to them in both languages.
-          c.language ? chip(LANG[c.language], 'gray') : chip('Language not chosen yet', 'gray'),
-          c.opted_out_at ? chip('Wrote STOP', 'red') : null,
-          c.is_blocked ? chip('Blocked', 'red') : null)),
-      h('div', { class: 'convo-contact' },
-        c.phone ? h('a', { href: `tel:${c.phone.replace(/[^\d+]/g, '')}`, class: 'convo-phone' }, icon('phone', { size: 14 }), h('bdi', {}, c.phone)) : null,
-        c.profile_name && c.profile_name !== c.name
-          ? h('span', { class: 'convo-profile' }, `${c.channel === 'whatsapp' ? 'WhatsApp' : 'Profile'} name: `, h('bdi', {}, c.profile_name)) : null,
-        c.bot_state_words ? h('span', { class: 'convo-state' }, `With the bot: ${c.bot_state_words}`) : null));
+          c.language ? tag(LANG[c.language], { quiet: true }) : tag('Language not chosen yet', { quiet: true }),
+          c.opted_out_at ? badge('Wrote STOP', 'red') : null,
+          c.is_blocked ? badge('Blocked', 'red', { icon: 'lock' }) : null),
+        h('div', { class: 'convo-contact' },
+          c.phone ? h('a', { href: `tel:${c.phone.replace(/[^\d+]/g, '')}`, class: 'convo-phone' }, icon('phone', { size: 14 }), h('bdi', {}, c.phone)) : null,
+          c.profile_name && c.profile_name !== c.name
+            ? h('span', { class: 'convo-profile' }, `${c.channel === 'whatsapp' ? 'WhatsApp' : 'Profile'} name: `, h('bdi', {}, c.profile_name)) : null,
+          c.bot_state_words ? h('span', { class: 'convo-state' }, `With the bot: ${c.bot_state_words}`) : null)));
   }
 
   // -- transcript -----------------------------------------------------------
@@ -143,8 +155,19 @@ export function mountConversation(container, { channel, chatId, target, draftKey
       : m.author === 'bot' ? 'Bot'
         : m.author === 'staff' ? (m.staff_name || 'Staff') : 'Notification';
     const text = m.body || (m.kind && m.kind !== 'text' ? `[${KIND_WORDS[m.kind] ?? m.kind}]` : '');
-    const body = h('div', { class: 'bubble-body' }, lines(text));
-    const long = text.length > 700 || text.split('\n').length > 14;
+    // A file is a file chip, its caption (if any) the words under it. The
+    // name is isolated left to right, the way a file manager shows it: inside
+    // a right-to-left bubble "فاتورة-7710.pdf" otherwise reads "pdf.7710-فاتورة".
+    const isFile = FILE_KINDS.includes(m.kind);
+    const fileName = m.file_name || null;
+    const body = isFile
+      ? h('div', { class: 'bubble-body' },
+        h('span', { class: 'file-chip' }, icon('file', { size: 16 }),
+          fileName ? h('bdi', { dir: 'ltr', title: fileName }, fileName) : h('span', {}, KIND_WORDS[m.kind] ?? 'File'),
+          fileName ? h('span', { class: 'sr-only' }, ` (${KIND_WORDS[m.kind] ?? 'file'})`) : null),
+        m.body ? lines(m.body) : null)
+      : h('div', { class: 'bubble-body' }, lines(text));
+    const long = !isFile && (text.length > 700 || text.split('\n').length > 14);
     let toggle = null;
     if (long) {
       body.classList.add('clamped');
@@ -175,7 +198,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
 
   function retryButton(m) {
     const key = newKey();
-    const b = h('button', { class: 'btn btn-small', type: 'button', disabled: !session.can('problems') }, icon('refresh', { size: 13 }), 'Retry');
+    const b = h('button', { class: 'btn btn-sm', type: 'button', disabled: !session.can('problems') }, icon('refresh', { size: 13 }), 'Retry');
     b.addEventListener('click', async () => {
       b.disabled = true;
       try {
@@ -183,7 +206,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
         toast('Sent again.');
         await load();
       } catch (err) {
-        toast(err.message, 'bad');
+        toastError(err);
         b.disabled = false;
       }
     });
@@ -198,7 +221,8 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     clear(composer);
 
     if (!session.can('chat')) {
-      add(composer, h('p', { class: 'composer-note' }, 'Your role is read only: you can read the conversation, but not write in it.'));
+      add(composer, h('div', { class: 'banner banner-gray' }, icon('lock', { size: 15 }),
+        h('p', {}, 'Your role is read only: you can read the conversation, but not write in it.')));
       return;
     }
 
@@ -210,7 +234,7 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     });
     ta.value = typed;
     const errorLine = h('p', { class: 'composer-error', role: 'alert', hidden: true });
-    const sendBtn = h('button', { class: 'btn btn-primary', type: 'button', disabled: c.mode !== 'text' }, icon('send', { size: 15 }), 'Send');
+    const sendBtn = h('button', { class: 'btn btn-primary', type: 'button', disabled: c.mode !== 'text' }, icon('send', { size: 15 }), h('span', {}, 'Send'));
 
     ta.addEventListener('input', () => {
       draft.set(draftKey, ta.value);
@@ -252,45 +276,67 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     }
     sendBtn.addEventListener('click', send);
 
-    add(composer, 
-      status,
-      c.mode !== 'text' ? blocked(c) : null,
+    const box = h('div', { class: `composer-box${c.mode !== 'text' ? ' is-disabled' : ''}` },
       ta,
       h('div', { class: 'composer-row' },
         savedReplies(ta, lang, c.mode !== 'text'),
-        h('span', { class: 'composer-hint' }, c.mode === 'text' ? 'Ctrl+Enter to send' : ''),
-        sendBtn),
+        h('span', { class: 'composer-hint' }, c.mode === 'text' ? [h('kbd', {}, 'Ctrl'), '+', h('kbd', {}, 'Enter'), ' to send'] : ''),
+        sendBtn));
+    add(composer,
+      status,
+      c.mode !== 'text' ? blocked(c) : null,
+      box,
       errorLine);
   }
 
+  /**
+   * The state of the channel, right above where you type: how long the
+   * WhatsApp window has left, or that Telegram has no limit. Amber once the
+   * window has less than three hours left - after that only a template goes.
+   */
   function composerStatus() {
     const w = data.window;
     if (data.composer.mode !== 'text') return null;
     if (w.applies && w.closes_at) {
       const hours = Math.max(0, Math.floor((new Date(w.closes_at).getTime() - Date.now()) / 3600_000));
-      return h('p', { class: 'composer-status status-open' }, icon('clock', { size: 13 }),
-        hours >= 1 ? `WhatsApp window open for ${hours} h more` : 'WhatsApp window closes within the hour');
+      if (hours < 3) {
+        return h('div', { class: 'banner banner-amber', role: 'status' }, icon('clock', { size: 15 }),
+          h('p', {}, h('strong', {}, hours >= 1 ? `WhatsApp window closes in ${hours} h. ` : 'WhatsApp window closes within the hour. '),
+            'After that only an approved template can be sent.'));
+      }
+      return h('div', { class: 'banner banner-quiet' }, icon('clock', { size: 14 }),
+        h('p', {}, h('strong', { class: 'tone-text-green' }, 'WhatsApp window open'), ` · ${hours} h left`));
     }
-    return data.composer.note ? h('p', { class: 'composer-status' }, data.composer.note) : null;
+    return data.composer.note
+      ? h('div', { class: 'banner banner-quiet' }, icon(data.customer.channel === 'telegram' ? 'telegram' : 'circle', { size: 14 }), h('p', {}, data.composer.note))
+      : null;
   }
 
+  /** Why nothing can be typed, as a banner in the tone it deserves - and the one thing that can still be sent. */
   function blocked(c) {
-    const box = h('div', { class: `callout ${c.mode === 'template_only' ? 'callout-amber' : 'callout-gray'}` },
-      h('p', {}, c.reason));
+    const cust = data.customer ?? {};
+    const stopped = Boolean(cust.opted_out_at || cust.is_blocked);
+    const tone = c.mode === 'template_only' ? 'amber' : stopped ? 'red' : 'gray';
+    const title = c.mode === 'template_only' ? 'The 24-hour window has closed. '
+      : cust.opted_out_at ? 'Opted out. ' : cust.is_blocked ? 'Blocked. ' : '';
+    const box = h('div', { class: `banner banner-${tone}`, role: 'status' },
+      icon(c.mode === 'template_only' ? 'clock' : stopped ? 'lock' : 'alert', { size: 15 }),
+      h('p', {}, title ? h('strong', {}, title) : null, c.reason));
     if (c.mode === 'template_only') {
       const key = newKey();
-      const b = h('button', { class: 'btn btn-primary', type: 'button' }, 'Send the “please reply” template');
+      const label = 'Send the “please reply” template';
+      const b = h('button', { class: 'btn btn-primary btn-sm', type: 'button' }, icon('template', { size: 14 }), h('span', {}, label));
       b.addEventListener('click', async () => {
         b.disabled = true;
-        b.textContent = 'Sending…';
+        b.lastChild.textContent = 'Sending…';
         try {
           await post({ action: 'send_reopen_template', ...target, action_key: key });
           toast('Template sent. When they answer you can write freely.');
           await load({ quiet: true });
         } catch (err) {
-          toast(err.message, 'bad');
+          toastError(err);
           b.disabled = false;
-          b.textContent = 'Send the “please reply” template';
+          b.lastChild.textContent = label;
         }
       });
       add(box, b);
@@ -303,8 +349,8 @@ export function mountConversation(container, { channel, chatId, target, draftKey
     const list = data.saved_replies ?? [];
     if (!list.length) return h('span');
     const menu = h('details', { class: 'menu' },
-      h('summary', { class: `btn btn-quiet btn-small${disabled ? ' is-disabled' : ''}`, 'aria-disabled': disabled ? 'true' : null },
-        'Saved replies', icon('down', { size: 14 })),
+      h('summary', { class: `btn btn-ghost btn-sm${disabled ? ' is-disabled' : ''}`, 'aria-disabled': disabled ? 'true' : null },
+        icon('reply', { size: 14 }), 'Saved replies', icon('down', { size: 14 })),
       h('div', { class: 'menu-list menu-up', role: 'menu' },
         list.map((r) => {
           const text = lang === 'ar' ? (r.ar || r.en) : lang === 'en' ? (r.en || r.ar) : [r.ar, r.en].filter(Boolean).join('\n\n');

@@ -96,7 +96,26 @@ const ICONS = {
   right: ['M9 18l6-6-6-6'],
   send: ['M22 2 11 13', 'M22 2 15 22l-4-9-9-4z'],
   plus: ['M12 5v14', 'M5 12h14'],
+  truck: ['M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2', 'M15 18H9', 'M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14', 'M17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z', 'M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],
+  stamp: ['M5 22h14', 'M19.27 13.73A2.5 2.5 0 0 0 17.5 13h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1.5c0-.66-.26-1.3-.73-1.77z', 'M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-3-3c-1.69 0-3 1-3 3s1 2 1 3.5V13'],
+  pencil: ['M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z', 'M15 5l4 4'],
+  dot: ['M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'],
+  minus: ['M5 12h14'],
+  more: ['M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
+  eye: ['M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+  wifiOff: ['M12 20h.01', 'M8.5 16.43a5 5 0 0 1 7 0', 'M2 8.82a15 15 0 0 1 4.17-2.65', 'M10.66 5c4.01-.36 8.14.9 11.34 3.76', 'M16.85 11.25a10 10 0 0 1 2.22 1.68', 'M5 13a10 10 0 0 1 5.24-2.76', 'M2 2l20 20'],
+  userPlus: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M19 8v6', 'M22 11h-6'],
+  userX: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M17 8l5 5', 'M22 8l-5 5'],
+  users: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M22 21v-2a4 4 0 0 0-3-3.87', 'M16 3.13a4 4 0 0 1 0 7.75'],
+  reply: ['M9 17l-5-5 5-5', 'M20 18v-2a4 4 0 0 0-4-4H4'],
+  calendar: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'],
+  checkCircle: ['M22 11.08V12a10 10 0 1 1-5.93-9.14', 'M22 4 12 14.01l-3-3'],
+  template: ['M4 4h16v16H4z', 'M8 9h8', 'M8 13h8', 'M8 17h5'],
+  hours: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3 2'],
 };
+
+/** Icons drawn filled rather than outlined. */
+const FILLED = new Set(['dot', 'more']);
 
 export function icon(name, { size = 16, cls = '' } = {}) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -104,7 +123,7 @@ export function icon(name, { size = 16, cls = '' } = {}) {
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', size);
   svg.setAttribute('height', size);
-  svg.setAttribute('fill', 'none');
+  svg.setAttribute('fill', FILLED.has(name) ? 'currentColor' : 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '2');
   svg.setAttribute('stroke-linecap', 'round');
@@ -124,51 +143,121 @@ export function icon(name, { size = 16, cls = '' } = {}) {
 // Small pieces used everywhere
 // ---------------------------------------------------------------------------
 
-/** A status chip: always a word, with a tone. Never colour alone. */
-export const chip = (text, tone = 'gray', extra = '') => h('span', { class: `chip chip-${tone} ${extra}`.trim() }, text);
+/**
+ * The status badge: a word, an icon by meaning, and a tone - never colour
+ * alone. Tones are the server's: blue = ours to do, amber = waiting on the
+ * customer or getting late, green = done, red = something is wrong, gray =
+ * closed or neutral. docs/DESK-DESIGN-SYSTEM.md maps every status to one.
+ */
+const TONE_ICON = { blue: 'dot', amber: 'clock', green: 'check', red: 'alert', gray: 'minus' };
+export function badge(text, tone = 'gray', { outline = false, small = false, icon: ic } = {}) {
+  const t = TONE_ICON[tone] ? tone : 'gray';
+  const name = ic === false ? null : (ic ?? TONE_ICON[t]);
+  return h('span', { class: `badge badge-${t}${outline ? ' badge-outline' : ''}${small ? ' badge-sm' : ''}` },
+    name ? icon(name, { size: small ? 11 : name === 'dot' ? 10 : 13 }) : null, text);
+}
+
+/** A tag says what KIND of thing something is (a booking, Arabic, WhatsApp) - not its state. */
+export function tag(text, { icon: ic = null, quiet = false, href = null, title = null } = {}) {
+  return h(href ? 'a' : 'span', { class: `tag${quiet ? ' tag-quiet' : ''}`, href, title }, ic ? icon(ic, { size: 13 }) : null, text);
+}
 
 const CHANNEL_WORDS = { whatsapp: 'WhatsApp', telegram: 'Telegram', web: 'Website' };
+const CHANNEL_ICON = { whatsapp: 'whatsapp', telegram: 'telegram' };
+/** The channel as its icon alone, with the word for screen readers. */
+export const channelIcon = (channel, size = 14) => h('span', { class: `channel channel-${channel}`, title: CHANNEL_WORDS[channel] ?? channel },
+  icon(CHANNEL_ICON[channel] ?? 'chats', { size }), sr(CHANNEL_WORDS[channel] ?? channel ?? ''));
 export function channelBadge(channel, { compact = false } = {}) {
   if (!channel) return null;
+  if (compact) return channelIcon(channel, 14);
   return h('span', { class: `channel channel-${channel}` },
-    icon(channel === 'whatsapp' ? 'whatsapp' : channel === 'telegram' ? 'telegram' : 'chats', { size: 13 }),
-    compact ? sr(CHANNEL_WORDS[channel] ?? channel) : (CHANNEL_WORDS[channel] ?? channel));
+    icon(CHANNEL_ICON[channel] ?? 'chats', { size: 14 }), CHANNEL_WORDS[channel] ?? channel);
 }
 export const channelWords = (c) => CHANNEL_WORDS[c] ?? c ?? '';
 
-export function emptyState(title, detail, action = null) {
-  return h('div', { class: 'empty' },
+/**
+ * Initials in a circle: who has a case, who wrote. The colour comes from the
+ * name, so the same person always looks the same; it carries no meaning.
+ */
+export function initials(name) {
+  const words = String(name ?? '').replace(/[—–-]/g, ' ').split(/\s+/).filter((w) => /\p{L}/u.test(w));
+  const letters = words.slice(0, 2).map((w) => [...w.replace(/[^\p{L}]/gu, '')][0] ?? '');
+  return letters.join('') || '?';
+}
+export function avatar(name, { size = '', channel = null, title = null } = {}) {
+  let hash = 0;
+  for (const ch of String(name ?? '')) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return h('span', { class: `avatar av-${hash % 6}${size ? ` avatar-${size}` : ''}`, 'aria-hidden': 'true', title },
+    initials(name),
+    channel && CHANNEL_ICON[channel] ? h('span', { class: `avatar-mark avatar-mark-${channel}` }, icon(CHANNEL_ICON[channel], { size: 10 })) : null);
+}
+
+/** Nothing to show: what this place is for, and the one thing to do about it. */
+export function emptyState(title, detail, action = null, { icon: ic = 'inbox', tone = '' } = {}) {
+  return h('div', { class: `empty${tone ? ` empty-${tone}` : ''}` },
+    ic ? h('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon(ic, { size: 22 })) : null,
     h('p', { class: 'empty-title' }, title),
     detail ? h('p', { class: 'empty-detail' }, detail) : null,
     action);
 }
 
-export function errorState(message, retry) {
+/**
+ * Something did not load. Takes the error itself where it can, because "you
+ * are offline", "your role cannot see this" and "the server failed" need
+ * different words and different next steps.
+ */
+export function errorState(problem, retry) {
+  const err = problem instanceof Error ? problem : null;
+  const message = err ? err.message : String(problem ?? 'That did not load.');
+  if (err?.status === 403) {
+    return h('div', { class: 'empty empty-locked', role: 'alert' },
+      h('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon('lock', { size: 22 })),
+      h('p', { class: 'empty-title' }, 'Your role cannot open this'),
+      h('p', { class: 'empty-detail' }, message));
+  }
   return h('div', { class: 'empty empty-error', role: 'alert' },
-    h('p', { class: 'empty-title' }, message),
-    retry ? h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh'), 'Try again') : null);
+    h('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon(err?.offline ? 'wifiOff' : 'alert', { size: 22 })),
+    h('p', { class: 'empty-title' }, err?.offline ? 'You are offline' : message),
+    err?.offline ? h('p', { class: 'empty-detail' }, 'Nothing you typed is lost. This loads again when the connection is back.') : null,
+    retry ? h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh', { size: 15 }), 'Try again') : null);
 }
 
-export function skeleton(lines = 6) {
-  return h('div', { class: 'skeleton', 'aria-busy': 'true', 'aria-label': 'Loading' },
-    Array.from({ length: lines }, (_, i) => h('div', { class: 'skeleton-line', style: { width: `${92 - (i % 3) * 14}%` } })));
+/**
+ * A placeholder shaped like what is coming, so the page does not jump when it
+ * arrives: 'rows' for a list, 'cards' for a case page, 'lines' for anything else.
+ */
+export function skeleton(lines = 6, { kind = 'lines' } = {}) {
+  const box = (cls) => h('div', { class: `sk ${cls}` });
+  const body = kind === 'rows'
+    ? Array.from({ length: lines }, () => h('div', { class: 'sk-row' }, box('sk-circle'),
+      h('div', { class: 'sk-lines' }, box('sk-l1'), box('sk-l2')), box('sk-pill'), box('sk-short')))
+    : kind === 'cards'
+      ? Array.from({ length: Math.max(2, Math.ceil(lines / 3)) }, (_, i) => box(`sk-card${i === 0 ? ' sk-card-tall' : ''}`))
+      : Array.from({ length: lines }, (_, i) => h('div', { class: 'skeleton-line', style: { width: `${92 - (i % 3) * 14}%` } }));
+  return h('div', { class: `skeleton${kind === 'lines' ? '' : ` skeleton-${kind}`}`, 'aria-busy': 'true', 'aria-label': 'Loading' }, body);
 }
 
 /**
  * A button that may be disabled for a reason. Disabled buttons still say why -
  * as a tooltip AND as visible text when asked - because a greyed button with
  * no explanation sends people to ask a colleague.
+ *
+ * kind: primary | secondary (default) | ghost | danger | danger-secondary |
+ * danger-ghost. 'quiet' and 'danger-quiet' are the old names of the ghost
+ * ones; the server still sends 'danger' for a secondary that cannot be undone.
  */
-export function actionButton(spec, onclick, { cls = '', showReason = false } = {}) {
-  const kind = {
-    primary: 'btn-primary', danger: 'btn-danger', quiet: 'btn-quiet', 'danger-quiet': 'btn-quiet btn-quiet-danger',
-  }[spec.kind] ?? '';
+const BUTTON_KIND = {
+  primary: 'btn-primary', secondary: 'btn-secondary', danger: 'btn-danger', ghost: 'btn-ghost', quiet: 'btn-ghost',
+  'danger-secondary': 'btn-secondary btn-danger-ghost', 'danger-ghost': 'btn-ghost btn-danger-ghost', 'danger-quiet': 'btn-ghost btn-danger-ghost',
+};
+export function actionButton(spec, onclick, { cls = '', showReason = false, iconName = null } = {}) {
+  const kind = BUTTON_KIND[spec.kind] ?? 'btn-secondary';
   const b = h('button', {
     type: 'button',
     class: `btn ${kind} ${cls}`.trim(),
     'aria-disabled': spec.enabled === false ? 'true' : null,
     title: spec.enabled === false ? spec.reason : null,
-  }, spec.label);
+  }, iconName ? icon(iconName, { size: 16 }) : null, spec.label);
   b.addEventListener('click', (e) => {
     if (b.getAttribute('aria-disabled') === 'true') {
       e.preventDefault();
@@ -304,11 +393,16 @@ export function newKey() {
 // Toasts
 // ---------------------------------------------------------------------------
 
-export function toast(message, tone = 'ok', { timeout } = {}) {
+/**
+ * tone: ok (done), info (worth knowing), warn (could not, but nothing broke -
+ * offline, not allowed), bad (it failed). The icon says which without colour.
+ */
+const TOAST_ICON = { ok: 'checkCircle', info: 'circle', warn: 'alert', bad: 'alert' };
+export function toast(message, tone = 'ok', { timeout, icon: ic = null } = {}) {
   const region = $('#toasts');
   if (!region) return;
-  const t = h('div', { class: `toast toast-${tone}`, role: tone === 'bad' ? 'alert' : 'status' },
-    icon(tone === 'bad' ? 'alert' : tone === 'info' ? 'circle' : 'check', { size: 16 }),
+  const t = h('div', { class: `toast toast-${tone}`, role: tone === 'bad' || tone === 'warn' ? 'alert' : 'status' },
+    icon(ic ?? TOAST_ICON[tone] ?? 'circle', { size: 18 }),
     h('span', {}, message),
     h('button', { class: 'toast-close', type: 'button', 'aria-label': 'Dismiss', onclick: () => t.remove() }, icon('x', { size: 14 })));
   region.append(t);
@@ -318,7 +412,20 @@ export function toast(message, tone = 'ok', { timeout } = {}) {
   if (typeof region.showPopover === 'function') {
     try { if (region.matches(':popover-open')) region.hidePopover(); region.showPopover(); } catch { /* not supported */ }
   }
-  setTimeout(() => t.remove(), timeout ?? (tone === 'bad' ? 9000 : 4500));
+  setTimeout(() => t.remove(), timeout ?? (tone === 'bad' || tone === 'warn' ? 9000 : 4500));
+}
+
+/**
+ * A failed action, said the way its cause deserves. Offline and "your role
+ * cannot do this" are not failures of the desk - nothing broke and nothing was
+ * sent - so they are a calm warning with the reason, not a red alarm. A record
+ * a colleague changed meanwhile is news, not an error.
+ */
+export function toastError(err, fallback = 'That did not work.') {
+  if (err?.offline) return toast(err.message || 'You are offline. Nothing was sent.', 'warn', { icon: 'wifiOff' });
+  if (err?.status === 403) return toast(err.message || 'Your role cannot do this.', 'warn', { icon: 'lock' });
+  if (err?.data?.stale || err?.status === 409) return toast(err.message, 'info', { timeout: 9000 });
+  return toast(err?.message || fallback, 'bad');
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +440,7 @@ export function toast(message, tone = 'ok', { timeout } = {}) {
  * the button again after a dropped connection repeats the same key and the
  * server recognises the repeat.
  */
-export function dialog({ title, subtitle = null, body, actions = [], size = 'md', onClose = null, onStale = null }) {
+export function dialog({ title, subtitle = null, body, actions = [], size = 'md', onClose = null, onStale = null, extra = null }) {
   const key = newKey();
   const errorBox = h('div', { class: 'dialog-error', role: 'alert', hidden: true });
   const footer = h('div', { class: 'dialog-actions' });
@@ -342,6 +449,7 @@ export function dialog({ title, subtitle = null, body, actions = [], size = 'md'
       h('div', {},
         h('h2', { id: 'dlg-title', class: 'dialog-title' }, title),
         subtitle ? h('p', { class: 'dialog-sub' }, subtitle) : null),
+      extra ? h('div', { class: 'dialog-extra' }, extra) : null,
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('x', { size: 18 }))),
     h('div', { class: 'dialog-body' }, body),
     errorBox,

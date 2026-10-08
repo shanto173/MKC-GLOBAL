@@ -7,12 +7,33 @@
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, chip, channelBadge, timeEl, when, emptyState, errorState, skeleton, debounce, add, fill,
+  h, clear, icon, api, post, newKey, toast, toastError, badge, channelIcon, timeEl, ago, when, emptyState, errorState, skeleton, debounce, add, fill,
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
 
 const FILTERS = [['active', 'On the way'], ['delivered', 'Delivered'], ['all', 'All']];
+const DAY = 86400_000;
+
+/**
+ * The arrival date as a person says it: "13 Oct", "in 5 d", "today" - and,
+ * when the date has passed and the shipment is not delivered, a red "Late"
+ * badge with how late. Calendar days in the browser's time zone.
+ */
+const ARRIVED = /arrived|clearance|cleared|released|out for delivery|delivered/i;
+export function etaParts(eta, tone, now = new Date(), status = '') {
+  if (!eta) return null;
+  const d = new Date(`${eta}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return { date: eta, rel: '', late: 0 };
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((d - today) / DAY);
+  const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  const done = tone === 'green';
+  // Once it has arrived, the arrival date is history, not a promise that can be late.
+  if (ARRIVED.test(status) && !done) return { date, rel: 'arrived', late: 0 };
+  const rel = done ? '' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : days > 1 ? `in ${days} d` : `${-days} d ago`;
+  return { date, rel, late: !done && days < 0 ? -days : 0 };
+}
 
 export function renderShipments(ctx) {
   const [id] = ctx.route.parts;
@@ -22,18 +43,19 @@ export function renderShipments(ctx) {
 function renderList({ route, main }) {
   const filter = FILTERS.some(([k]) => k === route.query.filter) ? route.query.filter : 'active';
   let q = '';
-  const listEl = h('div', { class: 'list-wrap' }, skeleton(6));
-  const search = h('input', { class: 'input', type: 'search', placeholder: 'Find by shipment, booking, customer or chassis', 'aria-label': 'Find a shipment' });
+  const listEl = h('div', { class: 'list-wrap' }, skeleton(6, { kind: 'rows' }));
+  const search = h('input', { class: 'input', type: 'search', placeholder: 'Shipment, booking, customer, chassis or vessel', 'aria-label': 'Find a shipment' });
+  const count = h('span', { class: 'page-meta', 'aria-live': 'polite' });
 
-  add(main, 
+  add(main,
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Shipments'),
-      h('p', { class: 'page-sub' }, 'Confirmed bookings on their way. Open one to update it and tell the customer.'))),
-    h('div', { class: 'toolbar' },
-      h('nav', { class: 'tabs', 'aria-label': 'Which shipments' }, FILTERS.map(([k, label]) => h('a', {
-        class: 'tab', href: `#/shipments?filter=${k}`, 'aria-current': k === filter ? 'page' : null,
+      h('p', { class: 'page-sub' }, 'Confirmed bookings on their way. Open one to update it and tell the customer.')), count),
+    h('div', { class: 'ship-bar' },
+      h('nav', { class: 'seg', 'aria-label': 'Which shipments' }, FILTERS.map(([k, label]) => h('a', {
+        class: 'seg-item', href: `#/shipments?filter=${k}`, 'aria-current': k === filter ? 'page' : null,
       }, label))),
-      search),
+      h('label', { class: 'search-field' }, icon('search', { size: 16 }), search)),
     listEl);
 
   async function load({ quiet = false } = {}) {
@@ -41,27 +63,35 @@ function renderList({ route, main }) {
     try {
       data = await api({ view: 'shipments', filter, q });
     } catch (err) {
-      if (!quiet) fill(listEl, errorState(err.message, () => load()));
+      if (!quiet) fill(listEl, errorState(err, () => load()));
       return;
     }
+    count.textContent = `${data.rows.length} shipment${data.rows.length === 1 ? '' : 's'}`;
     clear(listEl);
     if (!data.rows.length) {
       add(listEl, emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',
-        q ? null : 'A shipment opens when a booking is confirmed.'));
+        q ? 'Try the last six characters of the chassis, or the booking reference.' : 'A shipment opens when a booking is confirmed.', null,
+        { icon: q ? 'search' : 'ship' }));
       return;
     }
-    add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
+    add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-hover' },
       h('thead', {}, h('tr', {},
-        ['Shipment', 'Customer', 'Vehicle', 'Route', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)))),
-      h('tbody', {}, data.rows.map((s) => h('tr', {},
-        // The link stretches over its row: the whole row opens the shipment.
-        h('td', { 'data-label': 'Shipment' }, h('a', { href: linkFor({ type: 'shipment', id: s.shipment_id }), class: 'mono strong stretch' }, s.shipment_id)),
-        h('td', { 'data-label': 'Customer' }, h('bdi', {}, s.customer_name ?? '—'), ' ', channelBadge(s.channel, { compact: true })),
-        h('td', { 'data-label': 'Vehicle' }, s.vehicle ?? '—', s.vin ? h('div', { class: 'mono muted small' }, s.vin) : null),
-        h('td', { 'data-label': 'Route' }, s.route),
-        h('td', { 'data-label': 'Status' }, chip(s.status, s.tone)),
-        h('td', { 'data-label': 'Arrives' }, s.eta ?? '—'),
-        h('td', { 'data-label': 'Updated' }, timeEl(s.updated_at))))))));
+        ['Shipment', 'Customer', 'Vehicle', 'Route and vessel', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)))),
+      h('tbody', {}, data.rows.map((s) => {
+        const eta = etaParts(s.eta, s.tone, new Date(), s.status);
+        return h('tr', {},
+          // The link stretches over its row: the whole row opens the shipment.
+          h('td', { 'data-label': 'Shipment' }, h('a', { href: linkFor({ type: 'shipment', id: s.shipment_id }), class: 'ship-id stretch', title: s.booking_ref ? 'Booking ' + s.booking_ref : null }, s.shipment_id)),
+          h('td', { 'data-label': 'Customer' }, h('span', { class: 'row-name' }, s.channel ? channelIcon(s.channel, 14) : null, h('bdi', {}, s.customer_name ?? '—'))),
+          h('td', { 'data-label': 'Vehicle' }, s.vehicle ?? '—', s.vin ? h('span', { class: 'cell-sub mono' }, s.vin) : null),
+          h('td', { 'data-label': 'Route' }, s.route, h('span', { class: 'cell-sub' }, icon('ship', { size: 12 }), ' ', s.vessel ?? 'No vessel yet')),
+          h('td', { 'data-label': 'Status' }, badge(s.status, s.tone)),
+          h('td', { 'data-label': 'Arrives' }, eta
+            ? h('span', { class: 'eta' }, h('span', { class: 'eta-date' }, eta.date),
+              eta.late ? badge(`Late ${eta.late} d`, 'red', { small: true }) : eta.rel ? h('span', { class: 'eta-rel' }, eta.rel) : null)
+            : h('span', { class: 'muted' }, 'Not set')),
+          h('td', { 'data-label': 'Updated', class: 'muted' }, timeEl(s.updated_at, ago(s.updated_at))));
+      })))));
   }
 
   search.addEventListener('input', debounce(() => { q = search.value.trim(); load(); }, 300));
@@ -71,7 +101,7 @@ function renderList({ route, main }) {
 
 function renderShipment({ main }, id) {
   let data = null;
-  const root = h('div', { class: 'shipment' }, skeleton(8));
+  const root = h('div', { class: 'shipment' }, skeleton(6, { kind: 'cards' }));
   add(main, root);
 
   async function load({ quiet = false } = {}) {
@@ -79,7 +109,7 @@ function renderShipment({ main }, id) {
     try {
       fresh = await api({ view: 'shipment', id });
     } catch (err) {
-      if (!quiet) fill(root, errorState(err.message, err.status === 404 ? null : () => load()));
+      if (!quiet) fill(root, errorState(err, err.status === 404 || err.status === 403 ? null : () => load()));
       return;
     }
     if (data && fresh.version === data.version) return;
@@ -92,14 +122,22 @@ function renderShipment({ main }, id) {
 
   function draw() {
     const s = data.shipment;
-    fill(root, 
-      h('a', { class: 'back', href: '#/shipments' }, icon('back', { size: 16 }), 'Shipments'),
-      h('header', { class: 'case-head' },
-        h('div', { class: 'case-title-row' }, h('h1', { class: 'case-ref' }, s.shipment_id), chip(s.status, s.tone)),
-        h('p', { class: 'case-facts' },
-          h('bdi', {}, s.customer_name), ' · ', [s.make, s.model].filter(Boolean).join(' ') || 'Vehicle', s.vin ? [' · ', h('span', { class: 'mono' }, s.vin)] : null,
-          ` · ${s.origin_port} → ${s.destination_port}`,
-          s.booking_ref ? [' · ', h('a', { href: linkFor({ type: 'booking', ref: s.booking_ref }) }, s.booking_ref)] : null)),
+    const eta = etaParts(s.eta, s.tone, new Date(), s.status);
+    const facts = [
+      h('bdi', {}, s.customer_name),
+      [s.make, s.model].filter(Boolean).join(' ') || 'Vehicle',
+      s.vin ? h('span', { class: 'mono' }, s.vin) : null,
+      `${s.origin_port} → ${s.destination_port}`,
+      s.vessel ? `Vessel ${s.vessel}` : null,
+      eta ? `Arrives ${eta.date}${eta.rel ? ` (${eta.rel})` : ''}` : null,
+      s.booking_ref ? h('a', { href: linkFor({ type: 'booking', ref: s.booking_ref }) }, s.booking_ref) : null,
+    ].filter(Boolean);
+    fill(root,
+      h('header', { class: 'shipment-head' },
+        h('a', { class: 'back', href: '#/shipments' }, icon('back', { size: 16 }), 'Shipments'),
+        h('div', { class: 'case-title-row' }, h('h1', { class: 'case-ref' }, s.shipment_id), badge(s.status, s.tone),
+          eta?.late ? badge(`Late ${eta.late} d`, 'red') : null),
+        h('p', { class: 'case-facts' }, facts.flatMap((f, i) => (i ? [h('span', { class: 'dot', 'aria-hidden': 'true' }, '·'), f] : [f])))),
       h('div', { class: 'case-grid case-grid-even' },
         h('div', { class: 'case-main' }, form(s)),
         h('div', { class: 'case-main' }, events())));
@@ -122,8 +160,8 @@ function renderShipment({ main }, id) {
     } : null), { empty: 'The customer will not be told.' });
 
     const el = h('form', { class: 'card ship-form', novalidate: true },
-      h('div', { class: 'card-head' }, h('h2', {}, 'Update the shipment')),
-      !can ? h('p', { class: 'reason' }, data.update_reason) : null,
+      h('div', { class: 'card-head' }, h('h2', {}, icon('ship', { size: 16 }), 'Update the shipment')),
+      !can ? h('div', { class: 'banner banner-gray', style: { marginBottom: '16px' } }, icon('lock', { size: 15 }), h('p', {}, data.update_reason)) : null,
       h('div', { class: 'form-grid' },
         field('Status', status, 'ship-status'),
         field('Estimated arrival', eta, 'ship-eta'),
@@ -164,7 +202,7 @@ function renderShipment({ main }, id) {
         await load();
       } catch (err) {
         if (err.data?.stale) { toast(err.message, 'info'); data = null; await load(); return; }
-        toast(err.message, 'bad');
+        toastError(err);
       } finally {
         if (button.isConnected) { button.disabled = !can; button.textContent = 'Save update'; }
       }
@@ -176,7 +214,7 @@ function renderShipment({ main }, id) {
   function events() {
     const list = data.events ?? [];
     return h('section', { class: 'card' },
-      h('div', { class: 'card-head' }, h('h2', {}, 'History')),
+      h('div', { class: 'card-head' }, h('h2', {}, icon('clock', { size: 16 }), 'History')),
       list.length ? h('ol', { class: 'timeline' }, list.map((e) => h('li', {},
         timeEl(e.at, when(e.at)),
         h('span', {}, h('bdi', { dir: 'auto' }, e.description), e.location ? h('span', { class: 'muted' }, ` · ${e.location}`) : null,

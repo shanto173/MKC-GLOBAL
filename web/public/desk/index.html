@@ -15,7 +15,7 @@
   <!-- Shown whenever a request cannot reach the server. Everything typed is
        kept, and a retried action carries the same key, so nothing is sent twice. -->
   <div id="offline" class="offline" role="status" hidden>
-    <strong>Offline — retrying.</strong> Nothing you have typed is lost.
+    <span id="offlineIcon"></span><span><strong>Offline — retrying.</strong> Nothing you have typed is lost.</span>
   </div>
 
   <!-- Sign in. The name is checked against the team list, so every decision
@@ -38,9 +38,9 @@
 
   <div id="app" class="app" hidden>
     <nav class="side" aria-label="Main">
-      <a class="brand" href="#/inbox"><span class="brand-mark" aria-hidden="true">M</span> MKY Desk</a>
+      <a class="brand" href="#/inbox" title="MKY Desk"><span class="brand-mark" aria-hidden="true">M</span><span class="brand-words">MKY Desk<span class="brand-sub">Forwarding operations</span></span></a>
       <ul class="nav" id="nav"></ul>
-      <div class="me" id="me"></div>
+      <div class="side-foot"><span>Press <kbd>/</kbd> to search</span></div>
     </nav>
 
     <div class="main">
@@ -52,6 +52,7 @@
           <input id="q" type="search" placeholder="Search chassis, reference, name, phone…" autocomplete="off" enterkeyhint="search" />
           <kbd class="search-key" title="Press / to search">/</kbd>
         </form>
+        <div class="top-end" id="me"></div>
       </header>
       <main id="main" class="content" tabindex="-1"></main>
     </div>

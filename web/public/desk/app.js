@@ -9,7 +9,7 @@
  */
 
 import {
-  h, $, clear, icon, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
+  h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
 } from './ui.js';
 import { renderInbox } from './inbox.js';
 import { renderCase } from './case.js';
@@ -49,7 +49,7 @@ function render() {
   screen = null;
   const main = $('#main');
   clear(main);
-  drawNav(route.page);
+  drawNav(route.page, route.query);
   if (route.page !== 'search') $('#q').value = '';
 
   const ctx = { route, main, refreshCounts };
@@ -70,26 +70,64 @@ function render() {
 // Navigation and the tab title
 // ---------------------------------------------------------------------------
 
-function drawNav(active) {
+function drawNav(active, query = {}) {
   const items = NAV.filter((n) => !n.needs || session.can(n.needs));
   const badge = (n) => (n.key === 'inbox' && counts.needs_us
     ? h('span', { class: `nav-count${counts.problems ? ' nav-count-alert' : ''}` },
       String(counts.needs_us), h('span', { class: 'sr-only' }, ' need a person'))
     : null);
 
+  // Under Inbox, the two lists people jump to most: their own work, and what failed.
+  const inInbox = active === 'inbox' && (!query.tab || query.tab === 'needs_us');
+  const sub = [
+    { filter: 'mine', label: 'Assigned to me', count: counts.mine, words: ' assigned to you' },
+    { filter: 'problems', label: 'Problems', count: counts.problems, alert: true, words: ' problems' },
+  ];
+  const subList = h('ul', { class: 'nav-sub', 'aria-label': 'Inbox shortcuts' }, sub.map((s) => h('li', {},
+    h('a', { href: `#/inbox?tab=needs_us&filter=${s.filter}`, 'aria-current': inInbox && query.filter === s.filter ? 'true' : null },
+      h('span', {}, s.label),
+      s.count ? h('span', { class: `nav-count${s.alert ? ' nav-count-alert' : ''}` }, String(s.count), h('span', { class: 'sr-only' }, s.words)) : null))));
+
   fill($('#nav'), ...items.map((n) => h('li', {},
-    h('a', { href: n.href, class: 'nav-link', 'aria-current': n.key === active ? 'page' : null },
-      icon(n.icon, { size: 18 }), h('span', {}, n.label), badge(n)))));
+    h('a', { href: n.href, class: 'nav-link', 'aria-current': n.key === active ? 'page' : null, title: n.label },
+      icon(n.icon, { size: 18 }), h('span', {}, n.label), badge(n)),
+    n.key === 'inbox' ? subList : null)));
 
   fill($('#tabbar'), ...items.map((n) => h('a', {
     href: n.href, class: 'tab-link', 'aria-current': n.key === active ? 'page' : null,
   }, icon(n.icon, { size: 20 }), h('span', {}, n.label), badge(n))));
 
-  fill($('#me'), 
-    h('div', { class: 'me-who' }, icon('user', { size: 16 }), h('div', {},
-      h('div', { class: 'me-name' }, session.name), h('div', { class: 'me-role' }, session.role_words ?? ''))),
-    h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: signOut }, icon('logout', { size: 15 }), 'Sign out'));
+  // Who is signed in, top right on every size - on a phone the sidebar is
+  // hidden, and Sign out used to go with it.
+  const menu = h('details', { class: 'menu menu-right me-menu' },
+    h('summary', { 'aria-label': `Signed in as ${session.name}. Account menu` },
+      avatar(session.name, { size: 'sm' }), h('span', { class: 'me-label' }, session.name), icon('down', { size: 14 })),
+    h('div', { class: 'menu-list', role: 'menu' },
+      h('div', { class: 'me-card' }, avatar(session.name, { size: 'lg' }),
+        h('div', {}, h('div', { class: 'me-name' }, session.name), h('div', { class: 'me-role' }, session.role_words ?? ''))),
+      h('div', { class: 'menu-sep', role: 'separator' }),
+      h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; signOut(); } },
+        h('span', { class: 'menu-item-title' }, icon('logout', { size: 15 }), 'Sign out'))));
+  fill($('#me'), menu);
 }
+
+// A menu that would open past the right edge of the screen opens to the left instead.
+document.addEventListener('toggle', (e) => {
+  const m = e.target;
+  if (!(m instanceof HTMLDetailsElement) || !m.classList.contains('menu') || !m.open) return;
+  m.classList.remove('menu-flip');
+  const list = m.querySelector('.menu-list');
+  if (list && list.getBoundingClientRect().right > document.documentElement.clientWidth - 8) m.classList.add('menu-flip');
+}, true);
+
+// A menu closes when you click anywhere else or press Escape, as menus do.
+document.addEventListener('click', (e) => {
+  for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  for (const m of document.querySelectorAll('details.menu[open]')) { m.open = false; m.querySelector('summary')?.focus(); }
+});
 
 /** "(3) MKY Desk": the browser tab says when something is waiting, from any screen. */
 async function refreshCounts() {
@@ -99,7 +137,8 @@ async function refreshCounts() {
     return;
   }
   document.title = counts.needs_us ? `(${counts.needs_us}) MKY Desk` : 'MKY Desk';
-  drawNav(parseRoute().page);
+  const route = parseRoute();
+  drawNav(route.page, route.query);
 }
 
 async function tick() {
@@ -211,6 +250,7 @@ $('#signinForm').addEventListener('submit', (e) => {
 });
 
 add($('#searchIcon'), icon('search', { size: 16 }));
+add($('#offlineIcon'), icon('wifiOff', { size: 16 }));
 $('#searchForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('#q').value.trim();
