@@ -20,7 +20,7 @@ Who it is for: the operations team of three to ten people, all day, on laptops a
 3. **Newest urgency first.** The server sorts the inbox: problems, then urgent, then overdue, then high priority, then oldest first. The design makes that order visible:
    - the stripe on the left of each row;
    - the age, which turns amber, then red;
-   - the Urgent and Overdue badges.
+   - the Urgent badge, and the word OVERDUE under the age.
 4. **Colour means one thing everywhere.**
 
    | Colour | Means |
@@ -214,8 +214,7 @@ The words come from the server (`workflow.js` and `lib/admin`). The desk only ch
 | | `failed` | Not delivered, plus the reason in words and Retry | red block | alert |
 | Turn | `ops` / `client` / `none` | Our turn / Customer's turn / Nothing to do | blue / amber / green | person |
 | Inbox flags | priority `urgent` / `high` | Urgent / High | red / amber | alert |
-| | overdue (server SLA) | Overdue | red | clock |
-| | `pending_review` | New | blue | dot |
+| | overdue (server SLA) | OVERDUE, under the age | red text | alert (on the age) |
 | | outside office hours | After hours | tag | clock |
 | Customer | `opted_out_at` | Wrote STOP | red | alert (badge) / lock (chat list) |
 | | `is_blocked` | Blocked | red | lock |
@@ -248,17 +247,28 @@ The inbox row is a grid. The header (`.list-head`) and every row share fixed col
 | 2 | Kind | `.row-kind`: truck (booking), phone (call-back), stamp (MRN), triangle (problem). The word is in the link for screen readers. |
 | 3 | What needs doing | The sentence, in 15 px semibold. It is a link stretched over the whole row. Under it, the detail on one line, clamped, with the full text on hover. |
 | 4 | Customer | Channel icon and name, then the reference in mono, or the kind of work when there is no reference. |
-| 5 | Priority | Urgent, High, Overdue, New, After hours. |
+| 5 | Status | One status badge (see "Row status" below), then Urgent or High, then the After hours tag. |
 | 6 | Owner | Avatar and name, "You", or the **Take it** button (`.row-take`) when nobody has it and it is ours to do. |
-| 7 | Age | Clock icon and "12 min", toned by the age thresholds below. Right aligned. |
+| 7 | Age | Clock icon and "12 min", toned by the age thresholds below, with **OVERDUE** in red under it when the server says so. Right aligned. |
+
+#### Row status
+
+`statusOf()` in `inbox.js`:
+
+| Kind | Status badge |
+|---|---|
+| Booking | The server's words: New request, Being checked, Confirmed, Rejected. "Waiting for the customer" is shortened to "Waiting on customer", the tab's own words, so it fits its column. |
+| Call-back | New (nobody has it), In progress (somebody has it), Waiting on customer, then Resolved or Closed. |
+| MRN application | New application, Approved (record the number), Waiting on customer, MRN issued. |
+| Problem | Unreadable (a paper the bot could not read), Not delivered (a message that failed), Held (waiting for a template, or the customer wrote STOP). |
 
 Buttons inside a row (Take it, Retry, Set aside) sit above the stretched link (`z-index: 1`), so they stay their own targets.
 
 Column widths:
 
-| Screen | Customer | Priority | Owner | Age |
+| Screen | Customer | Status | Owner | Age |
 |---|---|---|---|---|
-| 1361–1679 px | 200 | 180 | 128 | 72 |
+| 1361–1679 px | 196 | 184 | 124 | 76 |
 | 1680 px and wider | 280 | 240 | 160 | 88 |
 | Rail (1101–1360 px) | 190 | 168 | 116 | 64 |
 
@@ -274,7 +284,7 @@ From 1101 down to 981 px the customer column goes, and the name moves into the d
 | Waiting on customer | under 24 h | 24 h or more (time to chase) | never: it is not our delay |
 | Done today | always | – | – |
 
-A red age also gets an alert icon and the screen-reader words "waiting too long". Amber says "getting late".
+A red age also gets an alert icon and the screen-reader words "waiting too long", or "overdue" when the server says so (then OVERDUE is also written under the age). Amber says "getting late".
 
 ### Card and section header: `.card`, `.card-head`, `.section-head`
 
@@ -475,7 +485,7 @@ On a phone every row becomes a stacked card with "Label: value" lines.
 2. Tabs, then the segmented filter.
 3. One list card with the column header and rows, then "Show more" when there are more.
 
-At 1920 px the list fills the content width, and the extra goes to the customer and priority columns (280 and 240 px). There is no list-and-preview split; see "Left out" below.
+At 1920 px the list fills the content width, and the extra goes to the customer and status columns (280 and 240 px). There is no list-and-preview split; see "Left out" below.
 
 ### Case page
 

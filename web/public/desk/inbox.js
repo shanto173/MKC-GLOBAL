@@ -126,7 +126,7 @@ export function renderInbox({ route, main, refreshCounts }) {
     }));
 
     updated.textContent = '';
-    add(updated, icon('refresh', { size: 13 }), `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`);
+    add(updated, `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`);
 
     clear(listEl);
     if (!data.items.length) {
@@ -139,7 +139,7 @@ export function renderInbox({ route, main, refreshCounts }) {
     add(listEl,
       h('div', { class: 'list-head', 'aria-hidden': 'true' },
         h('span'), h('span'), h('span', {}, WHAT_HEAD[tab]), h('span', { class: 'col-who' }, 'Customer'),
-        h('span', {}, 'Priority'), h('span', {}, 'Owner'), h('span', {}, AGE_HEAD[tab])),
+        h('span', {}, 'Status'), h('span', {}, 'Owner'), h('span', {}, AGE_HEAD[tab])),
       h('ul', { class: 'rows', 'aria-label': TABS.find(([k]) => k === tab)[1] },
         data.items.map((item) => h('li', {}, row(item)))));
     if (data.has_more) {
@@ -149,20 +149,45 @@ export function renderInbox({ route, main, refreshCounts }) {
     }
   }
 
+  /**
+   * The row's status, as a badge: a word, an icon and a tone. Bookings bring
+   * their own words from the server; the other kinds say the same thing from
+   * the tab they are in and what the server wrote about them.
+   */
+  function statusOf(item) {
+    if (item.kind === 'problem') {
+      const p = item.problem ?? {};
+      if (p.type === 'document') return badge('Unreadable', 'red');
+      if (p.type === 'outbox' && !p.retryable) return badge('Held', 'amber', { icon: 'lock' });
+      return badge('Not delivered', 'red');
+    }
+    // The tab's own words where the server's are long, so the badge fits its column.
+    if (item.kind === 'booking') return badge(item.status_words === 'Waiting for the customer' ? 'Waiting on customer' : (item.status_words ?? (item.tab === 'done' ? 'Done' : 'Open')), item.tone);
+    if (item.tab === 'waiting') return badge('Waiting on customer', 'amber');
+    if (item.kind === 'callback') {
+      if (item.tab === 'done') return /^Closed/.test(item.sentence) ? badge('Closed', 'gray') : badge('Resolved', 'green');
+      return item.assigned_to ? badge('In progress', 'blue') : badge('New', 'blue');
+    }
+    if (item.kind === 'mrn') {
+      if (item.tab === 'done') return badge('MRN issued', 'green');
+      return /Record the issued/.test(item.sentence) ? badge('Approved', 'blue') : badge('New application', 'blue');
+    }
+    return null;
+  }
+
   function row(item) {
     const [kindWord, kindIcon] = KIND[item.kind] ?? ['Item', 'file'];
     const tags = [
       // The kind is the icon on the left and the first word under the
       // customer on a desktop; on a phone, where both are hidden, it is a tag.
       h('span', { class: 'row-kindtag', 'aria-hidden': 'true' }, tag(kindWord, { quiet: true })),
+      statusOf(item),
       item.priority === 'urgent' ? badge('Urgent', 'red') : item.priority === 'high' ? badge('High', 'amber', { icon: 'alert' }) : null,
-      item.overdue ? badge('Overdue', 'red', { icon: 'clock' }) : null,
-      item.is_new ? badge('New', 'blue') : null,
       item.after_hours ? tag('After hours', { icon: 'clock' }) : null,
     ];
     const tone = ageTone(item);
     const ageWords = age(item.since);
-    const late = tone === 'red' ? ' - waiting too long' : tone === 'amber' ? ' - getting late' : '';
+    const late = item.overdue ? ' - overdue' : tone === 'red' ? ' - waiting too long' : tone === 'amber' ? ' - getting late' : '';
 
     // The whole row is clickable through the title link (stretched over the
     // row in CSS), while Take it, Retry and Set aside stay their own buttons -
@@ -185,12 +210,11 @@ export function renderInbox({ route, main, refreshCounts }) {
       h('div', { class: 'row-meta-line' },
         h('div', { class: 'row-tags' }, tags),
         owner(item)),
+      // Overdue is said in words under the age - the age is already red - rather than as one more badge.
       h('span', { class: `row-age${tone ? ` age-${tone}` : ''}`, title: late ? `Waiting ${ageWords}${late}` : null },
-        icon(tone === 'red' ? 'alert' : 'clock', { size: 13 }),
-        timeEl(item.since, ageWords || '—'),
-        late ? h('span', { class: 'sr-only' }, late) : null));
+        h('span', { class: 'row-age-time' }, icon(tone === 'red' ? 'alert' : 'clock', { size: 13 }), timeEl(item.since, ageWords || '—')),
+        item.overdue ? h('span', { class: 'row-age-note' }, 'Overdue') : late ? h('span', { class: 'sr-only' }, late) : null));
   }
-
   /** Who has it - or, when nobody does and it is ours, the button that takes it. */
   function owner(item) {
     if (item.kind === 'problem' || item.kind === 'mrn') return h('div', { class: 'row-owner' });
