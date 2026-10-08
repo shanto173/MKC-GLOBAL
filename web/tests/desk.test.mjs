@@ -702,6 +702,45 @@ test('the request-resolved preview is word for word what notify.js sends', async
   assert.match(JSON.stringify(sent.body.reply_markup ?? {}), /menu:contact/);
 });
 
+/** A request's call-back tasks as the bot writes them - and as it wrote them before 2026-10-08. */
+function callbackTasks() {
+  const t = rows('support_tickets')[0];
+  rows('operations_tasks').push(
+    // The request's own task.
+    { id: 901, task_ref: 'MKY-TSK-OWN', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      priority: 'normal', idempotency_key: 'ticket:MKY-T-1', payload: { ticket_ref: 'MKY-T-1' }, created_at: t.created_at },
+    // The tap's, from before the fix: no ticket named, made a minute earlier.
+    { id: 902, task_ref: 'MKY-TSK-TAP', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      priority: 'high', idempotency_key: 'client_callback:555:2026-10-08T15', payload: { after_hours: false }, created_at: iso(41 * 60_000) },
+    // Somebody else's, and this customer's request from three days ago: not this request's.
+    { id: 903, task_ref: 'MKY-TSK-OTHER', task_type: 'client_callback', chat_id: '777', channel: 'telegram', status: 'open',
+      payload: {}, created_at: iso(41 * 60_000) },
+    { id: 904, task_ref: 'MKY-TSK-OLD', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      payload: {}, created_at: iso(3 * 86400_000) },
+  );
+  return (ref) => rows('operations_tasks').find((x) => x.task_ref === ref).status;
+}
+
+test('resolving a request closes its call-back tasks - including the tap\'s second one from before the fix', async () => {
+  const status = callbackTasks();
+  const r = await post({ action: 'request_resolve', ticket_ref: 'MKY-T-1', note: 'Called them back and sorted the paperwork.' });
+  assert.equal(r.status, 200);
+  assert.equal(status('MKY-TSK-OWN'), 'done');
+  assert.equal(status('MKY-TSK-TAP'), 'done', 'resolving it left both open');
+  assert.equal(status('MKY-TSK-OTHER'), 'open', 'another chat\'s');
+  assert.equal(status('MKY-TSK-OLD'), 'open', 'an older request of theirs');
+  const closed = rows('operations_tasks').find((x) => x.task_ref === 'MKY-TSK-OWN');
+  assert.equal(closed.completed_by, 'Sara');
+});
+
+test('closing a request without a message closes its tasks too', async () => {
+  const status = callbackTasks();
+  const r = await post({ action: 'request_status', ticket_ref: 'MKY-T-1', status: 'closed' });
+  assert.equal(r.status, 200);
+  assert.equal(status('MKY-TSK-OWN'), 'done');
+  assert.equal(status('MKY-TSK-TAP'), 'done');
+});
+
 test('settings: every value checked, refused with a sentence, saved with its history', async () => {
   const bad = await post({ action: 'settings_write', changes: { support_hours_start: '9am', direct_phone: 'call me' } }, 'Ariful');
   assert.equal(bad.status, 400);

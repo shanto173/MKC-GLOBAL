@@ -11,7 +11,10 @@
 -- request" and is invisible on the desk; one real customer is in that state.
 --
 -- Section 1 opens the missing request for every such task still open and
--- points the task at it, exactly as the bot now does at the tap.
+-- points the task at it, exactly as the bot now does at the tap. Section 2
+-- closes the tap's task where the customer did type and the request has since
+-- been resolved - each request used to make two tasks, and resolving it closed
+-- neither (the desk now closes them as it resolves).
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -85,3 +88,49 @@ select t.task_ref, t.chat_id, t.payload->>'ticket_ref' as ticket_ref, s.status, 
 
 commit;
 
+
+-- ---------------------------------------------------------------------------
+-- 2. The tap's second task, left open after its request was resolved
+-- ---------------------------------------------------------------------------
+
+-- What would be closed: a tap's task (no ticket_ref) still open, for a chat
+-- whose request raised up to two hours later is resolved or closed.
+select t.task_ref, t.chat_id, t.created_at, s.ticket_ref, s.status, s.resolved_at
+  from operations_tasks t
+  join support_tickets s
+    on s.chat_id = t.chat_id
+   and s.created_at between t.created_at and t.created_at + interval '2 hours'
+ where t.task_type = 'client_callback'
+   and t.status in ('open', 'in_progress')
+   and t.payload->>'ticket_ref' is null
+   and s.status in ('resolved', 'closed');
+
+begin;
+
+update operations_tasks t
+   set status = 'done',
+       completed_at = coalesce(s.resolved_at, now()),
+       completed_by = coalesce(s.resolved_by, 'data fix 2026-10-08'),
+       notes = coalesce(t.notes || ' ', '') || 'Closed with request ' || s.ticket_ref || ' (data fix 2026-10-08).',
+       updated_at = now()
+  from support_tickets s
+ where s.chat_id = t.chat_id
+   and s.created_at between t.created_at and t.created_at + interval '2 hours'
+   and t.task_type = 'client_callback'
+   and t.status in ('open', 'in_progress')
+   and t.payload->>'ticket_ref' is null
+   and s.status in ('resolved', 'closed');
+
+-- And the request's own task, where the request was resolved before the fix.
+update operations_tasks t
+   set status = 'done',
+       completed_at = coalesce(s.resolved_at, now()),
+       completed_by = coalesce(s.resolved_by, 'data fix 2026-10-08'),
+       updated_at = now()
+  from support_tickets s
+ where t.task_type = 'client_callback'
+   and t.status in ('open', 'in_progress')
+   and t.payload->>'ticket_ref' = s.ticket_ref
+   and s.status in ('resolved', 'closed');
+
+commit;

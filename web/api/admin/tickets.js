@@ -12,6 +12,7 @@
 import { config } from '../../lib/config.js';
 import { db } from '../../lib/supabase.js';
 import { notifyTicketResolved, customerReached } from '../../lib/notify.js';
+import { closeTasksForTicket } from '../../lib/operations.js';
 import { knownOperator } from './users.js';
 
 export default async function handler(req, res) {
@@ -115,6 +116,12 @@ async function decide(req, res) {
     ({ error: updErr } = await db().from('support_tickets').update({ status }).eq('ticket_ref', ref));
   }
   if (updErr) return res.status(500).json({ error: updErr.message });
+
+  // The task behind the request is done when the request is: a queue that
+  // still lists a call-back the desk has resolved is a queue nobody trusts.
+  if (status === 'resolved') {
+    await closeTasksForTicket(ticket, { operator: who.name ?? String(operator).slice(0, 80), reason: 'The request was resolved.' });
+  }
 
   let told = null;
   if (status === 'resolved') {

@@ -38,7 +38,7 @@ import { db } from '../supabase.js';
 import { audit } from '../audit.js';
 import { enqueue, drain } from '../outbox.js';
 import { customerReached } from '../notify.js';
-import { createTask, completeTask } from '../operations.js';
+import { createTask, completeTask, closeTasksForTicket } from '../operations.js';
 import { requiredDocuments } from '../settings.js';
 import { openMrnRequest } from '../mrn.js';
 import decideBooking from '../../api/admin/bookings.js';
@@ -747,7 +747,7 @@ async function requestStatus(req, res, who) {
   const ref = String(req.body.ticket_ref ?? '').trim();
   const to = String(req.body.status ?? '').trim();
 
-  const { data: before } = await db().from('support_tickets').select('status').eq('ticket_ref', ref).maybeSingle();
+  const { data: before } = await db().from('support_tickets').select('status, ticket_ref, chat_id, created_at').eq('ticket_ref', ref).maybeSingle();
   if (!before) return res.status(404).json({ error: `There is no request ${ref}.` });
 
   if (!canTransitionRequest(before.status, to)) {
@@ -760,6 +760,11 @@ async function requestStatus(req, res, who) {
     .update({ status: to }).eq('ticket_ref', ref).eq('status', before.status).select('status');
   if (error) return res.status(500).json({ error: 'We could not change the status.' });
   if (!data?.length) return res.status(409).json({ error: 'Somebody else changed this a moment ago. Refresh and look again.' });
+
+  // Closed without a message is still finished: its task goes with it.
+  if (to === 'resolved' || to === 'closed') {
+    await closeTasksForTicket(before, { operator: who.name, reason: `The request was ${to}.` });
+  }
 
   await audit({
     actor_type: 'operator', actor_id: who.name, action: 'request_status_changed',
