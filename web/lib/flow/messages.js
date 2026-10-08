@@ -707,10 +707,16 @@ export const FIELD_LABELS = {
   destination_port: ['ميناء الوصول', 'Destination'],
 };
 
-/** Bilingual labels for document types, as [ar, en] pairs. */
+/**
+ * Bilingual labels for document types, as [ar, en] pairs.
+ *
+ * What the customer reads. "Brief" is the desk's word for the transport
+ * document (public/desk/workflow.js DOC_LABEL) and stays there; to a customer
+ * step 2 says "transport document", so the checklist does too.
+ */
 export const DOC_LABELS = {
   invoice: ['الفاتورة التجارية', 'Invoice'],
-  brief: ['مستند النقل', 'Brief'],
+  brief: ['مستند النقل', 'Transport document'],
   mrn: ['رقم MRN', 'MRN'],
   acid: ['رقم ACID (نافذة)', 'ACID'],
   eur1: ['شهادة المنشأ EUR.1', 'EUR.1'],

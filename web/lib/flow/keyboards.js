@@ -202,7 +202,8 @@ export function classifyDocument(types) {
 function labelFor(type) {
   const map = {
     invoice: ['🧾', 'الفاتورة', 'Invoice'],
-    brief: ['📑', 'مستند النقل', 'Brief'],
+    // The customer's word for it; "Brief" is the desk's.
+    brief: ['📑', 'مستند النقل', 'Transport document'],
     mrn: ['📄', 'MRN', 'MRN'],
     acid: ['🆔', 'ACID', 'ACID'],
     eur1: ['📜', 'EUR.1', 'EUR.1'],
