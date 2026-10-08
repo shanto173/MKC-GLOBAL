@@ -608,6 +608,14 @@ export async function fileDocuments(documentIds, { bookingRef, vin = null }) {
   return { filed, skipped };
 }
 
+/** Which booking each of these papers is on now, by id. */
+export async function bookingRefsOf(documentIds) {
+  const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))];
+  if (!ids.length) return new Map();
+  const { data } = await db().from('booking_documents').select('id, booking_ref').in('id', ids);
+  return new Map((data ?? []).map((d) => [d.id, d.booking_ref ?? null]));
+}
+
 /** This chat's papers on no booking yet, newest first, from the last `hours`. */
 export async function looseDocuments(chatId, { hours = 24 } = {}) {
   const since = new Date(Date.now() - hours * 3600_000).toISOString();

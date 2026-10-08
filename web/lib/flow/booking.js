@@ -28,7 +28,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, cancelAllDrafts, draftIsBlank,
   looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
-import { bookingDocumentState, fileDocuments, looseDocuments } from '../documents.js';
+import { bookingDocumentState, fileDocuments, looseDocuments, bookingRefsOf } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn, answerIn } from './understand.js';
@@ -1271,6 +1271,20 @@ export function papersWithNoRequest({ ingested, batch = [] }, confirmed = null) 
     );
   }
   return reply(say(M.fileNoBooking(labelsAr, labelsEn), kb.mainMenu()));
+}
+
+/**
+ * Papers from a client whose booking is confirmed. Read as naming its chassis,
+ * lib/documents.js has already filed them on it, and that is said; anything
+ * still loose may be for a new booking, so they are asked which.
+ */
+export async function papersForConfirmed(confirmed, arrived) {
+  const { ids } = paperLabels(arrived);
+  const on = await bookingRefsOf(ids);
+  if (ids.length && ids.every((id) => on.get(Number(id)) === confirmed.booking_ref)) {
+    return acknowledgeForSubmitted(confirmed, arrived);
+  }
+  return papersWithNoRequest(arrived, confirmed);
 }
 
 /**

@@ -2045,6 +2045,18 @@ test('a paper sent after a booking was confirmed asks whether it is for that boo
   assert.match(said(filed), new RegExp(`Added to booking ${ref}`));
 });
 
+test('a paper already filed on the confirmed booking by its chassis is acknowledged, not asked about', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  h.booking().status = 'confirmed';
+  // lib/documents.js files a paper naming the booking's chassis as it is read.
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233', bookingRef: ref }));
+  assert.match(said(r), new RegExp(`Received ACID for booking ${ref}`));
+  assert.ok(!buttons(r).includes(`bk:fileto:${ref}`));
+});
+
 test('a paper for a request already with the desk is filed on it, not left loose', async () => {
   const h = harness();
   await bookUpTo(h);

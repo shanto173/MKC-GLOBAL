@@ -281,10 +281,12 @@ async function dispatchInput(session, input, ctx) {
       if (submitted && submitted.status !== 'confirmed') {
         return { handled: true, ...(await booking.papersForSubmitted(submitted, arrived)) };
       }
-      // Nothing open - or only a booking already confirmed, which this paper
-      // may or may not be for. Kept, said so, and the next step offered;
-      // never filed against a booking the client was not thinking about.
-      return { handled: true, ...booking.papersWithNoRequest(arrived, submitted ?? null) };
+      // Only a booking already confirmed, which this paper may or may not be
+      // for: filed there if it names its chassis, asked about if not.
+      if (submitted) return { handled: true, ...(await booking.papersForConfirmed(submitted, arrived)) };
+      // Nothing open. Kept, said so, and a booking offered; never filed
+      // against a booking the client was not thinking about.
+      return { handled: true, ...booking.papersWithNoRequest(arrived) };
     }
 
     // Nothing to write when the session already points at this request.
