@@ -139,11 +139,18 @@ export async function inboxItems() {
       .order('confirmed_at', { ascending: false }).limit(200),
     db().from('client_request_queue').select('*').order('created_at', { ascending: false }).limit(400),
     db().from('mrn_requests').select('*').order('created_at', { ascending: false }).limit(300),
-    db().from('audit_logs').select('entity_id, action').eq('entity_type', 'problem').gte('created_at', since).limit(1000),
+    db().from('audit_logs').select('entity_id, action, created_at').eq('entity_type', 'problem').gte('created_at', since).limit(1000),
   ]);
   if (openQ.error) throw new Error(`booking queue: ${openQ.error.message}`);
 
   const handled = new Set((handledQ.data ?? []).map((r) => r.entity_id));
+  // A whole chat's failures set aside at once: everything up to that moment.
+  const chatSetAside = new Map();
+  for (const r of handledQ.data ?? []) {
+    if (!String(r.entity_id).startsWith('chat:')) continue;
+    const at = r.created_at ?? new Date().toISOString();
+    if (!chatSetAside.has(r.entity_id) || chatSetAside.get(r.entity_id) < at) chatSetAside.set(r.entity_id, at);
+  }
   const open = openQ.data ?? [];
   const refs = open.map((r) => r.booking_ref);
 
@@ -283,12 +290,106 @@ export async function inboxItems() {
     });
   }
 
-  items.push(...await problemItems({ since, handled }));
+  items.push(...await problemItems({ since, handled, chatSetAside }));
   return items;
 }
 
-/** Messages that did not reach a customer, from both the conversation log and the outbox. */
-async function problemItems({ since, handled }) {
+/** Meta's "this number is not on WhatsApp". Sending again cannot fix it. */
+const NOT_ON_WHATSAPP = /\b131026\b/;
+
+/** "a message", "6 messages". */
+const messages = (n) => (n === 1 ? 'a message' : `${n} messages`);
+
+/**
+ * Messages that did not reach a customer, from both the conversation log and
+ * the outbox - one problem per chat.
+ *
+ * Each failure used to be its own red row: in the live test 77 of them, most
+ * for numbers WhatsApp does not know, buried the one real item. A chat with one
+ * failure still gets the row it always got, with Retry on it. A chat with more
+ * gets one row saying how many, the last error and when it was last tried, and
+ * a number WhatsApp does not know is one row for that customer, saying so
+ * plainly - whatever the count.
+ *
+ * The outbox records the same message the conversation log does once it was
+ * sent and then refused (the delivery receipt marks both), so an outbox row
+ * carrying the provider id of a failed message is not counted twice.
+ */
+async function problemItems({ since, handled, chatSetAside = new Map() }) {
+  const singles = await problemEntries({ since, handled });
+  const groups = new Map();
+  for (const entry of singles) {
+    const key = `chat:${entry.channel ?? 'unknown'}:${entry.chatId}`;
+    // Set aside as a whole chat: only what failed after that comes back.
+    const asideAt = chatSetAside.get(key);
+    if (asideAt && String(entry.at ?? '') <= asideAt) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+
+  const out = [];
+  for (const [key, entries] of groups) {
+    entries.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+    const last = entries.at(-1);
+    const lost = entries.some((e) => NOT_ON_WHATSAPP.test(e.error ?? ''));
+    const summary = {
+      count: entries.length,
+      last_error: last.words,
+      last_error_raw: last.error ? String(last.error).slice(0, 300) : null,
+      last_attempt: last.at,
+      first_failed: entries[0].at,
+    };
+
+    if (entries.length === 1 && !lost) {
+      out.push({ ...last.item, problem: { ...last.item.problem, ...summary } });
+      continue;
+    }
+
+    const held = entries.every((e) => e.held);
+    const reason = lost ? 'not_on_whatsapp' : held ? last.held : 'failed';
+    const phone = last.channel === 'whatsapp' ? `+${String(last.chatId).replace(/^wa:/, '')}` : null;
+    out.push({
+      id: key,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'red',
+      sentence: lost
+        ? `${last.name} isn’t on WhatsApp — call them instead`
+        : held && last.held === 'opted_out'
+          ? `${entries.length} messages held — ${last.name} wrote STOP`
+          : held
+            ? `${entries.length} messages wait for a WhatsApp template — ${last.name} hasn’t written in 24 h`
+            : `${entries.length} messages didn’t reach ${last.name}`,
+      who: last.name,
+      detail: lost
+        ? `WhatsApp says ${phone ?? 'this number'} has no WhatsApp account, so ${messages(entries.length)} could not be delivered. `
+          + 'Call them, or ask them for a number that is on WhatsApp.'
+        : `Last: ${last.words}`,
+      ref: last.item.ref ?? null,
+      link: { type: 'chat', channel: last.channel, chat_id: last.chatId },
+      channel: last.channel,
+      priority: 'normal',
+      since: last.at,
+      problem: {
+        type: 'chat',
+        id: key.slice('chat:'.length),
+        // Each failed message can be sent again from the conversation itself;
+        // the row's own action is setting the lot aside.
+        retryable: false,
+        reason,
+        ...summary,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Every message that did not reach a customer, one entry each, with the row
+ * the inbox showed for it before they were grouped.
+ */
+async function problemEntries({ since, handled }) {
   const out = [];
   const [failedQ, outboxQ] = await Promise.all([
     db().from('chat_messages').select('*').eq('status', 'failed').eq('direction', 'out')
@@ -309,26 +410,34 @@ async function problemItems({ since, handled }) {
     return names.get(k);
   };
 
+  // Provider ids of the failed messages, so the outbox's record of the same
+  // message is not a second failure.
+  const failedIds = new Set();
   if (!failedQ.error) {
     for (const m of failedQ.data ?? []) {
+      if (m.provider_message_id) failedIds.add(String(m.provider_message_id));
       const pid = `message:${m.id}`;
       if (handled.has(pid)) continue;
       const name = await nameFor(m.channel, m.chat_id, m.client_id);
+      const words = failureWords(m.error, { template: m.payload?.template ?? null });
       out.push({
-        id: pid,
-        kind: 'problem',
-        tags: ['problems'],
-        tab: 'needs_us',
-        tone: 'red',
-        sentence: `Message failed — couldn’t reach ${name}`,
-        who: name,
-        detail: failureWords(m.error, { template: m.payload?.template ?? null }),
-        ref: m.booking_ref ?? null,
-        link: { type: 'chat', channel: m.channel, chat_id: m.chat_id },
-        channel: m.channel,
-        priority: 'normal',
-        since: m.created_at,
-        problem: { type: 'message', id: m.id, retryable: ['text', 'template', null, undefined].includes(m.kind) },
+        channel: m.channel, chatId: String(m.chat_id), name, at: m.created_at, error: m.error ?? null, words, held: null,
+        item: {
+          id: pid,
+          kind: 'problem',
+          tags: ['problems'],
+          tab: 'needs_us',
+          tone: 'red',
+          sentence: `Message failed — couldn’t reach ${name}`,
+          who: name,
+          detail: words,
+          ref: m.booking_ref ?? null,
+          link: { type: 'chat', channel: m.channel, chat_id: m.chat_id },
+          channel: m.channel,
+          priority: 'normal',
+          since: m.created_at,
+          problem: { type: 'message', id: m.id, retryable: ['text', 'template', null, undefined].includes(m.kind) },
+        },
       });
     }
   } else if (!isMissingTable(failedQ.error)) {
@@ -344,33 +453,41 @@ async function problemItems({ since, handled }) {
     const stopped = o.delivery_status === 'opted_out';
     const dead = ['dead', 'failed'].includes(o.status);
     if (!needsTemplate && !stopped && !dead) continue;
+    if (o.provider_message_id && failedIds.has(String(o.provider_message_id))) continue;
     const pid = `outbox:${o.id}`;
     if (handled.has(pid)) continue;
     const name = await nameFor(o.channel, o.chat_id, o.client_id);
     const what = OUTBOX_WORDS[o.event_type] ?? String(o.event_type).replace(/_/g, ' ');
+    const words = needsTemplate ? failureWords(null, { status: 'needs_template' })
+      : stopped ? failureWords(null, { status: 'opted_out' })
+        : failureWords(o.last_error, { template: o.template_name ?? null });
     out.push({
-      id: pid,
-      kind: 'problem',
-      tags: ['problems'],
-      tab: 'needs_us',
-      tone: 'red',
-      sentence: needsTemplate
-        ? `Waiting for a WhatsApp template — ${name} hasn’t written in 24 h`
-        : stopped ? `Not sent — ${name} wrote STOP`
-          : `The ${what} didn’t reach ${name}`,
-      who: name,
-      detail: needsTemplate
-        ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
-        : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
-          : failureWords(o.last_error, { template: o.template_name ?? null }),
-      ref: o.entity_id ?? null,
-      link: o.entity_type === 'booking' ? { type: 'booking', ref: o.entity_id }
-        : o.entity_type === 'support_ticket' ? { type: 'request', ref: o.entity_id }
-          : { type: 'chat', channel: o.channel, chat_id: o.chat_id },
-      channel: o.channel,
-      priority: 'normal',
-      since: o.updated_at || o.created_at,
-      problem: { type: 'outbox', id: o.id, retryable: dead },
+      channel: o.channel, chatId: String(o.chat_id), name, at: o.updated_at || o.created_at,
+      error: o.last_error ?? null, words, held: needsTemplate ? 'needs_template' : stopped ? 'opted_out' : null,
+      item: {
+        id: pid,
+        kind: 'problem',
+        tags: ['problems'],
+        tab: 'needs_us',
+        tone: 'red',
+        sentence: needsTemplate
+          ? `Waiting for a WhatsApp template — ${name} hasn’t written in 24 h`
+          : stopped ? `Not sent — ${name} wrote STOP`
+            : `The ${what} didn’t reach ${name}`,
+        who: name,
+        detail: needsTemplate
+          ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
+          : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
+            : failureWords(o.last_error, { template: o.template_name ?? null }),
+        ref: o.entity_id ?? null,
+        link: o.entity_type === 'booking' ? { type: 'booking', ref: o.entity_id }
+          : o.entity_type === 'support_ticket' ? { type: 'request', ref: o.entity_id }
+            : { type: 'chat', channel: o.channel, chat_id: o.chat_id },
+        channel: o.channel,
+        priority: 'normal',
+        since: o.updated_at || o.created_at,
+        problem: { type: 'outbox', id: o.id, retryable: dead },
+      },
     });
   }
   return out;

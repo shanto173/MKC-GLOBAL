@@ -599,6 +599,79 @@ test('a problem can be set aside, and stays aside', async () => {
   assert.ok(!inbox.body.items.some((i) => i.id === 'message:3'));
 });
 
+// The live test, 2026-10-08: every failed message was its own red Problem
+// row - 77 of them, most for test numbers WhatsApp does not know - and the
+// one real item was buried under them.
+
+/** Failed bot replies to one chat, as markDelivery leaves them, newest last. */
+function failures(chatId, n, { error = '131026: Message undeliverable - Message Undeliverable.', from = 100, clientId = null } = {}) {
+  const made = [];
+  for (let i = 0; i < n; i++) {
+    const row = {
+      id: from + i, channel: 'whatsapp', chat_id: chatId, client_id: clientId, direction: 'out', author: 'bot', kind: 'buttons',
+      body: `reply ${i}`, status: 'failed', error, provider_message_id: `wamid.f${from + i}`, created_at: iso((n - i) * 60_000),
+    };
+    rows('chat_messages').push(row);
+    made.push(row);
+  }
+  return made;
+}
+
+test('failed messages are one problem per chat - and a number not on WhatsApp is one item, said plainly', async () => {
+  const lost = failures('wa:999000000005', 6);
+  // The outbox's own record of two of them - the same messages, not more.
+  for (const m of lost.slice(-2)) {
+    rows('notification_outbox').push({
+      id: 500 + m.id, channel: 'whatsapp', chat_id: 'wa:999000000005', event_type: 'booking_confirmed', entity_type: 'booking',
+      entity_id: 'MKY-BKG-X', payload: {}, status: 'dead', delivery_status: 'failed', provider_message_id: m.provider_message_id,
+      last_error: m.error, idempotency_key: `k-${m.id}`, created_at: m.created_at, updated_at: m.created_at,
+    });
+  }
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const mine = r.body.items.filter((i) => i.link?.chat_id === 'wa:999000000005');
+  assert.equal(mine.length, 1, `one item for the customer, not ${mine.length}`);
+  const [item] = mine;
+  assert.equal(item.id, 'chat:whatsapp:wa:999000000005');
+  assert.match(item.sentence, /isn’t on WhatsApp/);
+  assert.match(item.detail, /\+999000000005/);
+  assert.match(item.detail, /6 messages/);
+  assert.equal(item.problem.type, 'chat');
+  assert.equal(item.problem.count, 6, 'the outbox rows are the same messages, not more');
+  assert.equal(item.problem.last_attempt, lost.at(-1).created_at);
+  assert.equal(item.problem.reason, 'not_on_whatsapp');
+  assert.equal(item.problem.retryable, false, 'sending again cannot reach a number WhatsApp does not know');
+
+  // Delta Trans's one failure is still its own row, retryable as before.
+  assert.ok(r.body.items.some((i) => i.id === 'message:3'));
+});
+
+test('several failures for one chat: one item, with how many, the last error and the last attempt', async () => {
+  const more = failures(WA, 2, { error: '(#131047) Re-engagement message', from: 200, clientId: 2 });
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const forWa = r.body.items.filter((i) => i.link?.chat_id === WA && i.kind === 'problem');
+  assert.equal(forWa.length, 1);
+  const [item] = forWa;
+  assert.equal(item.sentence, '3 messages didn’t reach Delta Trans');
+  assert.equal(item.problem.count, 3);
+  assert.equal(item.problem.last_attempt, more.at(-1).created_at);
+  assert.match(item.problem.last_error, /hasn’t written in 24 hours/);
+  assert.match(item.detail, /hasn’t written in 24 hours/);
+
+  // Set aside, it stays aside - until something new fails.
+  const aside = await post({ action: 'dismiss_problem', problem_id: item.id });
+  assert.equal(aside.status, 200);
+  let after = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(!after.body.items.some((i) => i.link?.chat_id === WA && i.kind === 'problem'));
+  rows('chat_messages').push({
+    id: 299, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'out', author: 'bot', kind: 'text', body: 'later',
+    status: 'failed', error: 'boom', created_at: new Date(Date.now() + 1000).toISOString(),
+  });
+  after = await get({ view: 'inbox', filter: 'problems' });
+  const back = after.body.items.filter((i) => i.link?.chat_id === WA && i.kind === 'problem');
+  assert.equal(back.length, 1);
+  assert.equal(back[0].id, 'message:299', 'just the new one');
+});
+
 test('the chats list: both channels, newest first, failures counted', async () => {
   const r = await get({ view: 'chats' });
   assert.equal(r.status, 200);

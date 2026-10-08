@@ -455,10 +455,16 @@ export async function retryOutbox(req, res, who) {
   return res.status(200).json({ ok: true, status: row?.status === 'sent' ? 'sent' : 'queued' });
 }
 
-/** POST { action: 'dismiss_problem', problem_id: 'message:1' | 'outbox:2' | 'document:3' } */
+/**
+ * POST { action: 'dismiss_problem', problem_id: 'message:1' | 'outbox:2' | 'document:3' | 'chat:whatsapp:wa:2010…' }
+ *
+ * A chat's failures are one problem in the inbox (lib/admin/desk-inbox.js),
+ * and set aside together: everything that failed in that chat up to now.
+ */
 export async function dismissProblem(req, res, who) {
   const id = String(req.body?.problem_id ?? '');
-  if (!/^(message|outbox|document):\d+$/.test(id)) return res.status(400).json({ error: 'problem_id is required' });
+  const valid = /^(message|outbox|document):\d+$/.test(id) || /^chat:(telegram|whatsapp|web):[\w:.+-]{1,120}$/.test(id);
+  if (!valid) return res.status(400).json({ error: 'problem_id is required' });
   await audit({
     actor_type: 'operator', actor_id: who.name, action: 'problem_dismissed',
     entity_type: 'problem', entity_id: id, metadata: { note: String(req.body?.note ?? '').slice(0, 200) || null },
