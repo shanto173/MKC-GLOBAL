@@ -277,6 +277,25 @@ test('a rejection carries the operator\'s reason and no celebration', () => {
   assert.doesNotMatch(message.text, /🎉/);
 });
 
+// The live test, 2026-10-08: when the desk recorded the MRN it had obtained,
+// the customer read "✅ وصلنا رقم MRN …" / "Received MRN …" - as if they had
+// sent it - with no booking named.
+test('the MRN message says MKY issued it, for which booking', async () => {
+  const { withLanguage } = await import('../lib/lang.js');
+  const row = { event_type: 'mrn_issued', payload: { mrn_number: '26DEE2E0000000001', booking_ref: 'MKY-BKG-261008-ZNZT' } };
+  const en = withLanguage('en', () => render(row)).text;
+  assert.match(en, /MKY has issued the MRN for your booking MKY-BKG-261008-ZNZT/);
+  assert.match(en, /26DEE2E0000000001/);
+  assert.doesNotMatch(en, /Received/);
+  const ar = withLanguage('ar', () => render(row)).text;
+  assert.match(ar, /MKY استخرجت/);
+  assert.match(ar, /MKY-BKG-261008-ZNZT/);
+  assert.doesNotMatch(ar, /وصلنا/);
+  // An application with no booking still reads as ours.
+  const alone = withLanguage('en', () => render({ event_type: 'mrn_issued', payload: { mrn_number: '26X' } })).text;
+  assert.match(alone, /MKY has issued your MRN: 26X/);
+});
+
 test('a request for more information repeats what the operator actually asked for', () => {
   const message = render({
     event_type: 'missing_information_requested',

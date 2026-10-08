@@ -322,6 +322,18 @@ What I need right now is ${needEn}.`,
     '📝 In one message, tell us what you know about the export (country of export, exporter name, invoice number) so we can start the MRN application.',
   ),
 
+  // The desk recorded the MRN it obtained for the customer. Said as ours, with
+  // the booking it is for: "✅ Received MRN …" - the words for a paper the
+  // customer sends - read as if they had sent it.
+  mrnIssued: (number, bookingRef = null) => both(
+    bookingRef
+      ? `✅ MKY استخرجت رقم الـ MRN لحجزك ${bookingRef}:\n${number}\n\nمش محتاج تبعت حاجة تانية عشانه.`
+      : `✅ MKY استخرجت رقم الـ MRN بتاعك: ${number}\n\nمش محتاج تبعت حاجة تانية عشانه.`,
+    bookingRef
+      ? `✅ MKY has issued the MRN for your booking ${bookingRef}:\n${number}\n\nThere is nothing you need to send for it.`
+      : `✅ MKY has issued your MRN: ${number}\n\nThere is nothing you need to send for it.`,
+  ),
+
   mrnRequestOpened: (ref) => both(
     `✅ اتسجل طلب استخراج MRN برقم ${ref}. الفريق هيراجعه.`,
     `✅ Your MRN request ${ref} has been logged. The team will review it.`,
