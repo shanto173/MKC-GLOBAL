@@ -18,6 +18,8 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
 const DOC_WORDS = { invoice: 'Invoice', brief: 'Brief (CMR / transport document)', mrn: 'MRN document', acid: 'ACID certificate', eur1: 'EUR.1 certificate' };
 const TIMEZONES = ['Africa/Cairo', 'Europe/Vilnius', 'Europe/Berlin', 'Europe/London', 'Asia/Dubai', 'UTC'];
+/** The fields the server may warn about, as a sentence names them. */
+const FIELD_WORDS = { direct_phone: 'direct line', operations_phone: 'desk number' };
 
 export function renderSettings({ main }) {
   if (!session.can('settings')) {
@@ -70,8 +72,17 @@ export function renderSettings({ main }) {
     const before = button.textContent;
     button.textContent = 'Saving…';
     try {
-      await post({ action: 'settings_write', changes, versions });
-      toast('Saved. The bot uses it within a minute.');
+      const r = await post({ action: 'settings_write', changes, versions });
+      // Saved, but worth a second look: the server points out a value that
+      // looks like a placeholder without refusing it. The page reloads with
+      // the same warnings beside their fields.
+      const warned = Object.keys(r.warnings ?? {}).filter((k) => FIELD_WORDS[k]);
+      if (warned.length) {
+        const one = warned.length === 1;
+        toast(`Saved — but the ${warned.map((k) => FIELD_WORDS[k]).join(' and the ')} still ${one ? 'looks' : 'look'} like the setup’s example number. See the note under ${one ? 'it' : 'them'}.`, 'warn');
+      } else {
+        toast('Saved. The bot uses it within a minute.');
+      }
       await load();
     } catch (err) {
       if (err.data?.errors) {
@@ -294,8 +305,18 @@ export function renderSettings({ main }) {
     return c;
   }
 
+  /**
+   * A field: its label, the control, a hint, the server's warning about the
+   * value it holds (saved, but worth a second look) and the slot for an error.
+   */
   function fieldWith(label, input, id, key, hint = null) {
-    return h('div', { class: 'field' }, h('label', { class: 'label', for: id }, label), input, hint, errorSlot(key));
+    const warning = data.warnings?.[key];
+    const warn = warning ? h('p', { class: 'field-warning', id: `${id}-warn`, role: 'status' }, icon('alert', { size: 14 }), h('span', {}, warning)) : null;
+    if (warn) {
+      input.setAttribute('aria-describedby', `${id}-warn`);
+      input.classList.add('is-warned');
+    }
+    return h('div', { class: 'field' }, h('label', { class: 'label', for: id }, label), input, warn, hint, errorSlot(key));
   }
 
   load();

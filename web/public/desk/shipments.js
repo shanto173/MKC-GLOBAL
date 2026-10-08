@@ -46,15 +46,24 @@ function renderList({ route, main }) {
   const listEl = h('div', { class: 'list-wrap' }, skeleton(6, { kind: 'rows' }));
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Shipment, booking, customer, chassis or vessel', 'aria-label': 'Find a shipment' });
   const count = h('span', { class: 'page-meta', 'aria-live': 'polite' });
+  const filtersEl = h('nav', { class: 'seg', 'aria-label': 'Which shipments' });
+
+  /** The filter, each item with how many it holds - the server counts all three, whichever is shown. */
+  const drawFilters = (counts = null) => fill(filtersEl, ...FILTERS.map(([k, label]) => {
+    const n = counts?.[k];
+    return h('a', {
+      class: `seg-item${n === 0 ? ' is-zero' : ''}`, href: `#/shipments?filter=${k}`, 'aria-current': k === filter ? 'page' : null,
+      'aria-label': n == null ? null : `${label}, ${n}`,
+    }, label, n == null ? null : h('span', { class: 'seg-count', 'aria-hidden': 'true' }, String(n)));
+  }));
+  drawFilters();
 
   add(main,
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Shipments'),
       h('p', { class: 'page-sub' }, 'Confirmed bookings on their way. Open one to update it and tell the customer.')), count),
     h('div', { class: 'ship-bar' },
-      h('nav', { class: 'seg', 'aria-label': 'Which shipments' }, FILTERS.map(([k, label]) => h('a', {
-        class: 'seg-item', href: `#/shipments?filter=${k}`, 'aria-current': k === filter ? 'page' : null,
-      }, label))),
+      filtersEl,
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search)),
     listEl);
 
@@ -66,7 +75,8 @@ function renderList({ route, main }) {
       if (!quiet) fill(listEl, errorState(err, () => load()));
       return;
     }
-    count.textContent = `${data.rows.length} shipment${data.rows.length === 1 ? '' : 's'}`;
+    drawFilters(data.counts);
+    count.textContent = `${data.rows.length} shipment${data.rows.length === 1 ? '' : 's'}${q ? ' found' : ''}`;
     clear(listEl);
     if (!data.rows.length) {
       add(listEl, emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',

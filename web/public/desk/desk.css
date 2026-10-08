@@ -349,6 +349,14 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .field-hint { font-size: var(--text-sm); color: var(--ink-3); margin-top: 6px; }
 .field .field-hint, .field > .muted { margin-top: 0; }
 .form-error, .field-error, .dialog-error, .composer-error { color: var(--red-text); font-size: var(--text-sm); font-weight: var(--w-medium); }
+/* Saved, but worth a second look: the server's note about the value a field holds. */
+.field-warning {
+  display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--amber-line); border-radius: var(--r-sm); background: var(--amber-bg);
+  color: var(--amber-text); font-size: var(--text-sm); font-weight: var(--w-medium); line-height: var(--lh-snug);
+}
+.field-warning svg { flex: none; margin-top: 1px; }
+.input.is-warned { border-color: var(--amber-solid); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
 .form-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-4); }
 .inline-form { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
