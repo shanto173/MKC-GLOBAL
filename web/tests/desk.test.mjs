@@ -728,6 +728,30 @@ test('settings: every value checked, refused with a sentence, saved with its his
   assert.equal(stale.status, 409, 'somebody saved it since this form loaded');
 });
 
+test('the customer\'s answer is on the case, beside what was asked, and the case is ours again', async () => {
+  const { recordAnswer } = await import('../lib/answers.js');
+  rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-2').needs_client_action = { requested: 'The brief, please', at: iso(3600_000), by: 'Sara' };
+  await recordAnswer([{ kind: 'booking', ref: 'MKY-BKG-2' }], {
+    chatId: WA, clientId: 2, text: 'Sending it this afternoon', documents: [{ id: 201, file_name: 'invoice.pdf', doc_type: 'invoice' }],
+  });
+
+  const c = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-2' });
+  assert.equal(c.body.header.status, 'under_review');
+  assert.equal(c.body.asked.requested, 'The brief, please');
+  assert.equal(c.body.asked.by, 'Sara');
+  const [answer] = c.body.asked.answers;
+  assert.equal(answer.text, 'Sending it this afternoon');
+  assert.deepEqual(answer.documents.map((d) => [d.id, d.label]), [[201, 'Invoice']]);
+  assert.ok(c.body.history.some((h) => h.who === 'The customer' && /answered what we asked/.test(h.what)));
+
+  // An MRN application shows its answer where it always showed what the customer said.
+  rows('mrn_requests').push({ id: 9, request_ref: 'MKY-MRN-9', booking_ref: null, chat_id: WA, client_id: 2, status: 'missing_information', missing_information: ['Exporter address'], supplied_information: {} });
+  await recordAnswer([{ kind: 'mrn', ref: 'MKY-MRN-9' }], { chatId: WA, clientId: 2, text: 'Baltic Trucks UAB, Vilnius' });
+  const m = await get({ view: 'case', type: 'mrn', ref: 'MKY-MRN-9' });
+  assert.equal(m.body.header.status, 'under_review', 'needs us again');
+  assert.equal(m.body.mrn.supplied.at(-1).text, 'Baltic Trucks UAB, Vilnius');
+});
+
 test('the desk number is set in Settings and is the one the bot gives; the old example number is refused', async () => {
   const { operationsContact, companyPhone } = await import('../lib/settings.js');
   assert.equal((await operationsContact()).phone, null, 'nothing set, nothing invented');

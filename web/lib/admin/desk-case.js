@@ -370,6 +370,7 @@ export async function bookingCase(req, res, who) {
       supplied: mrn?.supplied_information?.notes ?? [],
       missing: mrn?.missing_information ?? [],
     } : null,
+    asked: askedOut(booking.needs_client_action),
     duplicate: dupQ.data ? { ...dupQ.data, status_words: statusWords(dupQ.data.status) } : null,
     shipment: shipQ.data ?? null,
     notes: (notesQ.data ?? []).map((n) => ({ id: n.id, author: n.author, body: n.body, at: n.created_at })),
@@ -381,6 +382,28 @@ export async function bookingCase(req, res, who) {
     last_change: (auditQ.data ?? [])[0] ? describeActivity(auditQ.data[0]) : null,
     conversation: { channel: booking.channel ?? 'telegram', chat_id: booking.chat_id ?? null },
   });
+}
+
+/**
+ * What the desk last asked the customer for, and what they answered
+ * (lib/answers.js keeps the answers beside the question). Null when nothing
+ * was asked. The papers they sent are named as the desk names them, with the
+ * id the viewer opens.
+ */
+function askedOut(asked) {
+  if (!asked || (!asked.requested && !(asked.answers ?? []).length)) return null;
+  return {
+    requested: asked.requested ?? null,
+    at: asked.at ?? null,
+    by: asked.by ?? null,
+    answers: (asked.answers ?? []).map((a) => ({
+      at: a.at ?? null,
+      text: a.text ?? null,
+      documents: (a.documents ?? []).map((d) => ({
+        id: d.id ?? null, file_name: d.file_name ?? null, label: DOC_LABEL[d.doc_type] ?? d.file_name ?? 'A file',
+      })),
+    })),
+  };
 }
 
 /** Internal notes on a call-back or an MRN application (bookings read theirs by booking_ref). */

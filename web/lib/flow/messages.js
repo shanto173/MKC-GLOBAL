@@ -472,6 +472,27 @@ What I need right now is ${needEn}.`,
     `⚠️ We need a little more information to continue your booking ${ref}.\n\nPlease provide:\n${whatEn}`,
   ),
 
+  // -- the desk asked, the client answered ----------------------------------
+  // Said instead of handing the message to the assistant, which answered it
+  // as a fresh chat. `answered` is what it was recorded against (lib/answers.js);
+  // the labels name the papers, when papers were the answer.
+  answerPassedOn: (answered, labelsAr = [], labelsEn = []) => both(
+    (labelsAr.length
+      ? `✅ شكراً، وصلنا ${labelsAr.join('، ')} بخصوص ${aboutAr(answered)} وبعتناها للفريق.`
+      : `✅ شكراً، وصلنا ردك بخصوص ${aboutAr(answered)} وبعتناه للفريق.`) +
+    ' هيرجعولك لو محتاجين حاجة تانية.',
+    (labelsEn.length
+      ? `✅ Thank you — ${labelsEn.join(', ')} received for ${aboutEn(answered)}, and we have passed it on to the team.`
+      : `✅ Thank you — we have your answer about ${aboutEn(answered)} and have passed it on to the team.`) +
+    ' They will come back to you if anything else is needed.',
+  ),
+
+  // A further message moments later: more of the same answer.
+  answerAdded: (answered) => both(
+    `✅ تمام، ضفنا ده لردك بخصوص ${aboutAr(answered)} وبعتناه للفريق.`,
+    `✅ Added to your answer about ${aboutEn(answered)}, and passed on to the team.`,
+  ),
+
   // -- cancel / drafts -----------------------------------------------------
   draftFound: (ref, vin) => both(
     `عندك طلب حجز لسه ما اتبعتش، رقمه ${ref}${vin ? ` (شاسيه ${vin})` : ''}. تحب تعمل إيه؟`,
@@ -640,6 +661,12 @@ What I need right now is ${needEn}.`,
     'This account is on hold with us. Please contact our Operations Team.',
   ),
 };
+
+/** What an answer was about - "booking MKY-BKG-…", "MRN application MKY-MRN-…" - in each language. */
+const aboutAr = (answered) => (answered ?? [])
+  .map((a) => (a.kind === 'mrn' ? `طلب الـ MRN رقم ${a.ref}` : `الحجز ${a.ref}`)).join(' و');
+const aboutEn = (answered) => (answered ?? [])
+  .map((a) => (a.kind === 'mrn' ? `MRN application ${a.ref}` : `booking ${a.ref}`)).join(' and ');
 
 const ASK_VIN_AR = '🚘 ابعتلي رقم الشاسيه / VIN بتاع الوحدة.';
 const ASK_VIN_EN = '🚘 Please send your VIN / Chassis number.';

@@ -2658,3 +2658,66 @@ test('the phone number helpers read what people actually type', async () => {
   assert.equal(looksLikePhone('ariful@example.com'), false);
   assert.equal(looksLikePhone(null), false);
 });
+
+// ---------------------------------------------------------------------------
+// Answering what the desk asked
+// ---------------------------------------------------------------------------
+
+const ago = (ms) => new Date(Date.now() - ms).toISOString();
+
+/** A submitted booking the desk handed back, asking for something, `askedMs` ago. */
+function waitingBooking(askedMs = 3_600_000) {
+  return {
+    booking_ref: 'MKY-BKG-WAIT1', status: 'needs_client_action', channel: 'telegram', chat_id: CHAT, client_id: 1,
+    customer_name: 'Nile Motors', customer_contact: PHONE, vin: 'YV2RT40A8FB712905', make: 'Volvo',
+    origin_port: 'Klaipeda', destination_port: 'Port Said', mrn_choice: 'existing',
+    needs_client_action: { requested: 'The signed invoice', at: ago(askedMs), by: 'Sara' },
+    created_at: ago(5 * 3_600_000),
+  };
+}
+
+test('a document sent in answer to the desk is recorded against the request, which goes back to the desk', async () => {
+  const h = harness({ bookings: [waitingBooking()] });
+  const filed = h.upload('invoice', { bookingRef: 'MKY-BKG-WAIT1', fileName: 'signed-invoice.pdf' });
+  const r = await h.file(filed, { batch: [{ ...filed.document, file_name: 'signed-invoice.pdf' }] });
+
+  const booking = h.bookings().find((b) => b.booking_ref === 'MKY-BKG-WAIT1');
+  assert.equal(booking.status, 'under_review');
+  const [answer] = booking.needs_client_action.answers;
+  assert.equal(answer.documents[0].doc_type, 'invoice');
+  assert.equal(answer.documents[0].file_name, 'signed-invoice.pdf');
+  assert.match(said(r), /MKY-BKG-WAIT1/);
+  assert.match(said(r), /passed it on/);
+  assert.match(said(r), /وصلنا/, 'both halves, for a client who never chose a language');
+});
+
+test('a question the bot asked AFTER the desk is the one being answered; the desk\'s waits', async () => {
+  const h = harness({ bookings: [waitingBooking(3_600_000)] });
+  await h.command('/start');
+  await h.tap('menu:track');                       // the bot asks for a chassis number, now
+  const r = await h.text('YV2RT40A8FB712905');
+  assert.doesNotMatch(said(r), /passed it on/);
+  assert.equal(h.bookings()[0].status, 'needs_client_action', 'still waiting for its own answer');
+});
+
+test('the desk\'s question, asked after the bot\'s, is answered - and the bot\'s question is asked again', async () => {
+  const h = harness();
+  await h.command('/start');
+  await h.tap('menu:book');                        // the bot asks for a name
+  h.db._tables.bookings.push(waitingBooking(0));   // and then the desk asks for the invoice
+  for (const s of h.db._tables.conversation_sessions) s.updated_at = ago(60_000);
+  const r = await h.text('I will send the signed invoice tomorrow morning');
+
+  const asked = h.bookings().find((b) => b.booking_ref === 'MKY-BKG-WAIT1');
+  assert.equal(asked.status, 'under_review');
+  assert.equal(asked.needs_client_action.answers[0].text, 'I will send the signed invoice tomorrow morning');
+  assert.match(said(r), /passed it on/);
+  assert.equal(r.state, S.BOOK_CLIENT_NAME, 'the booking in progress is where it was');
+  assert.match(said(r), /client name/i, 'and its question is put again');
+});
+
+test('a hello, or a menu word, is not taken as the answer', async () => {
+  const h = harness({ bookings: [waitingBooking()] });
+  await h.text('menu');
+  assert.equal(h.bookings()[0].status, 'needs_client_action');
+});

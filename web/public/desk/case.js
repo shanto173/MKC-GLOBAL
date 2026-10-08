@@ -146,6 +146,7 @@ export function renderCase({ route, main, refreshCounts }) {
     fill(mainCol, 
       nextStepCard(),
       warnings(),
+      type === 'booking' && data.asked ? askedCard() : null,
       type === 'booking' ? documentsCard() : null,
       type === 'booking' && data.mrn ? mrnCard() : null,
       type === 'request' ? requestCard() : null,
@@ -265,6 +266,30 @@ export function renderCase({ route, main, refreshCounts }) {
           h('span', { class: 'check-label' }, d.label),
           h('span', { class: 'check-words' }, d.status_words),
           h('button', { class: 'btn btn-small', type: 'button', onclick: () => openDoc(d.id) }, 'View'))))) : null);
+  }
+
+  /**
+   * What we asked the customer for, and what they answered - side by side, so
+   * nobody has to scroll the conversation to find the reply. The papers they
+   * sent open in the viewer.
+   */
+  function askedCard() {
+    const a = data.asked;
+    const answers = a.answers ?? [];
+    return h('section', { class: 'card', 'aria-labelledby': 'asked-booking-title' },
+      h('div', { class: 'card-head' },
+        h('h2', { id: 'asked-booking-title' }, 'What we asked the customer'),
+        a.at ? h('p', { class: 'card-sub' }, [a.by, timeEl(a.at, when(a.at))].filter(Boolean).flatMap((x, i) => (i ? [' · ', x] : [x]))) : null),
+      a.requested ? h('div', { class: 'said-block' }, lines(a.requested)) : null,
+      answers.length
+        ? h('div', {}, h('h3', {}, 'Their answer'),
+          h('ul', { class: 'said' }, answers.map((x) => h('li', {},
+            h('span', { class: 'muted' }, when(x.at)), ' ',
+            x.text ? h('bdi', { dir: 'auto' }, x.text) : null,
+            (x.documents ?? []).map((d) => [' ', d.id
+              ? h('button', { class: 'link-btn', type: 'button', onclick: () => openDoc(d.id) }, d.label)
+              : h('span', {}, d.label)])))))
+        : h('p', { class: 'muted' }, 'No answer yet.'));
   }
 
   function mrnCard() {

@@ -26,7 +26,7 @@ import { S, FLOWS, AWAITING_TEXT, ACCEPTS_DOCUMENTS } from './states.js';
 import { loadSession, saveSession, resetSession } from './store.js';
 import { flowReady } from './ready.js';
 import { storedLanguage, rememberLanguage, languageSupported } from './language.js';
-import { M } from './messages.js';
+import { M, DOC_LABELS } from './messages.js';
 import * as kb from './keyboards.js';
 import { parseCallback } from './keyboards.js';
 import * as booking from './booking.js';
@@ -39,6 +39,7 @@ import {
   withTurn, withLanguage, currentLanguage, normaliseLanguage, detectLanguage, languageFromChoice, looksFrancoArabic,
 } from '../lang.js';
 import { logEvent } from '../audit.js';
+import { waitingOn, recordAnswer, FOLLOW_UP_MINUTES } from '../answers.js';
 
 const say = (text, inline = null) => ({ text, ...(inline ? { inline } : {}) });
 const reply = (messages, patch = {}) => ({ messages: [].concat(messages), patch });
@@ -251,6 +252,10 @@ async function dispatchInput(session, input, ctx) {
     // that it is filed, not "I did not follow that".
     if (!target) {
       if (input.speak === false) return { handled: true, messages: [], patch: {} };
+      // Sent because the desk asked for it: recorded as the answer, and the
+      // request goes back to the desk. The file that speaks answers for its batch.
+      const answered = await answerDesk(session, input, ctx);
+      if (answered) return answered;
       const submitted = await openBookingFor(ctx.chatId);
       if (submitted) {
         return {
@@ -290,8 +295,15 @@ async function dispatchInput(session, input, ctx) {
     return { handled: true, messages: handled.messages, patch: { ...handled.patch, ...claim, context } };
   }
 
-  // 6. Text. Only an answer when something was asked.
-  //
+  // 6. Text. Only an answer when something was asked - by the bot, or by the
+  //    desk. The desk's question, when it is the more recent one, comes first:
+  //    otherwise the reply to "send us the exporter's address" was read as
+  //    whatever the bot last asked, or handed to the assistant as a new chat.
+  if (input.kind === 'text') {
+    const answered = await answerDesk(session, input, ctx);
+    if (answered) return answered;
+  }
+
   // This comes FIRST, before the numbered-button shortcut below: a client being
   // asked for their company name may perfectly well answer "7", and that is a
   // name, not a menu choice.
@@ -330,6 +342,105 @@ async function dispatchInput(session, input, ctx) {
 
   // Nothing to do: the knowledge assistant answers.
   return { handled: false };
+}
+
+// ---------------------------------------------------------------------------
+// The answer to something the desk asked
+// ---------------------------------------------------------------------------
+
+/**
+ * Where nothing of the bot's is under way, so an answer leaves the client in
+ * ANSWERING_DESK, from which a further message is taken as more of it.
+ */
+const ANSWER_IDLE = new Set([S.MAIN_MENU, S.BOOK_SUBMITTED, S.TRACK_RESULTS, S.ANSWERING_DESK, S.CHOOSE_LANGUAGE]);
+
+/**
+ * A message answering what the desk asked - a booking handed back for
+ * something, an MRN application waiting for information - is kept on that
+ * request, the request goes back to the desk, and the client hears it was
+ * passed on (lib/answers.js). Until this existed the message went to the
+ * assistant as a fresh chat and the request went on waiting.
+ *
+ * When both the bot and the desk have a question open, the later one is the
+ * one being answered: a client asked by the desk for a paper while half-way
+ * through a new booking answers the desk; one the desk asked yesterday, who
+ * has since started tracking a shipment, answers the bot.
+ *
+ * @returns {Promise<object|null>} the turn's result, or null when this is not an answer
+ */
+async function answerDesk(session, input, ctx) {
+  const isText = input.kind === 'text';
+  const text = String((isText ? input.text : input.caption) ?? '').trim();
+  const documents = isText ? [] : filesOf(input);
+  if (isText ? !mayAnswer(text) : !documents.length) return null;
+
+  // The bot's own open question, and when it was put: the session moves on
+  // every turn the bot speaks in.
+  const botAsking = isText && (AWAITING_TEXT.has(session.current_state) || Boolean(pickByNumber(text, session.context?.offered)));
+  const botAskedSince = (at) => Boolean(session.updated_at && at && new Date(session.updated_at) > new Date(at));
+
+  const who = { chatId: ctx.chatId, clientId: ctx.clientId ?? session.client_id ?? null, text, documents };
+  const waiting = (await waitingOn(ctx.chatId).catch(() => [])).filter((w) => !(botAsking && botAskedSince(w.askedAt)));
+  if (waiting.length) {
+    const answered = await recordAnswer(waiting, { ...who, reopen: true });
+    if (answered.length) return acknowledge(session, answered, documents, ctx, { first: true });
+  }
+
+  // Moments after an answer, a further message is more of it - "Baltic Trucks
+  // UAB", then "Savanoriu 12, Vilnius" - as long as nothing else has happened
+  // in between: anything the bot does moves the conversation out of
+  // ANSWERING_DESK.
+  const last = session.context?.answered;
+  const recent = last?.at && Date.now() - new Date(last.at).getTime() < FOLLOW_UP_MINUTES * 60_000;
+  if (session.current_state === S.ANSWERING_DESK && last?.refs?.length && recent && !botAsking) {
+    const added = await recordAnswer(last.refs, { ...who, reopen: false });
+    if (added.length) return acknowledge(session, added, documents, ctx, { first: false });
+  }
+  return null;
+}
+
+/**
+ * Could this text be an answer at all? Not a hello, and not a request to be
+ * somewhere else ("menu", "track my shipment") - those mean what they always
+ * meant. A bare digit can be: "2" is a perfectly good answer to "how many?".
+ */
+function mayAnswer(text) {
+  if (!text || onlyHello({ kind: 'text', text })) return false;
+  const intent = quickIntent(text);
+  return !intent || /^[0-9٠-٩]$/.test(text.replace(/️|⃣/g, ''));
+}
+
+/** The papers of a document turn: the whole batch when several came together. */
+function filesOf(input) {
+  const arrived = input.batch?.length ? input.batch : [input.document?.document].filter(Boolean);
+  return arrived.map((d) => ({ id: d.id ?? null, file_name: d.file_name ?? null, doc_type: d.doc_type ?? null }));
+}
+
+/**
+ * "Passed on", in the client's language. From an idle conversation the client
+ * is left in ANSWERING_DESK, so a second message is more of the answer; from
+ * the middle of something of the bot's, its question is put again and nothing
+ * moves - the booking they were filling in is where it was.
+ */
+async function acknowledge(session, answered, documents, ctx, { first }) {
+  const known = documents.filter((d) => d.doc_type && d.doc_type !== 'other');
+  const named = [...new Set(known.map((d) => d.doc_type))];
+  const labelsAr = [...named.map((t) => DOC_LABELS[t]?.[0] ?? t), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[0])];
+  const labelsEn = [...named.map((t) => DOC_LABELS[t]?.[1] ?? t), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[1])];
+  const words = first ? M.answerPassedOn(answered, labelsAr, labelsEn) : M.answerAdded(answered);
+
+  if (ANSWER_IDLE.has(session.current_state)) {
+    return {
+      handled: true,
+      ...reply(say(words, kb.homeOnly()), {
+        active_flow: null,
+        current_state: S.ANSWERING_DESK,
+        context: { answered: { refs: answered.map(({ kind, ref }) => ({ kind, ref })), at: new Date().toISOString() } },
+      }),
+    };
+  }
+  const again = await repeatQuestion(session, ctx);
+  return { handled: true, messages: [say(words), ...again.messages], patch: again.patch ?? {} };
 }
 
 // ---------------------------------------------------------------------------

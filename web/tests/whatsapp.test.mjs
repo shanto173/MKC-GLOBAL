@@ -651,6 +651,99 @@ test('/api/health reports WhatsApp settings and whether its migration is applied
 });
 
 // ---------------------------------------------------------------------------
+// Answering what the desk asked
+// ---------------------------------------------------------------------------
+
+const HOUR = 3_600_000;
+const agoIso = (ms) => new Date(Date.now() - ms).toISOString();
+const modelCalls = () => net.calls.filter((c) => c.host === 'api.openai.com').length;
+
+/** A booking the desk handed back to the customer an hour ago, asking for something. */
+const WAITING_BOOKING = {
+  booking_ref: 'MKY-BKG-ASK1', status: 'needs_client_action', channel: 'whatsapp', chat_id: CHAT, client_id: 7,
+  customer_name: 'Delta Trans', vin: 'YV2RT40A8FB712905', make: 'Volvo', origin_port: 'Klaipeda', destination_port: 'Port Said',
+  needs_client_action: { requested: 'The exporter\'s full address', at: agoIso(HOUR), by: 'Sara' },
+  created_at: agoIso(5 * HOUR),
+};
+
+test('a WhatsApp answer to "ask for information" is kept on the booking, which goes back to the desk', async () => {
+  const db = setup({ seed: { bookings: [{ ...WAITING_BOOKING }] } });
+  await post(text('Baltic Trucks UAB, Savanoriu 12, Vilnius'));
+
+  const booking = db._tables.bookings[0];
+  assert.equal(booking.status, 'under_review', 'back with the desk - "Needs us"');
+  assert.ok(booking.client_responded_at);
+  assert.equal(booking.needs_client_action.requested, 'The exporter\'s full address', 'what was asked stays beside it');
+  assert.equal(booking.needs_client_action.answers.at(-1).text, 'Baltic Trucks UAB, Savanoriu 12, Vilnius');
+  assert.ok((db._tables.operations_tasks ?? []).some((t) => t.task_type === 'client_action_response' && t.booking_ref === 'MKY-BKG-ASK1'));
+
+  const said = bodies();
+  assert.equal(said.length, 1);
+  assert.match(said[0], /MKY-BKG-ASK1/);
+  assert.match(said[0], /passed it on/i);
+  assert.doesNotMatch(said[0], /[؀-ۿ]/, 'in English, the language they chose');
+  assert.equal(modelCalls(), 0, 'not handed to the assistant as a fresh chat');
+});
+
+test('a second message moments later is more of the same answer, not a fresh question for the assistant', async () => {
+  const db = setup({ seed: { bookings: [{ ...WAITING_BOOKING }] } });
+  await post(text('Baltic Trucks UAB'));
+  net.reset();
+  await post(text('Savanoriu 12, Vilnius, Lithuania'));
+
+  const answers = db._tables.bookings[0].needs_client_action.answers;
+  assert.deepEqual(answers.map((a) => a.text), ['Baltic Trucks UAB', 'Savanoriu 12, Vilnius, Lithuania']);
+  assert.match(bodies()[0], /added/i);
+  assert.equal(modelCalls(), 0);
+});
+
+test('a document sent for an MRN application is recorded on it, and the customer hears so in their language', async () => {
+  const db = setup({
+    client: { language: 'ar' },
+    seed: {
+      bookings: [{ ...WAITING_BOOKING, booking_ref: 'MKY-BKG-M1', status: 'under_review', mrn_choice: 'mky_issue', needs_client_action: null }],
+      mrn_requests: [{
+        id: 41, request_ref: 'MKY-MRN-41', booking_ref: 'MKY-BKG-M1', chat_id: CHAT, client_id: 7, status: 'missing_information',
+        missing_information: ['The export invoice'], supplied_information: {}, updated_at: agoIso(HOUR), created_at: agoIso(3 * HOUR),
+      }],
+    },
+  });
+  const [url] = offerMedia('m-ans', INVOICE);
+  net.files.set(url, { status: 200, buffer: INVOICE });
+  await post(inbound([{ type: 'document', document: { id: 'm-ans', filename: 'export-invoice.pdf', mime_type: 'application/pdf', sha256: 'sha-m-ans' } }]));
+
+  const mrn = db._tables.mrn_requests[0];
+  assert.equal(mrn.status, 'under_review', 'no longer "Waiting for the customer"');
+  assert.match(mrn.supplied_information.notes.at(-1).text, /export-invoice\.pdf/);
+  assert.equal(db._tables.booking_documents[0].booking_ref, 'MKY-BKG-M1', 'the file itself is on the booking');
+
+  const said = bodies();
+  assert.equal(said.length, 1, `one answer: ${JSON.stringify(said)}`);
+  assert.match(said[0], /MKY-MRN-41/);
+  assert.match(said[0], /[؀-ۿ]/);
+  assert.doesNotMatch(said[0], /passed/i, 'Arabic only');
+});
+
+test('on Telegram the answer is kept the same way, and the customer is told it was passed on', async () => {
+  const db = setup({
+    client: null,
+    seed: {
+      clients: [{ id: 1, telegram_user_id: 999, telegram_chat_id: 555, language: 'en' }],
+      bookings: [{ ...WAITING_BOOKING, channel: 'telegram', chat_id: '555', client_id: 1 }],
+    },
+  });
+  await telegram(tgMessage('The exporter is Baltic Trucks UAB, Vilnius.', 404));
+
+  const booking = db._tables.bookings[0];
+  assert.equal(booking.status, 'under_review');
+  assert.match(booking.needs_client_action.answers.at(-1).text, /Baltic Trucks/);
+  const sent = net.telegram('sendMessage').at(-1);
+  assert.match(sent.text, /MKY-BKG-ASK1/);
+  assert.match(sent.text, /passed it on/i);
+  assert.equal(modelCalls(), 0);
+});
+
+// ---------------------------------------------------------------------------
 // The number we give out
 // ---------------------------------------------------------------------------
 

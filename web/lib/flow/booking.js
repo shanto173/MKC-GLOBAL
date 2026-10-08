@@ -1205,8 +1205,9 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
  * A file for a request that is already with the desk.
  *
  * There is no step to continue: the transport has filed it against the
- * booking, noteClientResponse() has brought the request back to the desk if
- * it was waiting on the client, and the desk sees it in the console. What the
+ * booking and the desk sees it in the console - and when the desk had asked
+ * for it, the state machine has already recorded it as the answer and said so
+ * (lib/answers.js), so this is the paper nobody asked for. What the
  * client needs is to hear that - not "I did not follow that", which is what a
  * flow that only knew about drafts had to say.
  */

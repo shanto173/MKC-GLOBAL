@@ -52,6 +52,11 @@ export const S = {
   TRACK_IDENTIFIER: 'TRACK_IDENTIFIER',
   TRACK_RESULTS: 'TRACK_RESULTS',
 
+  // -- the desk asked something -------------------------------------------
+  // The client has just answered it (lib/answers.js). Idle, except that a
+  // further message in the next few minutes is taken as more of the answer.
+  ANSWERING_DESK: 'ANSWERING_DESK',
+
   // -- contact -------------------------------------------------------------
   CONTACT_MENU: 'CONTACT_MENU',
   CONTACT_BOOKING_IDENTIFIER: 'CONTACT_BOOKING_IDENTIFIER',

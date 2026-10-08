@@ -47,7 +47,6 @@ import { clearSession } from '../lib/flow/store.js';
 import { storedLanguage } from '../lib/flow/language.js';
 import { withLanguage, withTurn, normaliseLanguage, languageFromChoice } from '../lib/lang.js';
 import { upsertWhatsAppClient, setOptOut } from '../lib/clients.js';
-import { noteClientResponse } from '../lib/bookings.js';
 import {
   beginDocument, completeDocument, abandonDocument, recentUploads, stillReading, claimReply, openRequestForFiles,
 } from '../lib/documents.js';
@@ -334,16 +333,19 @@ async function turn(message, ctx, client, background) {
   // holding for them may go. Waited for before the turn's own drain.
   const opened = stampClientMessage(ctx).then(() => releaseHeld(chatId)).catch(() => null);
   defer(opened);
-  // Anything sent while we wait on them brings their request back to the desk.
-  const noted = noteClientResponse(chatId, { clientId: ctx.clientId }).catch(() => null);
-  defer(noted);
+  // A reply to something the desk asked is no longer caught here, by any
+  // message at all, before the flow has read it: the state machine decides
+  // whether it is an answer, keeps it on the request and says so
+  // (lib/answers.js). Caught here, a tap on "Main menu" reopened the request
+  // with nothing to show for it, and the real answer then went to the
+  // assistant as a fresh chat.
   // Blue ticks and "typing…" - in place of Telegram's sendChatAction.
   defer(markRead(message.id, { typing: true }));
   defer(logInbound({
     channel: 'whatsapp', chatId, clientId: ctx.clientId, language: ctx.language,
     providerMessageId: message.id, ...describe(message),
   }));
-  const ready = () => Promise.all([opened, noted]);
+  const ready = () => opened;
 
   try {
     const flood = await floodCheck(chatId);

@@ -53,7 +53,6 @@ import { clearSession } from '../lib/flow/store.js';
 import { storedLanguage } from '../lib/flow/language.js';
 import { withLanguage, withTurn } from '../lib/lang.js';
 import { upsertTelegramClient } from '../lib/clients.js';
-import { noteClientResponse } from '../lib/bookings.js';
 import {
   beginDocument, completeDocument, abandonDocument, recentUploads, stillReading, claimReply, openRequestForFiles,
 } from '../lib/documents.js';
@@ -123,13 +122,11 @@ export default async function handler(req, res) {
     : Promise.resolve(null);
   defer(clientPromise);
 
-  // Anything the client sends while we are waiting on them brings the request
-  // back to the desk. Started now, alongside the claim, and waited for before
-  // the flow runs, so the status the flow reads is already the reopened one.
-  const notedPromise = noteClientResponse(chatId, {
-    clientId: clientPromise.then((c) => c?.id ?? null),
-  }).catch(() => null);
-  defer(notedPromise);
+  // A reply to something the desk asked is recognised by the state machine,
+  // which keeps it on the request and tells the client it was passed on
+  // (lib/answers.js) - not here, by any update at all before the flow has read
+  // it, which reopened the request with nothing to show and sent the answer
+  // itself to the assistant as a fresh chat.
 
   // The language the client chose, read while the claim is in flight. Null
   // until they choose, and always null before the migration that stores it.
@@ -156,11 +153,11 @@ export default async function handler(req, res) {
   // own - is in the client's language, and worded for Telegram.
   const language = await languagePromise;
   return withTurn({ lang: language, channel: 'telegram' }, () => turn(res, {
-    update, callbackQuery, message, from, chatId, correlationId, clientPromise, notedPromise, language,
+    update, callbackQuery, message, from, chatId, correlationId, clientPromise, language,
   }));
 }
 
-async function turn(res, { update, callbackQuery, message, from, chatId, correlationId, clientPromise, notedPromise, language }) {
+async function turn(res, { update, callbackQuery, message, from, chatId, correlationId, clientPromise, language }) {
   try {
     const client = await clientPromise;
 
@@ -219,11 +216,10 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
     // A file: recorded, and the rest read in the background. Telegram gets
     // its answer now, so the next file it is holding can arrive at once.
     if (input.kind === 'file_recorded') {
-      keepAlive(finishDocument(input, ctx, update, notedPromise));
+      keepAlive(finishDocument(input, ctx, update));
       return res.status(200).json({ ok: true, reading: true });
     }
 
-    await notedPromise;
     defer(sendTyping(chatId));
 
     const flow = await runFlow(input, ctx);
@@ -449,7 +445,7 @@ async function recordIncomingFile(file, message, ctx) {
  * The slow half, after Telegram has been answered: the caption, the download,
  * the reading, and - if this is the last of its batch to finish - the reply.
  */
-async function finishDocument(input, ctx, update, notedPromise) {
+async function finishDocument(input, ctx, update) {
   const { file, message, begun, bookingRef, caption } = input;
   const { chatId } = ctx;
   const target = targetOf(ctx);
@@ -458,8 +454,6 @@ async function finishDocument(input, ctx, update, notedPromise) {
     // No "reading it now" message: the typing indicator is the feedback while
     // the file is read, and the first thing the client reads is the answer.
     defer(sendTyping(chatId));
-
-    await notedPromise;
 
     // The details written on the file go onto the request first, before this
     // file's own reading - so whichever file of a batch ends up speaking, the
