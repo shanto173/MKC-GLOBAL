@@ -382,7 +382,11 @@ test('STOP is recorded and confirmed once; START undoes it and shows the menu', 
   net.reset();
   await post(text('START'));
   assert.equal(client.opted_out_at, null);
+  // One message: "welcome back" and the menu together. The live test got two
+  // - two notifications - for one word.
+  assert.equal(net.sent().length, 1, JSON.stringify(bodies()));
   assert.match(bodies()[0], /Welcome back/);
+  assert.match(bodies()[0], /How can we help you today/);
   assert.equal(net.sent().at(-1).interactive.action.buttons[0].reply.id, 'menu:book');
 });
 

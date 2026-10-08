@@ -387,11 +387,16 @@ async function turn(message, ctx, client, background) {
       return;
     }
 
-    // START after STOP: they hear it is undone, then the menu as for "start".
+    // START after STOP: they hear it is undone, and the menu as for "start" -
+    // in one message. Sent as two, one word got two notifications.
     if (input.kind === 'opt_in') {
       const { changed } = await setOptOut(ctx.clientId, false);
-      if (changed) await sendToChat(target, { text: T.optedIn() });
       const flow = await runFlow({ kind: 'command', command: '/start', text: input.text }, ctx, { awaitSave: false });
+      if (changed) {
+        const [first, ...rest] = flow.handled ? flow.messages : [];
+        if (first) flow.messages = [{ ...first, text: `${T.optedIn()}\n\n${first.text ?? ''}`.trim() }, ...rest];
+        else await sendToChat(target, { text: T.optedIn() });
+      }
       await deliver(flow, input, ctx);
       return;
     }
