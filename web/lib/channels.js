@@ -62,9 +62,22 @@ export function waIdOf(chatId) {
   return digits || null;
 }
 
-/** Which channel a chat id belongs to, for rows written without saying. */
+/**
+ * Which channel a chat id belongs to, for rows written without saying.
+ *
+ * "wa:…" is WhatsApp. A whole number is Telegram - a group's is negative.
+ * "web:…", or any other id, is the website widget, whose chat id is the
+ * browser's session id (a UUID): Telegram never has one of those. Taking
+ * anything that was not WhatsApp for Telegram is how WhatsApp tasks were
+ * labelled Telegram in the live test, and how a web session would be sent a
+ * Telegram message. `fallback` answers only for no chat id at all.
+ */
 export function channelOf(chatId, fallback = 'telegram') {
-  return waIdOf(chatId) ? 'whatsapp' : fallback;
+  const s = String(chatId ?? '').trim();
+  if (!s) return fallback;
+  if (s.startsWith(WHATSAPP_PREFIX)) return 'whatsapp';
+  if (/^-?\d+$/.test(s)) return 'telegram';
+  return 'web';
 }
 
 // ---------------------------------------------------------------------------

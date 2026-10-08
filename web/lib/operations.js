@@ -20,6 +20,7 @@ import { db } from './supabase.js';
 import { config } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { sendMessage } from './telegram.js';
+import { channelOf } from './channels.js';
 import { pumbleNotifier } from './integrations/pumble.js';
 
 /** A short reference an operator can quote: MKY-TSK-260908-4F2A. */
@@ -49,7 +50,10 @@ export async function createTask(task) {
     mrn_request_id: task.mrnRequestId ?? null,
     client_id: task.clientId ?? null,
     chat_id: task.chatId != null ? String(task.chatId) : null,
-    channel: task.channel ?? 'telegram',
+    // The caller's word, else the chat's own: a "wa:" chat is WhatsApp. This
+    // defaulted to 'telegram', and the MRN and confirm-booking tasks of
+    // WhatsApp bookings - whose callers pass none - said Telegram on the desk.
+    channel: task.channel ?? channelOf(task.chatId, null),
     status: 'open',
     priority: task.priority ?? 'normal',
     payload: task.payload ?? {},

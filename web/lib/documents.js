@@ -14,6 +14,7 @@ import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS, LATER_DOC
 import { normalizeVin } from './tools.js';
 import { requiredDocuments } from './settings.js';
 import { isSchemaMissing } from './chatlog.js';
+import { channelOf } from './channels.js';
 
 // Whether booking_documents has the WhatsApp media columns. Learned once.
 let mediaColumns = null;
@@ -76,11 +77,13 @@ export async function openRequestForFiles(chatId) {
  * @returns {Promise<{ok: true, document: object, replaced: boolean}|{ok: false, error: string}>}
  */
 export async function beginDocument({
-  fileName, mimeType, size = 0, chatId, channel = 'telegram', bookingRef = null,
+  fileName, mimeType, size = 0, chatId, channel: given = null, bookingRef = null,
   telegramFileId = null, telegramFileUniqueId = null, telegramMessageId = null,
   whatsappMediaId = null, whatsappMediaSha256 = null,
   clientId = null, uploadedBy = null,
 }) {
+  // Not 'telegram' by default: a file from a "wa:" chat is a WhatsApp file.
+  const channel = given ?? channelOf(chatId);
   const row = {
     booking_ref: bookingRef,
     chat_id: String(chatId),
@@ -268,11 +271,11 @@ export async function claimReply(chatId, documentIds) {
   if (!ids.length) return true;
 
   const chat = String(chatId);
-  const whatsapp = chat.startsWith('wa:');
+  const channel = channelOf(chat);
   const { error } = await db().from('notification_outbox').insert({
     chat_id: chat,
-    telegram_chat_id: !whatsapp && Number.isSafeInteger(Number(chat)) ? Number(chat) : null,
-    channel: whatsapp ? 'whatsapp' : 'telegram',
+    telegram_chat_id: channel === 'telegram' ? Number(chat) : null,
+    channel,
     event_type: 'document_reply',
     entity_type: 'booking_document',
     entity_id: String(ids[ids.length - 1]),

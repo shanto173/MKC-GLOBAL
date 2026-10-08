@@ -20,6 +20,7 @@ import { refreshPinSafely } from '../../lib/pinned.js';
 import { enqueue, drain } from '../../lib/outbox.js';
 import { closeTasksForBooking } from '../../lib/operations.js';
 import { audit } from '../../lib/audit.js';
+import { channelOf } from '../../lib/channels.js';
 import { createHash } from 'node:crypto';
 
 const ACTIONS = {
@@ -263,7 +264,7 @@ async function decide(req, res) {
       payload: { booking_ref: ref, requested },
     });
     told = {
-      telegram: queued.ok, chat: queued.ok, channel: updated.channel ?? 'telegram', key,
+      telegram: queued.ok, chat: queued.ok, channel: updated.channel ?? channelOf(updated.chat_id), key,
       email: false, errors: queued.ok ? [] : [queued.error],
     };
   } else {

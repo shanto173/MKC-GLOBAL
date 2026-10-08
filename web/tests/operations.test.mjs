@@ -365,3 +365,70 @@ test('the PDF is built from the booking as it stands when it is sent', async () 
   assert.match(read.text, /BOOKING CONFIRMATION/);
   assert.doesNotMatch(read.text, /AWAITING CONFIRMATION/);
 });
+
+// ---------------------------------------------------------------------------
+// Which channel a row is on, when nobody said (live test, 2026-10-08: the MRN
+// request task and the confirm-booking task of WhatsApp bookings were
+// labelled Telegram, because createTask defaulted to it)
+// ---------------------------------------------------------------------------
+
+test('a task written without a channel takes it from the chat id, never "telegram" by default', async () => {
+  const db = setup();
+  const made = async (chatId, key) => (await createTask({ taskType: 'other', chatId, idempotencyKey: key })).task;
+  assert.equal((await made('wa:201005551234', 'k1')).channel, 'whatsapp');
+  assert.equal((await made('555', 'k2')).channel, 'telegram');
+  assert.equal((await made('-1001234567', 'k3')).channel, 'telegram', 'a Telegram group');
+  assert.equal((await made('web:6f1c2a', 'k4')).channel, 'web');
+  assert.equal((await made('6f1c2a90-3b1e-4c55-9d1a-0e7f5b2c8a11', 'k5')).channel, 'web', 'the website widget\'s session id');
+  assert.equal((await made(null, 'k6')).channel, null, 'no chat, no channel - not Telegram');
+  assert.equal((await createTask({ taskType: 'other', chatId: 'wa:1', channel: 'telegram', idempotencyKey: 'k7' })).task.channel, 'telegram',
+    'what the caller says still wins');
+  assert.equal(db._tables.operations_tasks.length, 7);
+});
+
+test('the MRN request of a WhatsApp booking is a WhatsApp task', async () => {
+  const db = setup();
+  await openMrnRequest({ bookingRef: 'MKY-BKG-WA1', chatId: 'wa:201005551234', clientId: 1, vin: 'W1T96340310484233' });
+  const task = db._tables.operations_tasks.find((t) => t.task_type === 'mrn_request');
+  assert.equal(task.channel, 'whatsapp');
+});
+
+test('documents, drafts and reply claims with no channel given take it from the chat', async () => {
+  const db = setup();
+  const { beginDocument, claimReply } = await import('../lib/documents.js');
+  const { createDraft } = await import('../lib/bookings.js');
+  const doc = await beginDocument({ fileName: 'a.pdf', mimeType: 'application/pdf', chatId: 'wa:201005551234' });
+  assert.equal(doc.document.channel, 'whatsapp');
+  const draft = await createDraft({ chatId: 'wa:201005551234', replaceExisting: false });
+  assert.equal(draft.draft?.channel ?? db._tables.bookings[0].channel, 'whatsapp');
+  assert.equal(db._tables.bookings[0].customer_contact, 'whatsapp:wa:201005551234');
+  await claimReply('6f1c2a90-3b1e-4c55-9d1a-0e7f5b2c8a11', [1]);
+  const claim = db._tables.notification_outbox.find((o) => o.event_type === 'document_reply');
+  assert.equal(claim.channel, 'web');
+  assert.equal(claim.telegram_chat_id, null);
+});
+
+test('every task type the code writes is one the database allows', async () => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const web = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const migration = readFileSync(path.join(web, 'supabase/migrations/20260908180000_operations_console.sql'), 'utf8');
+  const allowed = new Set([...migration.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith('.js')) files.push(full);
+    }
+  };
+  walk(path.join(web, 'lib'));
+  walk(path.join(web, 'api'));
+  const used = files.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/taskType:\s*'([a-z_]+)'/g)].map((m) => [path.basename(f), m[1]]));
+  assert.ok(used.length >= 4);
+  for (const [file, type] of used) {
+    assert.ok(allowed.has(type), `${file} writes task_type '${type}', which operations_tasks_type_check refuses`);
+  }
+});

@@ -14,6 +14,7 @@ import { db } from './supabase.js';
 import { config, DESTINATION_PORTS } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { makeTaskRef } from './operations.js';
+import { channelOf } from './channels.js';
 import { looksLikePhone } from './phone.js';
 import { setting } from './settings.js';
 
@@ -203,8 +204,11 @@ export async function openBookingFor(chatId) {
  * that never deleted anything - on the tap the client is waiting on.
  */
 export async function createDraft({
-  chatId, clientId = null, channel = 'telegram', telegramUserId = null, replaceExisting = true,
+  chatId, clientId = null, channel: given = null, telegramUserId = null, replaceExisting = true,
 }) {
+  // The chat says which channel when the caller does not: never 'telegram'
+  // for a "wa:" chat.
+  const channel = given ?? channelOf(chatId);
   if (replaceExisting) {
     await db().from('bookings').delete().eq('chat_id', String(chatId)).eq('status', 'draft');
   }

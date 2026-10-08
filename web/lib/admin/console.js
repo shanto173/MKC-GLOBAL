@@ -64,6 +64,7 @@ import {
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -507,11 +508,11 @@ async function reviewDocument(req, res, who, verify, ctx) {
       .eq('booking_ref', doc.booking_ref)
       .in('status', ['pending_review', 'under_review']);
 
-    const customer = await customerFor({ clientId: booking?.client_id, channel: booking?.channel ?? 'telegram', chatId: booking?.chat_id ?? doc.chat_id });
+    const customer = await customerFor({ clientId: booking?.client_id, channel: booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id), chatId: booking?.chat_id ?? doc.chat_id });
     const queued = await enqueue({
       chatId: booking?.chat_id ?? doc.chat_id,
       clientId: booking?.client_id ?? null,
-      channel: booking?.channel ?? 'telegram',
+      channel: booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id),
       // Its own event, so on WhatsApp outside the 24 hours the template that
       // carries it says "send a new document", not "we need information".
       eventType: 'document_rejected',
@@ -558,12 +559,12 @@ async function requestInfo(req, res, who) {
   }).eq('booking_ref', ref).in('status', ['pending_review', 'under_review', 'needs_client_action']);
 
   const key = actionKeyOf(req.body);
-  const customer = await customerFor({ clientId: booking.client_id, channel: booking.channel ?? 'telegram', chatId: booking.chat_id });
+  const customer = await customerFor({ clientId: booking.client_id, channel: booking.channel ?? channelOf(booking.chat_id), chatId: booking.chat_id });
   const idempotencyKey = `request_info:${ref}:${hash(requested)}${key ? `:${key}` : ''}`;
   const queued = await enqueue({
     chatId: booking.chat_id,
     clientId: booking.client_id ?? null,
-    channel: booking.channel ?? 'telegram',
+    channel: booking.channel ?? channelOf(booking.chat_id),
     eventType: 'missing_information_requested',
     entityType: 'booking',
     entityId: ref,
@@ -582,7 +583,7 @@ async function requestInfo(req, res, who) {
 
   // What became of the message, so the desk says "sent", "waiting for them to
   // write" or "not delivered" rather than "sent" in every case.
-  const told = await customerReached({ chat: queued.ok, channel: booking.channel ?? 'telegram', key: idempotencyKey });
+  const told = await customerReached({ chat: queued.ok, channel: booking.channel ?? channelOf(booking.chat_id), key: idempotencyKey });
   res.status(200).json({
     ok: true, queued: queued.ok, duplicate: queued.ok && !queued.queued, status: 'needs_client_action', customer_told: told,
   });
@@ -625,8 +626,14 @@ async function createBookingRecord(req, res, who) {
   if (req.body.note) patch.ops_notes = String(req.body.note).trim();
   if (Object.keys(patch).length) await db().from('bookings').update(patch).eq('booking_ref', ref);
 
+  // 'booking_confirmation', the type operations_tasks_type_check allows: the
+  // 'confirm_booking' this wrote was refused by the database every time, and
+  // createTask reports a refusal rather than throwing, so nobody noticed. The
+  // channel comes from the booking - the task used to say Telegram whatever
+  // the customer was on.
   await createTask({
-    taskType: 'confirm_booking', bookingRef: ref, chatId: booking.chat_id,
+    taskType: 'booking_confirmation', bookingRef: ref, chatId: booking.chat_id,
+    channel: booking.channel ?? channelOf(booking.chat_id, null),
     clientId: booking.client_id ?? null, priority: 'high',
     payload: { reference }, idempotencyKey: `confirm_booking:${ref}`,
   }).catch(() => null);
@@ -779,9 +786,9 @@ async function requestReply(req, res, who) {
   const { data: t } = await db().from('support_tickets').select('*').eq('ticket_ref', ref).maybeSingle();
   if (!t?.chat_id) return res.status(404).json({ error: 'We have no chat to reply in.' });
 
-  const customer = await customerFor({ clientId: t.client_id, channel: t.channel ?? 'telegram', chatId: t.chat_id, name: t.customer });
+  const customer = await customerFor({ clientId: t.client_id, channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, name: t.customer });
   const sent = await sendToCustomer({
-    who, channel: t.channel ?? 'telegram', chatId: t.chat_id, clientId: customer.client_id, text: req.body.text,
+    who, channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, clientId: customer.client_id, text: req.body.text,
     actionKey: actionKeyOf(req.body), bookingRef: t.booking_ref ?? null,
     entityType: 'support_ticket', entityId: ref, language: customer.language,
   });
@@ -865,7 +872,7 @@ async function shipmentDetail(req, res, who) {
       .eq('booking_ref', s.booking_ref).maybeSingle() : { data: null },
   ]);
   const customer = await customerFor({
-    clientId: booking?.client_id, channel: s.channel ?? booking?.channel ?? 'telegram', chatId: s.chat_id ?? booking?.chat_id,
+    clientId: booking?.client_id, channel: s.channel ?? booking?.channel ?? channelOf(s.chat_id ?? booking?.chat_id), chatId: s.chat_id ?? booking?.chat_id,
     name: s.customer_name, contact: booking?.customer_contact,
   });
 
@@ -923,7 +930,7 @@ async function shipmentUpdate(req, res, who) {
     const { data: b } = s?.booking_ref
       ? await db().from('bookings').select('client_id, chat_id, channel').eq('booking_ref', s.booking_ref).maybeSingle()
       : { data: null };
-    const channel = s?.channel ?? b?.channel ?? 'telegram';
+    const channel = s?.channel ?? b?.channel ?? channelOf(s?.chat_id ?? b?.chat_id);
     const chatId = s?.chat_id ?? b?.chat_id ?? null;
     const customer = await customerFor({ clientId: b?.client_id, channel, chatId, name: s?.customer_name });
     const said = { status: changes.status, eta: changes.eta, note: body.note };

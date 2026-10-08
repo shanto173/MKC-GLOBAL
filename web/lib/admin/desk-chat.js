@@ -21,6 +21,7 @@ import { settings } from '../settings.js';
 import { enqueue, drain } from '../outbox.js';
 import { audit } from '../audit.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
 import { customerFor, isMissingTable, HISTORY_PENDING, actionKeyOf, ago } from './desk-shared.js';
 import { failureWords, DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 import { statusWords, statusTone, requestStatusWords, REQUEST_OPEN } from '../ops/workflow.js';
@@ -266,7 +267,7 @@ async function targetOf(body) {
       .select('booking_ref, channel, chat_id, client_id, customer_name, customer_contact')
       .eq('booking_ref', String(body.booking_ref)).maybeSingle();
     if (!b) return null;
-    return { channel: b.channel ?? 'telegram', chatId: b.chat_id, clientId: b.client_id ?? null, bookingRef: b.booking_ref,
+    return { channel: b.channel ?? channelOf(b.chat_id), chatId: b.chat_id, clientId: b.client_id ?? null, bookingRef: b.booking_ref,
       entityType: 'booking', entityId: b.booking_ref, name: b.customer_name, contact: b.customer_contact };
   }
   if (body.ticket_ref) {
@@ -274,7 +275,7 @@ async function targetOf(body) {
       .select('ticket_ref, channel, chat_id, client_id, customer, contact, booking_ref')
       .eq('ticket_ref', String(body.ticket_ref)).maybeSingle();
     if (!t) return null;
-    return { channel: t.channel ?? 'telegram', chatId: t.chat_id, clientId: t.client_id ?? null, bookingRef: t.booking_ref ?? null,
+    return { channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, clientId: t.client_id ?? null, bookingRef: t.booking_ref ?? null,
       entityType: 'support_ticket', entityId: t.ticket_ref, name: t.customer, contact: t.contact };
   }
   const channel = String(body.channel ?? '');
