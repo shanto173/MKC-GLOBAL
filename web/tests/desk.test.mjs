@@ -1113,6 +1113,82 @@ test('Settings says when the direct line still looks like the example number fro
   assert.equal(after.body.warnings?.direct_phone ?? null, null);
 });
 
+// ---------------------------------------------------------------------------
+// The redesigned desk, reading what the server says
+// ---------------------------------------------------------------------------
+
+// The live test, 2026-10-08: "Talk to an agent" put the request on the desk
+// at the tap, before the customer had said anything - the summary is the
+// bot's placeholder until they do.
+test('a call-back opened before the customer said what about is flagged, on its row and on its case', async () => {
+  const { AWAITING_DETAILS } = await import('../lib/flow/contact.js');
+  const ticket = {
+    ticket_ref: 'MKY-T-2', status: 'open', channel: 'whatsapp', chat_id: WA, client_id: 2, department: 'Booking Operations',
+    customer: 'Delta Trans', contact: '+201005551234', summary: AWAITING_DETAILS, request_type: 'other', priority: 'normal',
+    created_at: iso(5 * 60_000), status_changed_at: iso(5 * 60_000),
+  };
+  // The request queue is a view of the tickets: seeded together.
+  setup({ support_tickets: [...rows('support_tickets').map((t) => ({ ...t })), ticket] });
+  const r = await get({ view: 'inbox', filter: 'callbacks' });
+  const byRef = Object.fromEntries(r.body.items.map((i) => [i.ref, i]));
+  assert.equal(byRef['MKY-T-2'].undescribed, true);
+  assert.equal(byRef['MKY-T-1'].undescribed, false, 'a request that says what it is about is not flagged');
+
+  const c = await get({ view: 'case', type: 'request', ref: 'MKY-T-2' });
+  assert.equal(c.body.request.undescribed, true);
+  assert.equal((await get({ view: 'case', type: 'request', ref: 'MKY-T-1' })).body.request.undescribed, false);
+});
+
+// The live test, 2026-10-08: the photo of an invoice sent with no booking
+// open was on the desk as a row, but the row opened a chat with no way to
+// look at the paper.
+test('a paper on no booking opens on its own from its chat: held to nothing, asked about in the conversation', async () => {
+  rows('booking_documents').push(
+    { id: 301, booking_ref: null, chat_id: WA, client_id: 2, channel: 'whatsapp', doc_type: 'invoice', status: 'received', file_name: 'photo-1.jpg', storage_path: 'unfiled/photo-1.jpg', mime_type: 'image/jpeg', extraction_ok: true, extracted: { ok: true, vin: 'WDB9634031L000001', make: 'MERCEDES-BENZ' }, uploaded_at: iso(600_000) },
+    { id: 304, booking_ref: null, chat_id: WA, client_id: 2, channel: 'whatsapp', doc_type: 'acid', status: 'received', file_name: 'acid.jpg', uploaded_at: iso(500_000) },
+  );
+  const r = await get({ view: 'document', id: 301 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.booking_ref, null);
+  assert.equal(r.body.version, null, 'no case, so no case version to send');
+  assert.deepEqual(r.body.documents.map((d) => d.id), [301]);
+  assert.deepEqual(r.body.other_documents.map((d) => d.id), [301], 'the viewer pages through the one paper');
+  assert.deepEqual(r.body.documents[0].checks, [], 'nothing to hold it to');
+  assert.ok(r.body.documents[0].read.some((f) => f.field === 'vin'), 'what the bot read is still shown');
+  assert.deepEqual(r.body.conversation, { channel: 'whatsapp', chat_id: WA });
+  assert.equal(r.body.document_actions.verify.enabled, true);
+  assert.equal(r.body.document_actions.reject.enabled, false);
+  assert.match(r.body.document_actions.reject.reason, /no booking.*conversation/);
+
+  // A read-only person sees it, and is told why they cannot act.
+  const ro = await get({ view: 'document', id: 304 }, 'Rita');
+  assert.equal(ro.status, 200);
+  assert.equal(ro.body.document_actions.verify.enabled, false);
+  assert.ok(ro.body.document_actions.verify.reason);
+
+  // "Looks right" from there takes the row off the inbox.
+  assert.ok((await get({ view: 'inbox' })).body.items.some((i) => i.id === 'document:301'));
+  const v = await post({ action: 'verify_document', document_id: 301, version: r.body.version });
+  assert.equal(v.status, 200);
+  assert.ok(!(await get({ view: 'inbox' })).body.items.some((i) => i.id === 'document:301'));
+  const after = await get({ view: 'document', id: 301 });
+  assert.equal(after.body.documents[0].status, 'verified');
+  assert.equal(after.body.document_actions.verify.enabled, false, 'dealt with');
+
+  assert.equal((await get({ view: 'document', id: 9999 })).status, 404);
+  assert.equal((await get({ view: 'document' })).status, 400);
+});
+
+test('a paper on a booking, opened on its own, is held to that booking', async () => {
+  const r = await get({ view: 'document', id: 102 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.booking_ref, 'MKY-BKG-1');
+  const c = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.equal(r.body.version, c.body.version, 'the same version the case page sends');
+  assert.ok(r.body.documents[0].wrong_vehicle, 'its chassis differs from the booking');
+  assert.equal(r.body.document_actions.reject.enabled, true);
+});
+
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {
   const add = await post({ action: 'user_save', name: 'Mona', role: 'ops_agent' }, 'Ariful');
   assert.equal(add.status, 200);

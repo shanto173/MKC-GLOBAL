@@ -56,7 +56,7 @@ import {
 } from './desk-shared.js';
 import { inboxView, countsView, shortPort } from './desk-inbox.js';
 import {
-  bookingCase, requestCase, mrnCase, documentUrl, previewView, editDetails, markReadValues, loadBooking, bookingEntities,
+  bookingCase, requestCase, mrnCase, documentUrl, documentView, previewView, editDetails, markReadValues, loadBooking, bookingEntities,
 } from './desk-case.js';
 import {
   chatsView, chatView, sendMessage, sendReopenTemplate, retryMessage, retryOutbox, dismissProblem,
@@ -77,6 +77,7 @@ const VIEWS = {
   counts: countsView,
   case: (req, res, who) => ({ booking: bookingCase, request: requestCase, mrn: mrnCase }[req.query.type] ?? badCase)(req, res, who),
   document_url: documentUrl,
+  document: documentView,
   preview: previewView,
   chats: chatsView,
   chat: chatView,

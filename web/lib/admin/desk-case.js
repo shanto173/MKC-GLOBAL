@@ -31,6 +31,7 @@ import {
 } from './desk-messages.js';
 import { composerFor } from './desk-chat.js';
 import { listWords, shortPort, bookingSentence } from './desk-inbox.js';
+import { AWAITING_DETAILS } from '../flow/contact.js';
 
 // ---------------------------------------------------------------------------
 // Loading a booking case
@@ -538,6 +539,8 @@ export async function requestCase(req, res, who) {
     request: {
       ticket_ref: t.ticket_ref, department: t.department, summary: t.summary ?? '', contact: phone,
       booking_ref: t.booking_ref ?? null, created_at: t.created_at, resolution_note: t.resolution_note ?? null,
+      // Opened at the tap, before they said what about (lib/flow/contact.js).
+      undescribed: t.summary === AWAITING_DETAILS,
     },
     customer,
     next_step: {
@@ -643,6 +646,48 @@ export async function documentUrl(req, res) {
   return res.status(200).json({
     url, mime_type: d.mime_type ?? null, file_name: d.file_name ?? null,
     expires_at: new Date(Date.now() + seconds * 1000 - 30_000).toISOString(),
+  });
+}
+
+/**
+ * GET view=document&id= - one paper on its own, in the shape the document
+ * viewer reads from a booking case (documents, document_actions, version).
+ *
+ * For a paper sent with no booking open: the inbox row opens the customer's
+ * chat, and the viewer there has no case to read the paper from. A paper on
+ * no booking is checked against nothing, and "Ask for a new one" has no
+ * booking to send the request through - the conversation beside it is where
+ * to ask - so it is offered disabled, saying so.
+ */
+export async function documentView(req, res, who) {
+  const id = Number(req.query.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id is required' });
+  const { data: d } = await db().from('booking_documents').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (!d) return res.status(404).json({ error: 'That document is no longer here.' });
+
+  const state = d.booking_ref ? await loadBooking(d.booking_ref) : null;
+  const doc = documentOut(d, state?.booking ?? null, { declared: state ? declaredMrn(state.docs) : null });
+  const waiting = ['received', 'pending_verification'].includes(d.status);
+  const done = 'This paper has been dealt with already.';
+  return res.status(200).json({
+    type: 'document',
+    version: state?.version ?? null,
+    booking_ref: d.booking_ref ?? null,
+    conversation: { channel: d.channel ?? channelOf(d.chat_id, null), chat_id: d.chat_id ?? null },
+    documents: [doc],
+    checklist: [],
+    other_documents: [doc],
+    document_actions: {
+      verify: button(who, 'verify_document', 'Looks right', { perm: 'documents', allowed: waiting, why: done }),
+      reject: button(who, 'reject_document', 'Ask for a new one', {
+        perm: 'documents',
+        allowed: waiting && Boolean(d.booking_ref),
+        why: d.booking_ref ? done : 'It is on no booking, so there is no request to send. Ask them in the conversation.',
+      }),
+      type_values: button(who, 'mark_document_read_values', 'Type what it says', { perm: 'documents', allowed: waiting, why: done }),
+      reasons: REPLACEMENT_REASONS.map(({ code, words }) => ({ code, words })),
+      typable: TYPABLE,
+    },
   });
 }
 

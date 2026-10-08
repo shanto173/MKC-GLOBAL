@@ -25,6 +25,7 @@ import {
 import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
+import { AWAITING_DETAILS } from '../flow/contact.js';
 
 /** What each of the desk's tones means, for a screen that names its own. */
 const MEANING = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
@@ -295,6 +296,10 @@ export async function inboxItems() {
       priority: t.priority ?? 'normal',
       after_hours: afterHours,
       unowned: isOpen && !t.assigned_to,
+      // "Talk to an agent" opens the request at the tap, before the customer
+      // has said what it is about; the summary says so until they do. A flag,
+      // so the desk does not read it back out of the words.
+      undescribed: t.summary === AWAITING_DETAILS,
       status: statusBadge(requestStatusLabel(t.status), requestStatusTone(t.status)),
       version: ticketVersion(t),
       since: !isOpen ? doneAt : (t.status_changed_at || t.created_at),
