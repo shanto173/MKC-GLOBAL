@@ -53,25 +53,118 @@ export function ageTone(item, now = Date.now()) {
   return mins >= AGE.needsAmberMin ? 'amber' : '';
 }
 
+/**
+ * A problem row's colour: red when something failed, amber when it waits on
+ * something (a held message) or wants a look (a paper with no booking, a paper
+ * after the decision) - its badge's tone, so the stripe never contradicts it.
+ */
+const problemTone = (item) => (item.status?.tone === 'amber' ? 'amber' : 'red');
+
 /** The stripe on the left: how urgent, in the same order the server sorts by. */
 function markTone(item) {
   if (item.tab === 'done') return 'green';
   if (item.tab === 'waiting') return 'amber';
-  if (item.kind === 'problem' || item.priority === 'urgent' || item.overdue) return 'red';
+  if (item.kind === 'problem') return problemTone(item);
+  if (item.priority === 'urgent' || item.overdue) return 'red';
   if (item.priority === 'high') return 'amber';
   return 'blue';
 }
 
-/** Where a row opens. */
+/** Where a row opens. A paper's row opens the viewer on that paper, in its case or its chat. */
 export function linkFor(link) {
   if (!link) return '#/inbox';
   const enc = encodeURIComponent;
-  if (link.type === 'booking') return `#/case/booking/${enc(link.ref)}${link.document_id ? `?doc=${link.document_id}` : ''}`;
+  const doc = link.document_id ? `?doc=${enc(link.document_id)}` : '';
+  if (link.type === 'booking') return `#/case/booking/${enc(link.ref)}${doc}`;
   if (link.type === 'request') return `#/case/request/${enc(link.ref)}`;
   if (link.type === 'mrn') return `#/case/mrn/${enc(link.ref)}`;
-  if (link.type === 'chat') return `#/chats/${enc(link.channel)}/${enc(link.chat_id)}`;
+  if (link.type === 'chat') return `#/chats/${enc(link.channel)}/${enc(link.chat_id)}${doc}`;
   if (link.type === 'shipment') return `#/shipments/${enc(link.id)}`;
   return '#/inbox';
+}
+
+/**
+ * The row's status badge, from the status the server gives every row
+ * ({ label, tone, meaning }) - never read back out of the sentence, which
+ * broke the day a sentence was reworded. The desk chooses only how the label
+ * fits: a few of the server's labels are too long for the status column, so
+ * the badge says the short form and keeps the full one as its tooltip.
+ * docs/DESK-DESIGN-SYSTEM.md, "Row status".
+ */
+const SHORT_STATUS = {
+  'Waiting for the customer': 'Waiting on customer',
+  'Waiting for Client': 'Waiting on customer',
+  'New — nobody has it yet': 'New',
+  'In Progress': 'In progress',
+  'Approved — record the number': 'Approved',
+};
+/** Labels whose tone's own icon would say the wrong thing: a paper is a file, held is locked. */
+const STATUS_ICON = { Held: 'lock', 'No booking': 'file', 'New paper': 'file' };
+
+export function rowStatus(item) {
+  const s = item?.status;
+  if (!s?.label) {
+    // An older server, mid-deploy: its own words for a booking, nothing invented for the rest.
+    return item?.status_words ? { label: item.status_words, full: item.status_words, tone: item.tone ?? 'gray', icon: null } : null;
+  }
+  return { label: SHORT_STATUS[s.label] ?? s.label, full: s.label, tone: s.tone ?? 'gray', icon: STATUS_ICON[s.label] ?? null };
+}
+
+/** "a message", "3 messages". */
+const messagesWord = (n) => (n === 1 ? '1 message' : `${n} messages`);
+
+/**
+ * One problem per chat (problem.type 'chat'): how many messages, when the last
+ * was tried, and what that means for the person reading it - in words.
+ */
+export const REASON_WORDS = {
+  not_on_whatsapp: 'sending again won’t help',
+  failed: 'send them again from the chat',
+  needs_template: 'they go when the customer writes',
+  opted_out: 'they go only if the customer writes again',
+};
+
+/** The line under a chat's problem: what WhatsApp said last, or who the number is. */
+export function problemDetail(item) {
+  const p = item?.problem;
+  if (p?.type !== 'chat' || p.reason === 'not_on_whatsapp' || !p.last_error) return item?.detail ?? '';
+  return `Last error: ${p.last_error}`;
+}
+export function problemFacts(problem, now = Date.now()) {
+  if (!problem || problem.type !== 'chat') return null;
+  const n = Number(problem.count) || 0;
+  const held = problem.reason === 'needs_template' || problem.reason === 'opted_out';
+  const tried = problem.last_attempt ? age(problem.last_attempt, now) : '';
+  return [
+    `${messagesWord(n)} ${held ? 'held' : 'not delivered'}`,
+    tried ? `last tried ${tried === 'just now' ? 'just now' : `${tried} ago`}` : null,
+    REASON_WORDS[problem.reason] ?? null,
+  ].filter(Boolean).join(' · ');
+}
+
+/**
+ * A sentence with its references kept whole: "New ACID after MKY-BKG-261005-A3K6
+ * was confirmed" otherwise breaks at a hyphen inside the reference, and
+ * "MKY-BKG-261005-" over "A3K6" reads as two things.
+ */
+const REF = /\bMKY-[A-Z]+-[0-9A-Z][0-9A-Z-]*/g;
+export function refPieces(text) {
+  const s = String(text ?? '');
+  const out = [];
+  let last = 0;
+  for (const m of s.matchAll(REF)) {
+    if (m.index > last) out.push(s.slice(last, m.index));
+    out.push({ ref: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+const withWholeRefs = (text) => refPieces(text).map((p) => (typeof p === 'string' ? p : h('span', { class: 'ref-whole' }, p.ref)));
+
+/** What "Set aside" sends: a whole chat's failures, one message, an outbox row, or a paper. */
+export function problemId(problem) {
+  return `${problem.type}:${problem.id}`;
 }
 
 const href = (tab, filter) => `#/inbox?tab=${tab}${filter && filter !== 'all' ? `&filter=${filter}` : ''}`;
@@ -149,42 +242,34 @@ export function renderInbox({ route, main, refreshCounts }) {
     }
   }
 
-  /**
-   * The row's status, as a badge: a word, an icon and a tone. Bookings bring
-   * their own words from the server; the other kinds say the same thing from
-   * the tab they are in and what the server wrote about them.
-   */
+  /** The row's one status badge: the server's label and tone (see rowStatus). */
   function statusOf(item) {
-    if (item.kind === 'problem') {
-      const p = item.problem ?? {};
-      if (p.type === 'document') return badge('Unreadable', 'red');
-      if (p.type === 'outbox' && !p.retryable) return badge('Held', 'amber', { icon: 'lock' });
-      return badge('Not delivered', 'red');
-    }
-    // The tab's own words where the server's are long, so the badge fits its column.
-    if (item.kind === 'booking') return badge(item.status_words === 'Waiting for the customer' ? 'Waiting on customer' : (item.status_words ?? (item.tab === 'done' ? 'Done' : 'Open')), item.tone);
-    if (item.tab === 'waiting') return badge('Waiting on customer', 'amber');
-    if (item.kind === 'callback') {
-      if (item.tab === 'done') return /^Closed/.test(item.sentence) ? badge('Closed', 'gray') : badge('Resolved', 'green');
-      return item.assigned_to ? badge('In progress', 'blue') : badge('New', 'blue');
-    }
-    if (item.kind === 'mrn') {
-      if (item.tab === 'done') return badge('MRN issued', 'green');
-      return /Record the issued/.test(item.sentence) ? badge('Approved', 'blue') : badge('New application', 'blue');
-    }
-    return null;
+    const s = rowStatus(item);
+    if (!s) return null;
+    const b = badge(s.label, s.tone, { icon: s.icon ?? undefined });
+    if (s.full !== s.label) b.title = s.full;
+    return b;
   }
 
   function row(item) {
-    const [kindWord, kindIcon] = KIND[item.kind] ?? ['Item', 'file'];
+    const paper = item.problem?.type === 'document';
+    const [kindWordOf, kindIconOf] = KIND[item.kind] ?? ['Item', 'file'];
+    // A paper is a file whatever is wrong with it; a failed message is an alert.
+    const kindWord = paper ? 'Paper' : kindWordOf;
+    const kindIcon = paper ? 'file' : kindIconOf;
+    const kindTone = item.kind === 'problem' ? ` kind-${problemTone(item)}` : '';
     const tags = [
       // The kind is the icon on the left and the first word under the
       // customer on a desktop; on a phone, where both are hidden, it is a tag.
       h('span', { class: 'row-kindtag', 'aria-hidden': 'true' }, tag(kindWord, { quiet: true })),
       statusOf(item),
       item.priority === 'urgent' ? badge('Urgent', 'red') : item.priority === 'high' ? badge('High', 'amber', { icon: 'alert' }) : null,
+      // A call-back opened at the tap, before the customer said what about.
+      item.undescribed ? tag('Not described yet', { icon: 'note', title: 'They asked for a person and have not said what about yet.' }) : null,
       item.after_hours ? tag('After hours', { icon: 'clock' }) : null,
     ];
+    const detail = problemDetail(item);
+    const facts = problemFacts(item.problem);
     const tone = ageTone(item);
     const ageWords = age(item.since);
     const late = item.overdue ? ' - overdue' : tone === 'red' ? ' - waiting too long' : tone === 'amber' ? ' - getting late' : '';
@@ -194,13 +279,13 @@ export function renderInbox({ route, main, refreshCounts }) {
     // a link cannot contain buttons, and the row should not need two targets.
     return h('div', { class: `row row-${item.kind}` },
       h('span', { class: `row-mark mark-${markTone(item)}`, 'aria-hidden': 'true' }),
-      h('span', { class: `row-kind kind-${item.kind}`, title: kindWord }, icon(kindIcon, { size: 16 })),
+      h('span', { class: `row-kind kind-${item.kind}${kindTone}`, title: kindWord }, icon(kindIcon, { size: 16 })),
       h('div', { class: 'row-main' },
-        h('a', { class: 'row-title', href: linkFor(item.link) }, h('span', { class: 'sr-only' }, `${kindWord}: `), item.sentence),
-        h('span', { class: 'row-detail', title: item.detail || null },
-          h('bdi', { class: 'row-detail-who' }, item.who, item.detail ? ' · ' : ''),
-          item.detail ? h('bdi', {}, item.detail) : null),
-        item.problem ? problemActions(item) : null),
+        h('a', { class: 'row-title', href: linkFor(item.link) }, h('span', { class: 'sr-only' }, `${kindWord}: `), withWholeRefs(item.sentence)),
+        h('span', { class: 'row-detail', title: detail || null },
+          h('bdi', { class: 'row-detail-who' }, item.who, detail ? ' · ' : ''),
+          detail ? h('bdi', {}, detail) : null),
+        item.problem ? problemActions(item, facts) : null),
       h('div', { class: 'row-who' },
         h('span', { class: 'row-name' }, item.channel ? channelIcon(item.channel, 14) : null, h('bdi', { class: /^MKY-[A-Z]+-/.test(item.who ?? '') ? 'mono' : null }, item.who)),
         // The reference when the line above does not already show it; else the kind of work.
@@ -232,39 +317,51 @@ export function renderInbox({ route, main, refreshCounts }) {
   }
 
   /**
-   * "Take it" from the list. The row can be up to 20 seconds old, so the case
-   * is read first: if a colleague has just taken it, say so instead of taking
-   * it from them; otherwise take it with the version just read, so the server
-   * refuses if anything changes in between - the same guarantee the case
-   * page's own button has.
+   * "Take it" from the list, with the version the row was drawn from - the
+   * server gives every row its record's version, so nothing is read first.
+   * The row can be up to 20 seconds old: if a colleague took it, or anything
+   * else changed, in the meantime, the server refuses and says who did what,
+   * and the list redraws. Nobody's case is taken from them by a stale row.
    */
   async function takeIt(button, item) {
     const type = item.kind === 'callback' ? 'request' : 'booking';
+    const target = type === 'request' ? { ticket_ref: item.ref } : { booking_ref: item.ref };
     button.disabled = true;
     try {
-      const c = await api({ view: 'case', type, ref: item.ref });
-      if (c.header?.assigned_to) {
-        toast(`${c.header.assigned_to} has just taken this.`, 'info');
-      } else {
-        await post({ action: 'take', ...(type === 'request' ? { ticket_ref: item.ref } : { booking_ref: item.ref }), version: c.version });
-        toast('It is yours now.');
+      let { version } = item;
+      if (!version) {
+        // A row without a version (a server from before they carried one): read the case for it.
+        const c = await api({ view: 'case', type, ref: item.ref });
+        if (c.header?.assigned_to) {
+          toast(`${c.header.assigned_to} has just taken this.`, 'info');
+          await load({ quiet: true });
+          refreshCounts();
+          return;
+        }
+        version = c.version;
       }
+      await post({ action: 'take', ...target, version });
+      toast('It is yours now.');
       await load({ quiet: true });
       refreshCounts();
     } catch (err) {
       toastError(err);
-      if (err.data?.stale) { await load({ quiet: true }); return; }
+      if (err.data?.stale) { await load({ quiet: true }); refreshCounts(); return; }
       button.disabled = false;
     }
   }
 
-  /** Retry and set aside, right on the row: a failed message should not need three clicks. */
-  function problemActions(item) {
+  /**
+   * What can be done about a problem, right on its row - a failed message
+   * should not need three clicks. One failed message: Retry and Set aside. A
+   * chat's failures together: how many and when, then Set aside for the lot
+   * (each one can be sent again from the conversation). A paper: Set aside.
+   */
+  function problemActions(item, facts) {
     const p = item.problem;
-    if (p.type === 'document') return null;
     const can = session.can('problems');
     const box = h('div', { class: 'row-actions' });
-    if (p.retryable) {
+    if (p.retryable && (p.type === 'message' || p.type === 'outbox')) {
       const retry = h('button', { class: 'btn btn-sm', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.' }, icon('refresh', { size: 14 }), 'Retry');
       const key = newKey();
       retry.addEventListener('click', () => act(retry, p.type === 'message'
@@ -272,9 +369,16 @@ export function renderInbox({ route, main, refreshCounts }) {
         : { action: 'retry_outbox', outbox_id: p.id }, 'Sent again.'));
       add(box, retry);
     }
-    const aside = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: !can }, 'Set aside');
-    aside.addEventListener('click', () => act(aside, { action: 'dismiss_problem', problem_id: `${p.type}:${p.id}` }, 'Set aside. It will not come back.'));
+    const asideWords = p.type === 'chat' ? 'Set aside. These failures will not come back; a new one would.'
+      : p.type === 'document' ? 'Set aside. The paper is kept; it leaves the inbox.'
+        : 'Set aside. It will not come back.';
+    const aside = h('button', {
+      class: 'btn btn-sm btn-ghost', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.',
+      'aria-label': `Set aside: ${item.sentence}`,
+    }, 'Set aside');
+    aside.addEventListener('click', () => act(aside, { action: 'dismiss_problem', problem_id: problemId(p) }, asideWords));
     add(box, aside);
+    if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));
     return box;
   }
 

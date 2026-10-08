@@ -1124,6 +1124,10 @@ test('Settings says when the direct line still looks like the example number fro
 // The redesigned desk, reading what the server says
 // ---------------------------------------------------------------------------
 
+const DESK_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk');
+// The browser's own module: its pure helpers run here as they run on the page.
+const deskInbox = await import('../public/desk/inbox.js');
+
 // The live test, 2026-10-08: "Talk to an agent" put the request on the desk
 // at the tap, before the customer had said anything - the summary is the
 // bot's placeholder until they do.
@@ -1200,6 +1204,57 @@ test('a paper on a booking, opened on its own, is held to that booking', async (
   assert.equal(r.body.document_actions.reject.enabled, true);
 });
 
+test('the inbox badge is the server\'s status - shortened only to fit its column, never read from the sentence', async () => {
+  const { rowStatus } = deskInbox;
+  mrnApplications();
+  failures('wa:999000000005', 2);
+  rows('booking_documents').push({ id: 301, booking_ref: null, chat_id: WA, client_id: 2, channel: 'whatsapp', doc_type: 'invoice', status: 'received', uploaded_at: iso(600_000) });
+  for (const tab of ['needs_us', 'waiting', 'done']) {
+    for (const item of (await get({ view: 'inbox', tab })).body.items) {
+      const s = rowStatus(item);
+      assert.equal(s.tone, item.status.tone, item.id);
+      assert.equal(s.full, item.status.label, `${item.id}: the full words stay as the tooltip`);
+      assert.ok(s.label.length <= 22, `${item.id}: "${s.label}" fits the status column`);
+    }
+  }
+  const byId = Object.fromEntries((await get({ view: 'inbox', tab: 'needs_us' })).body.items.map((i) => [i.id, i]));
+  assert.deepEqual(rowStatus(byId['mrn:MKY-MRN-31']), { label: 'Approved', full: 'Approved — record the number', tone: 'blue', icon: null });
+  assert.equal(rowStatus(byId['request:MKY-T-1']).label, 'New');
+  assert.equal(rowStatus(byId['chat:whatsapp:wa:999000000005']).label, 'Not on WhatsApp');
+  assert.deepEqual(rowStatus(byId['document:301']), { label: 'No booking', full: 'No booking', tone: 'amber', icon: 'file' });
+
+  // Rewording a sentence changes nothing about the badge.
+  const reworded = { ...byId['mrn:MKY-MRN-31'], sentence: 'Please record the number customs gave you' };
+  assert.deepEqual(rowStatus(reworded), rowStatus(byId['mrn:MKY-MRN-31']));
+  const src = readFileSync(path.join(DESK_DIR, 'inbox.js'), 'utf8');
+  assert.doesNotMatch(src, /\.test\(item\.sentence\)/, 'no status is guessed from the wording');
+});
+
+test('a chat\'s failures read as how many, when and why - and Set aside names the whole chat', async () => {
+  const { problemFacts, problemId, problemDetail, linkFor } = deskInbox;
+  failures('wa:999000000005', 6);
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const item = r.body.items.find((i) => i.id === 'chat:whatsapp:wa:999000000005');
+  assert.match(problemFacts(item.problem), /^6 messages not delivered · last tried \d+ min ago · sending again won’t help$/);
+  assert.equal(problemId(item.problem), 'chat:whatsapp:wa:999000000005', 'what dismiss_problem takes for a whole chat');
+  assert.equal(problemDetail(item), item.detail, 'a number WhatsApp does not know: the server says which number');
+  assert.equal((await post({ action: 'dismiss_problem', problem_id: problemId(item.problem) })).status, 200);
+  assert.ok(!(await get({ view: 'inbox', filter: 'problems' })).body.items.some((i) => i.id === item.id));
+
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  const held = { type: 'chat', id: 'whatsapp:wa:2010', count: 2, reason: 'opted_out', last_error: 'They wrote STOP', last_attempt: '2026-10-08T09:00:00Z' };
+  assert.equal(problemFacts(held, now), '2 messages held · last tried 3 h ago · they go only if the customer writes again');
+  const failed = { ...held, count: 3, reason: 'failed', last_error: 'The customer hasn’t written in 24 hours' };
+  assert.equal(problemDetail({ detail: 'Last: x', problem: failed }), 'Last error: The customer hasn’t written in 24 hours');
+  assert.equal(problemFacts({ type: 'message', id: 3, retryable: true }), null, 'one failed message keeps its own row, with Retry');
+  assert.equal(problemId({ type: 'document', id: 301 }), 'document:301');
+
+  // A paper's row opens the viewer on it - in its chat, or in its case.
+  assert.equal(linkFor({ type: 'chat', channel: 'whatsapp', chat_id: 'wa:2010', document_id: 301 }), '#/chats/whatsapp/wa%3A2010?doc=301');
+  assert.equal(linkFor({ type: 'booking', ref: 'MKY-BKG-3', document_id: 302 }), '#/case/booking/MKY-BKG-3?doc=302');
+  assert.equal(linkFor({ type: 'chat', channel: 'telegram', chat_id: '555' }), '#/chats/telegram/555');
+});
+
 test('Take it from a row a colleague has just taken is refused, saying they took it', async () => {
   const items = (await get({ view: 'inbox', tab: 'needs_us' })).body.items;
   const callback = items.find((i) => i.id === 'request:MKY-T-1');
@@ -1218,6 +1273,13 @@ test('Take it from a row a colleague has just taken is refused, saying they took
   assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').assigned_to, 'Omar');
   const history = (await get({ view: 'case', type: 'request', ref: 'MKY-T-1' })).body.history;
   assert.ok(history.some((h) => h.who === 'Omar' && h.what === 'took it'), JSON.stringify(history));
+});
+
+test('a reference in a row\'s sentence is kept whole, never broken at its hyphens', () => {
+  assert.deepEqual(deskInbox.refPieces('New ACID after MKY-BKG-261005-A3K6 was confirmed — check it'),
+    ['New ACID after ', { ref: 'MKY-BKG-261005-A3K6' }, ' was confirmed — check it']);
+  assert.deepEqual(deskInbox.refPieces('MKY-MRN-261008-W5K2'), [{ ref: 'MKY-MRN-261008-W5K2' }]);
+  assert.deepEqual(deskInbox.refPieces('Call back +20 122 444 8890'), ['Call back +20 122 444 8890']);
 });
 
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {

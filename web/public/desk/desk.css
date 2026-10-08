@@ -587,7 +587,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .table tbody th { font-weight: var(--w-semibold); text-align: left; }
 .table .cell-sub { display: block; color: var(--ink-3); font-size: var(--text-sm); margin-top: 2px; }
 .table .num { text-align: right; }
-.table .nowrap { white-space: nowrap; }
+.table .nowrap, .ref-whole { white-space: nowrap; }
 .stretch::after { content: ''; position: absolute; inset: 0; }
 .stretch:focus-visible { outline: none; }
 .stretch:focus-visible::after { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-xs); }
@@ -743,6 +743,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .mark-gray { background: var(--n-300); }
 .row-kind { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-md); background: var(--n-100); color: var(--ink-2); }
 .row-kind.kind-problem { background: var(--red-bg); color: var(--red-text); }
+.row-kind.kind-problem.kind-amber { background: var(--amber-bg); color: var(--amber-text); }
 .row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .row-title { color: var(--ink); text-decoration: none; font-weight: var(--w-semibold); font-size: var(--text-lg); line-height: var(--lh-snug); }
 .row-title::after { content: ''; position: absolute; inset: 0; }
@@ -767,6 +768,8 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .age-amber svg { color: var(--amber-solid); }
 .age-red { color: var(--red-text); }
 .age-red svg { color: var(--red-solid); }
+.row-facts { display: flex; align-items: flex-start; gap: 5px; flex: 1 1 220px; min-width: 0; color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-snug); text-wrap: pretty; }
+.row-facts svg { flex: none; margin-top: 2px; color: var(--ink-3); }
 .row-actions { position: relative; z-index: 1; display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
 .row-actions > .btn-ghost:first-child { margin-left: calc(-1 * var(--sp-3)); }
 .row-meta-line { display: contents; }
