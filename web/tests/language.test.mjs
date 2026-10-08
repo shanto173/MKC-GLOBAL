@@ -558,7 +558,8 @@ test('an Arabic booking is Arabic from the menu to the card - no English half an
 
   const done = await h.tap('bk:confirm');
   assertArabicOnly(done, 'submitted');
-  assert.match(said(done), /اتأكد طلب الحجز/);
+  assert.match(said(done), /وصلنا طلب الحجز وبعتناه لفريق العمليات/);
+  assert.doesNotMatch(said(done), /اتأكد/, 'received, not confirmed');
 });
 
 // The live test, 2026-10-08: an Arabic chat was shown the list of Egyptian

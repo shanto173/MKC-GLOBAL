@@ -1037,9 +1037,11 @@ test('TEST 14 - Confirm submits the request and creates exactly one Operations t
   await bookUpTo(h);
   const r = await h.tap('bk:confirm');
 
-  assert.match(said(r), /Booking request confirmed/);
-  assert.match(said(r), /sending your request to our Operations Team/);
-  assert.doesNotMatch(said(r), /Your booking is confirmed/);
+  // Received and passed on - not "confirmed", which is the desk's word to
+  // give and which the live test showed customers read as MKY having agreed.
+  assert.match(said(r), /Booking request received/);
+  assert.match(said(r), /sent it to our Operations Team/);
+  assert.doesNotMatch(said(r), /confirmed/i);
 
   const b = h.booking();
   assert.equal(b.status, 'pending_review');
@@ -1925,7 +1927,7 @@ test('regression: Confirm still works when the session has lost the reference', 
   session.active_booking_ref = null;
 
   const r = await h.tap('bk:confirm');
-  assert.match(said(r), /Booking request confirmed/);
+  assert.match(said(r), /Booking request received/);
   assert.equal(h.booking().status, 'pending_review');
 });
 

@@ -441,13 +441,15 @@ What I need right now is ${needEn}.`,
 
   // The reference is the thing the client keeps. It is said here, in the one
   // message that answers the yes, and repeated on the PDF that follows.
+  // "Received", not "confirmed": confirming is Operations' to do, and the old
+  // "🎉 Booking request confirmed!" read as if MKY had already agreed to it.
   submitted: (ref) => both(
-    '🎉 اتأكد طلب الحجز!\n\n' +
+    '✅ وصلنا طلب الحجز وبعتناه لفريق العمليات.\n\n' +
     (ref ? `📋 رقم الحجز بتاعك: ${ref}\nاحتفظ بيه - هتتتبع الشحنة بيه.\n\n` : '') +
-    'ببعت الطلب لفريق العمليات دلوقتي، ونسختك PDF جاية حالاً. 😊',
-    '🎉 Booking request confirmed!\n\n' +
+    'نسختك PDF جاية حالاً. الفريق هيراجع الطلب ويرجعلك بتأكيد الحجز. 😊',
+    '✅ Booking request received - we have sent it to our Operations Team.\n\n' +
     (ref ? `📋 Your booking reference: ${ref}\nKeep it — it is how you track the shipment.\n\n` : '') +
-    'I am sending your request to our Operations Team now, and your PDF copy follows. 😊',
+    'Your PDF copy follows. The team will check the request and come back to you to confirm the booking. 😊',
   ),
 
   submittedAlready: (ref) => both(
