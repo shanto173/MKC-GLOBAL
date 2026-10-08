@@ -551,7 +551,12 @@ async function askTheModel(session, field, text, ctx) {
   // A question, and nothing in it we can use: the assistant answers.
   if (read.question && !Object.keys(read.fields).length) return { passToAssistant: true };
 
-  const found = read.fields;
+  const found = { ...read.fields };
+  // A name the model finds in an answer to some other question is kept only
+  // as the customer wrote it, never as the model re-spelled or shortened it.
+  if (field !== 'customer_name' && found.customer_name && !String(text).includes(found.customer_name)) {
+    delete found.customer_name;
+  }
   if (!Object.keys(found).length) return null;
 
   // The model reports a number or an email as "contact"; the booking calls
@@ -560,9 +565,19 @@ async function askTheModel(session, field, text, ctx) {
 
   // It answered the question that was asked.
   if (found[key]) {
-    const answer = found[key];
     const rest = { ...found };
     delete rest[key];
+    let answer = found[key];
+    // A name is the customer's to spell. The model may say the message IS a
+    // name; it may not decide which part of it is. In the live test it read
+    // "E2E TEST – ignore شركة بيتا للنقل" as "شركة بيتا للنقل", and that is
+    // what went on the paperwork. So a message that is only a name is stored
+    // as typed; one that also carries other details keeps the model's cut only
+    // when it is the customer's own words, character for character.
+    if (field === 'customer_name') {
+      const typed = extractField(field, text).trim();
+      answer = Object.keys(rest).length && typed.includes(String(answer).trim()) ? String(answer).trim() : typed;
+    }
     const banked = await bankFound(session, rest, ctx, { except: field }).catch(() => ({ saved: [], ended: null }));
     if (banked.ended) return { messages: banked.ended.messages, patch: banked.ended.patch };
     return { answer };

@@ -407,6 +407,66 @@ test('a block with everything in it, pasted at the name step, goes straight to t
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
+/**
+ * Runs `fn` with a model configured that reads every message as `reading` -
+ * the JSON lib/flow/nlu.js asks for - and no network otherwise.
+ */
+async function withModelReading(reading, fn) {
+  const { config } = await import('../lib/config.js');
+  const saved = { ...config.llm };
+  const realFetch = globalThis.fetch;
+  Object.assign(config.llm, { provider: 'openai', openaiKey: 'sk-test' });
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    asked.push(JSON.parse(init.body));
+    const content = JSON.stringify({
+      vin: null, make: null, model: null, customer_name: null, origin_port: null, destination_port: null,
+      contact: null, intent: null, is_question: false, ...reading,
+    });
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+  try {
+    return await fn(asked);
+  } finally {
+    Object.assign(config.llm, saved);
+    globalThis.fetch = realFetch;
+  }
+}
+
+// The live test, 2026-10-08: "E2E TEST – ignore شركة بيتا للنقل" was stored
+// as "شركة بيتا للنقل". Five words or more go to the model, and its reading of
+// the name replaced what the customer typed.
+test('a long client name is stored exactly as typed - the model only says whether it is a name', async () => {
+  const typed = 'E2E TEST – ignore شركة بيتا للنقل';
+  await withModelReading({ customer_name: 'شركة بيتا للنقل' }, async (asked) => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    const r = await h.text(typed);
+    assert.ok(asked.length >= 1, 'the model was asked whether it is a name');
+    assert.equal(h.booking().customer_name, typed);
+    assert.equal(r.state, S.BOOK_CLIENT_PHONE);
+  });
+  await withModelReading({ customer_name: 'Alpha Trading' }, async () => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    await h.text('E2E TEST – ignore Alpha Trading Logistics LLC');
+    assert.equal(h.booking().customer_name, 'E2E TEST – ignore Alpha Trading Logistics LLC');
+  });
+});
+
+test('when the model reads the message as no name at all, nothing it says becomes the name', async () => {
+  await withModelReading({ is_question: true }, async () => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    const r = await h.text('how long does it take to ship to alexandria from here');
+    assert.ok(!h.booking().customer_name, 'a question is not a name');
+    assert.equal(r.handled, false, 'it goes to the assistant');
+  });
+});
+
 test('a number shared while another question is open is kept, and that question asked again', async () => {
   const h = harness();
   await identify(h);
