@@ -213,6 +213,7 @@ export async function completeDocument(documentId, {
   // claims them - by chassis where the document names one.
   let attachedTo = bookingRef ?? null;
   if (!attachedTo) attachedTo = await attachToOpenBooking(data, chatId);
+  if (attachedTo) await mrnFromPaper(data, attachedTo).catch((err) => console.error('MRN from paper failed:', err?.message));
 
   return {
     ok: true,
@@ -222,6 +223,32 @@ export async function completeDocument(documentId, {
     bookingRef: attachedTo,
     storageError: stored.error,
   };
+}
+
+/**
+ * The customer's own MRN export declaration names their MRN; a booking that
+ * has none takes it.
+ *
+ * In the live test the paper was read, its number sat in `extracted`, and
+ * bookings.mrn_number stayed empty - so the desk, the PDF and the tracking
+ * card all said there was no MRN. Only from a paper read as an MRN, only for
+ * the booking's own chassis (or a paper that names none), and never over a
+ * number already recorded - the desk's, or an earlier paper's.
+ */
+export async function mrnFromPaper(document, bookingRef) {
+  const mrn = String(document?.extracted?.mrn ?? '').trim().toUpperCase();
+  if (document?.doc_type !== 'mrn' || !mrn || !bookingRef) return { recorded: false };
+  const { data: booking } = await db().from('bookings').select('booking_ref, vin, mrn_number')
+    .eq('booking_ref', bookingRef).maybeSingle();
+  if (!booking || booking.mrn_number) return { recorded: false };
+  if (document.vin && booking.vin && normalizeVin(document.vin) !== normalizeVin(booking.vin)) return { recorded: false };
+  const { data, error } = await db().from('bookings').update({ mrn_number: mrn })
+    .eq('booking_ref', bookingRef).is('mrn_number', null).select('booking_ref');
+  if (error) {
+    console.error('recording the MRN from a paper failed:', error.message);
+    return { recorded: false };
+  }
+  return { recorded: Boolean(data?.length), mrn };
 }
 
 /** A file whose reading failed part-way is no longer "still reading". */
@@ -559,7 +586,7 @@ export async function fileDocuments(documentIds, { bookingRef, vin = null }) {
   const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))];
   if (!ids.length || !bookingRef) return { filed: [], skipped: [] };
   const { data, error } = await db().from('booking_documents')
-    .select('id, vin, booking_ref').in('id', ids).is('booking_ref', null).is('deleted_at', null);
+    .select('id, vin, booking_ref, doc_type, extracted').in('id', ids).is('booking_ref', null).is('deleted_at', null);
   if (error) {
     console.error('filing documents failed:', error.message);
     return { filed: [], skipped: [] };
@@ -571,8 +598,12 @@ export async function fileDocuments(documentIds, { bookingRef, vin = null }) {
     if (norm && d.vin && normalizeVin(d.vin) !== norm) { skipped.push(d.id); continue; }
     const { error: updErr } = await db().from('booking_documents')
       .update({ booking_ref: bookingRef }).eq('id', d.id).is('booking_ref', null);
-    if (updErr) console.error('filing a document failed:', updErr.message);
-    else filed.push(d.id);
+    if (updErr) {
+      console.error('filing a document failed:', updErr.message);
+      continue;
+    }
+    filed.push(d.id);
+    await mrnFromPaper(d, bookingRef).catch(() => null);
   }
   return { filed, skipped };
 }

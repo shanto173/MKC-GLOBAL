@@ -446,6 +446,38 @@ test('two papers sent together are each read, and answered once', async () => {
   assert.equal(replies.length, 1, `one answer for the batch, got: ${JSON.stringify(bodies())}`);
 });
 
+// The live test, 2026-10-08: the customer's own MRN export declaration was
+// read, and the booking's mrn_number stayed empty.
+const MRN_PAPER = readFileSync(path.join(WEB, 'data', 'takeA-mrn-export-declaration.pdf'));
+const MRN_CHASSIS = 'WMA06XZZ8KM745219';
+const MRN_ON_PAPER = '26LTVR375677905219';
+
+test('the MRN read from the customer\'s own export declaration goes on a booking that has none', async () => {
+  const draft = (extra = {}) => ({
+    booking_ref: 'MKY-BKG-M1', chat_id: CHAT, client_id: 7, channel: 'whatsapp', status: 'draft', vin: MRN_CHASSIS,
+    make: 'MAN', customer_name: 'Nile Motors', origin_port: 'Vilnius', destination_port: 'Port Said', mrn_choice: 'existing', ...extra,
+  });
+  const session = { id: `whatsapp:${CHAT}`, channel: 'whatsapp', chat_id: CHAT, client_id: 7, active_flow: 'booking', current_state: S.BOOK_DOCUMENTS, active_booking_ref: 'MKY-BKG-M1', context: {} };
+  const send = async (db) => {
+    net.model = '{"doc_type":"mrn"}';
+    const [url] = offerMedia('m-mrn', MRN_PAPER);
+    net.files.set(url, { status: 200, buffer: MRN_PAPER });
+    await post(inbound([{ type: 'document', document: { id: 'm-mrn', filename: 'mrn.pdf', mime_type: 'application/pdf', sha256: 'sha-m-mrn' } }]));
+    return db._tables.bookings.find((b) => b.booking_ref === 'MKY-BKG-M1');
+  };
+
+  let db = setup({ seed: { bookings: [draft()], conversation_sessions: [{ ...session }] } });
+  assert.equal((await send(db)).mrn_number, MRN_ON_PAPER);
+
+  // One already recorded is kept.
+  db = setup({ seed: { bookings: [draft({ mrn_number: '26DEE2E0000000001' })], conversation_sessions: [{ ...session }] } });
+  assert.equal((await send(db)).mrn_number, '26DEE2E0000000001');
+
+  // A paper for another chassis gives this booking nothing.
+  db = setup({ seed: { bookings: [draft({ vin: 'YV2RT40A8FB712905' })], conversation_sessions: [{ ...session }] } });
+  assert.ok(!(await send(db)).mrn_number);
+});
+
 test('a media link that has expired is asked for again, once', async () => {
   const db = setup();
   offerMedia('m-old', INVOICE, { urls: ['https://media.test/expired', 'https://media.test/fresh'] });
