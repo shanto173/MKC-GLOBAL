@@ -70,6 +70,9 @@ export function openViewer(ctx) {
     const d = ctx.getData();
     const order = d.checklist.filter((c) => c.document_id).map((c) => c.document_id);
     for (const o of d.other_documents) if (!order.includes(o.id)) order.push(o.id);
+    // Then every other paper on the case - one replaced by a newer copy, or
+    // set aside - so a link to it (?doc=) still has a place in the pager.
+    for (const o of d.documents) if (!order.includes(o.id)) order.push(o.id);
     return order.map((id) => d.documents.find((x) => x.id === id)).filter(Boolean);
   };
   const current = () => ctx.getData().documents.find((d) => d.id === docId);
@@ -87,6 +90,8 @@ export function openViewer(ctx) {
     const list = allDocs();
     const i = list.findIndex((d) => d.id === docId);
     dlg.el.querySelector('.dialog-title').textContent = `${doc.label} · ${ctx.caseRef}`;
+    // One paper on its own (from a chat) has nothing to page through.
+    nav.hidden = list.length <= 1;
     fill(nav,
       h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: i <= 0, onclick: () => step(-1), title: 'Previous document (←)' }, icon('left', { size: 14 }), 'Previous'),
       h('span', { class: 'viewer-count' }, `${i + 1} of ${list.length}`),
@@ -232,10 +237,14 @@ export function openViewer(ctx) {
   function readTable(doc) {
     if (!doc.read.length) return h('p', { class: 'muted' }, 'The bot found nothing it could read on this document.');
     const byField = new Map(doc.checks.map((c) => [c.field, c]));
+    // A paper on no booking is held to nothing: no column of dashes for it.
+    const d = ctx.getData();
+    const held = !(d.type === 'document' && !d.booking_ref);
     return h('div', {},
       h('h3', { class: 'viewer-h' }, 'What the bot read'),
+      held ? null : h('p', { class: 'muted small viewer-note' }, 'It is on no booking, so there is nothing to check it against yet.'),
       h('table', { class: 'read-table' },
-        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Field'), h('th', { scope: 'col' }, 'On the document'), h('th', { scope: 'col' }, 'On the booking'))),
+        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Field'), h('th', { scope: 'col' }, 'On the document'), held ? h('th', { scope: 'col' }, 'On the booking') : null)),
         h('tbody', {}, doc.read.map((f) => {
           const c = byField.get(f.field);
           return h('tr', { class: c && !c.match ? 'is-mismatch' : '' },
@@ -243,7 +252,7 @@ export function openViewer(ctx) {
             h('td', { dir: 'auto', class: f.field === 'vin' || f.field === 'mrn' ? 'mono' : '' }, String(f.value), f.typed ? h('span', { class: 'muted small' }, ' (typed)') : null),
             // The verdict is one unbreakable word; a differing value is its
             // own piece, free to wrap onto the next line in a narrow column.
-            h('td', {}, c ? h('span', { class: `match ${c.match ? 'match-yes' : 'match-no'}` },
+            !held ? null : h('td', {}, c ? h('span', { class: `match ${c.match ? 'match-yes' : 'match-no'}` },
               icon(c.match ? 'check' : 'alert', { size: 13 }), c.match ? 'Matches' : 'Differs:',
               c.match ? null : h('span', { class: 'match-value' }, c.booking),
               c.against && c.against !== 'the booking' ? h('span', { class: 'match-value muted small' }, `(${c.against.replace(/^the /, '')})`) : null)
@@ -292,6 +301,11 @@ export function openViewer(ctx) {
       return h('div', { class: 'viewer-decided' }, icon('refresh', { size: 16 }),
         h('p', {}, `A new copy was asked for${doc.rejection_reason ? `: ${doc.rejection_reason}` : '.'}`));
     }
+    if (doc.status === 'rejected') {
+      // Set aside: kept as the record of what was sent, not asked for again.
+      return h('div', { class: 'viewer-decided is-aside' }, icon('minus', { size: 16 }),
+        h('p', {}, `Set aside${doc.rejection_reason ? `: ${doc.rejection_reason}` : '.'} It is kept as the record of what was sent.`));
+    }
     const box = h('div', { class: 'viewer-actions' });
     const verified = doc.status === 'verified';
     const doubtful = !verified && (doc.checks.some((c) => !c.match) || doc.unreadable);
@@ -331,6 +345,44 @@ export function openViewer(ctx) {
     return [box, why ? h('p', { class: 'reason' }, why) : null];
   }
 
+  /**
+   * What became of "Ask for a new one", in the server's words: the customer
+   * was told, it is queued or held, or they could not be reached at all.
+   */
+  function told(done, t) {
+    if (!t?.words) return toast(done);
+    toast(`${done} ${t.words}`, t.warn ? 'bad' : t.reached === 'sent' ? 'ok' : 'info', { timeout: t.warn ? 15000 : 9000 });
+  }
+
+  /**
+   * The paper had already been put right - a correct one is on file - so it
+   * was set aside and nobody was asked. Said so, with the one thing that
+   * overrides it: asking anyway.
+   */
+  function setAside(doc, body, r) {
+    const right = r.replaced_by ?? {};
+    const label = ctx.getData().documents.find((d) => d.id === right.id)?.label ?? doc.label;
+    const asked = r.customer_told?.reached === 'not_asked' ? '; the customer wasn’t asked' : '';
+    toast(`Set aside — a correct ${label} is already on file${asked}.`, 'info', {
+      action: {
+        label: 'Ask anyway',
+        run: async () => {
+          try {
+            // The version the page has now: setting it aside changed the case.
+            const again = await post({ ...body, ask_anyway: true, version: ctx.getData().version });
+            await ctx.reload();
+            ctx.refreshCounts();
+            told(`Asked for a new ${doc.label} anyway.`, again.customer_told);
+            if (dlg.el.open) draw();
+          } catch (err) {
+            if (err.data?.stale) { if (dlg.el.open) dlg.close(); return ctx.onStale(err); }
+            toastError(err);
+          }
+        },
+      },
+    });
+  }
+
   /** Why, a note, the exact message in the customer's language, then send. */
   function askForNew(doc, actions) {
     const version = ctx.getData().version;
@@ -353,10 +405,21 @@ export function openViewer(ctx) {
       send.disabled = true;
       send.lastChild.textContent = 'Sending…';
       try {
-        await post({ action: 'reject_document', document_id: doc.id, reason_code: reasonCode(), reason: note.value.trim(), version });
-        toast(`Asked for a new ${doc.label}. The booking now waits for the customer.`);
+        const body = { action: 'reject_document', document_id: doc.id, reason_code: reasonCode(), reason: note.value.trim() };
+        const r = await post({ ...body, version });
         await ctx.reload();
         ctx.refreshCounts();
+        if (r.set_aside) {
+          setAside(doc, body, r);
+          // The paper that put it right is the one to look at now.
+          if (r.replaced_by?.id && ctx.getData().documents.some((d) => d.id === r.replaced_by.id)) {
+            docId = r.replaced_by.id;
+            draw({ reloadFile: true });
+            return;
+          }
+        } else {
+          told(`Asked for a new ${doc.label}.`, r.customer_told);
+        }
         draw();
       } catch (err) {
         if (err.data?.stale) { dlg.close(); return ctx.onStale(err); }

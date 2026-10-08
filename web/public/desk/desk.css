@@ -431,6 +431,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .kv-form .form-error { flex-basis: 100%; }
 .kv-compact .kv-key, .kv-compact .kv-val { min-height: 32px; padding: 6px 0; }
 .kv-foot { margin-top: var(--sp-2); color: var(--ink-3); font-size: var(--text-sm); }
+.kv-customer { display: inline-flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap; min-width: 0; }
 
 /* -- Progress: a meter in segments, one per paper ------------------------------ */
 
@@ -550,6 +551,13 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .toast-close { display: grid; place-items: center; width: 24px; height: 24px; background: none; border: 0; border-radius: var(--r-xs); color: var(--n-0); opacity: .7; cursor: pointer; padding: 0; flex: none; }
 .toast-close:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .toast :focus-visible { outline-color: var(--n-0); }
+/* The one thing to do about what a toast says ("Ask anyway"), under its words. */
+.toast-action {
+  display: flex; align-items: center; width: max-content; min-height: var(--h-sm); margin-top: var(--sp-2); padding: 0 var(--sp-3);
+  border: 1px solid rgba(255, 255, 255, .55); border-radius: var(--r-sm); background: transparent; color: var(--n-0);
+  font-weight: var(--w-semibold); font-size: var(--text-md); cursor: pointer;
+}
+.toast-action:hover { background: rgba(255, 255, 255, .12); border-color: var(--n-0); }
 @keyframes rise { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* -- Dialog ----------------------------------------------------------------------- */
@@ -947,6 +955,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .viewer-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
 .viewer-status { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .viewer-h { margin: 0 0 var(--sp-2); font-size: var(--text-md); color: var(--ink); }
+.viewer-note { margin: 0 0 var(--sp-2); }
 .read-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
 .read-table th, .read-table td { text-align: left; padding: var(--sp-2) 6px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 .read-table thead th { font-size: var(--text-sm); color: var(--ink-3); font-weight: var(--w-semibold); }
@@ -965,6 +974,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .viewer-foot { border-top: 1px solid var(--line); background: var(--surface-2); padding: var(--sp-3) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
 .viewer-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
 .viewer-decided { display: flex; gap: var(--sp-2); align-items: center; color: var(--amber-text); font-weight: var(--w-medium); }
+.viewer-decided.is-aside { color: var(--ink-2); }
 
 /* -- Chats ------------------------------------------------------------------------------------ */
 

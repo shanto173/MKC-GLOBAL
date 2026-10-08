@@ -396,14 +396,27 @@ export function newKey() {
 /**
  * tone: ok (done), info (worth knowing), warn (could not, but nothing broke -
  * offline, not allowed), bad (it failed). The icon says which without colour.
+ *
+ * action: { label, run } adds one button to the toast - for the one thing a
+ * person may want to do about what it says ("Ask anyway"). Pressing it runs
+ * `run` once and closes the toast; a toast with an action stays longer.
  */
 const TOAST_ICON = { ok: 'checkCircle', info: 'circle', warn: 'alert', bad: 'alert' };
-export function toast(message, tone = 'ok', { timeout, icon: ic = null } = {}) {
+export function toast(message, tone = 'ok', { timeout, icon: ic = null, action = null } = {}) {
   const region = $('#toasts');
   if (!region) return;
-  const t = h('div', { class: `toast toast-${tone}`, role: tone === 'bad' || tone === 'warn' ? 'alert' : 'status' },
+  let act = null;
+  if (action) {
+    act = h('button', { class: 'toast-action', type: 'button' }, action.label);
+    act.addEventListener('click', async () => {
+      act.disabled = true;
+      t.remove();
+      await action.run();
+    }, { once: true });
+  }
+  const t = h('div', { class: `toast toast-${tone}${act ? ' has-action' : ''}`, role: tone === 'bad' || tone === 'warn' ? 'alert' : 'status' },
     icon(ic ?? TOAST_ICON[tone] ?? 'circle', { size: 18 }),
-    h('span', {}, message),
+    h('span', {}, message, act),
     h('button', { class: 'toast-close', type: 'button', 'aria-label': 'Dismiss', onclick: () => t.remove() }, icon('x', { size: 14 })));
   region.append(t);
   // A modal dialog lives in the browser's top layer, above everything else on
@@ -412,7 +425,7 @@ export function toast(message, tone = 'ok', { timeout, icon: ic = null } = {}) {
   if (typeof region.showPopover === 'function') {
     try { if (region.matches(':popover-open')) region.hidePopover(); region.showPopover(); } catch { /* not supported */ }
   }
-  setTimeout(() => t.remove(), timeout ?? (tone === 'bad' || tone === 'warn' ? 9000 : 4500));
+  setTimeout(() => t.remove(), timeout ?? (act ? 15000 : tone === 'bad' || tone === 'warn' ? 9000 : 4500));
 }
 
 /**

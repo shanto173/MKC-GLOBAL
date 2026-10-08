@@ -9,12 +9,13 @@
  */
 
 import {
-  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill,
+  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill, toast, toastError,
 } from './ui.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
+import { openViewer } from './viewer.js';
 
-export function renderChats({ route, main }) {
+export function renderChats({ route, main, refreshCounts = () => {} }) {
   const [channel, chatId] = route.parts;
   const open = Boolean(channel && chatId);
   let q = route.query.q ?? '';
@@ -107,8 +108,34 @@ export function renderChats({ route, main }) {
       onSent: () => loadList({ quiet: true }),
       onLoad: drawBookings,
     });
+    // A paper they sent with no booking open: the inbox row opens this chat
+    // on that paper, in the same viewer a case uses.
+    if (route.query.doc) openPaper(Number(route.query.doc));
   } else {
     add(pane, emptyState('Pick a conversation.', 'Customers on WhatsApp and Telegram are listed together, with new messages first.', null, { icon: 'chats' }));
+  }
+
+  /** One paper, read on its own (view=document), shown in the document viewer. */
+  async function openPaper(id) {
+    if (!Number.isFinite(id)) return;
+    let paper;
+    try {
+      paper = await api({ view: 'document', id });
+    } catch (err) {
+      toastError(err);
+      return;
+    }
+    openViewer({
+      caseRef: paper.booking_ref ?? 'No booking',
+      docId: id,
+      getData: () => paper,
+      reload: async () => { paper = await api({ view: 'document', id }); return paper; },
+      onStale: async (err) => {
+        toast(err.message, 'info', { timeout: 9000 });
+        paper = await api({ view: 'document', id }).catch(() => paper);
+      },
+      refreshCounts,
+    });
   }
 
   search.addEventListener('input', debounce(() => { q = search.value.trim(); loadList(); }, 300));
@@ -118,6 +145,9 @@ export function renderChats({ route, main }) {
     async refresh() {
       await loadList({ quiet: true });
       await convo?.refresh();
+    },
+    dispose() {
+      document.querySelectorAll('dialog[open]').forEach((d) => d.close());
     },
   };
 }

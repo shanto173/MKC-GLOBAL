@@ -20,7 +20,7 @@
 
 import {
   h, icon, api, post, toast, toastError, badge, avatar, timeEl, ago, when, emptyState, errorState, skeleton, actionButton,
-  dialog, draft, session, add, fill, lines,
+  dialog, draft, session, add, fill, lines, channelBadge,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
 import { openViewer } from './viewer.js';
@@ -106,9 +106,13 @@ export function renderCase({ route, main, refreshCounts }) {
     if (!root.contains(headEl)) {
       fill(root, headEl, switcher, h('div', { class: 'case-grid' }, h('div', { class: 'case-main' }, mainCol), side), sticky);
       sizer?.observe(headEl);
+      // An MRN application's own channel: its chat's, which the server reads
+      // from the application, not from a booking it may not have.
+      const where = type === 'mrn' && data.mrn?.chat_id ? { channel: data.mrn.channel, chatId: data.mrn.chat_id }
+        : { channel: data.conversation.channel, chatId: data.conversation.chat_id };
       convo = mountConversation(side, {
-        channel: data.conversation.channel,
-        chatId: data.conversation.chat_id,
+        channel: where.channel,
+        chatId: where.chatId,
         target,
         draftKey: `chat:${type}:${ref}`,
       });
@@ -349,8 +353,14 @@ export function renderCase({ route, main, refreshCounts }) {
 
   function requestCard() {
     const r = data.request;
+    // Opened at the tap of "Talk to an agent", before they said what about:
+    // the summary is the bot's placeholder, not their words.
+    const said = r.undescribed
+      ? h('div', { class: 'callout callout-gray', role: 'note' }, icon('note', { size: 16 }),
+        h('p', {}, h('strong', {}, 'Not described yet. '), 'They asked to speak to a person and have not said what about. Ask them in the conversation, or when you call.'))
+      : h('div', { class: 'said-block' }, lines(r.summary || 'They did not say.'));
     return card('asked-title', 'What the customer asked', { ic: 'phone' },
-      h('div', { class: 'said-block' }, lines(r.summary || 'They did not say.')),
+      said,
       h('dl', { class: 'kv', style: { marginTop: '8px' } },
         row('Call them on', r.contact ? h('a', { href: `tel:${r.contact.replace(/[^\d+]/g, '')}`, class: 'strong' }, h('bdi', {}, r.contact)) : 'No number given — reply in the chat'),
         row('Department', r.department),
@@ -365,8 +375,13 @@ export function renderCase({ route, main, refreshCounts }) {
 
   function applicationCard() {
     const m = data.mrn;
+    const channel = m.channel ?? data.conversation?.channel ?? null;
+    const name = data.customer?.name ?? data.booking?.customer_name ?? null;
     return card('app-title', 'The application', { ic: 'stamp' },
       h('dl', { class: 'kv' },
+        row('Customer', name || channel
+          ? h('span', { class: 'kv-customer' }, name ? h('bdi', {}, name) : null, channel ? channelBadge(channel) : null)
+          : h('span', { class: 'kv-empty' }, 'Not known')),
         row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
         data.booking ? row('Booking', h('span', {}, h('a', { href: linkFor({ type: 'booking', ref: data.booking.booking_ref }) }, data.booking.booking_ref), ` · ${data.booking.status_words}`)) : row('Booking', h('span', { class: 'kv-empty' }, 'None linked')),
         m.missing?.length ? row('Still needed', m.missing.join(', ')) : null,
