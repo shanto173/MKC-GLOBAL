@@ -407,6 +407,66 @@ test('a block with everything in it, pasted at the name step, goes straight to t
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
+/**
+ * Runs `fn` with a model configured that reads every message as `reading` -
+ * the JSON lib/flow/nlu.js asks for - and no network otherwise.
+ */
+async function withModelReading(reading, fn) {
+  const { config } = await import('../lib/config.js');
+  const saved = { ...config.llm };
+  const realFetch = globalThis.fetch;
+  Object.assign(config.llm, { provider: 'openai', openaiKey: 'sk-test' });
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    asked.push(JSON.parse(init.body));
+    const content = JSON.stringify({
+      vin: null, make: null, model: null, customer_name: null, origin_port: null, destination_port: null,
+      contact: null, intent: null, is_question: false, ...reading,
+    });
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+  try {
+    return await fn(asked);
+  } finally {
+    Object.assign(config.llm, saved);
+    globalThis.fetch = realFetch;
+  }
+}
+
+// The live test, 2026-10-08: "E2E TEST – ignore شركة بيتا للنقل" was stored
+// as "شركة بيتا للنقل". Five words or more go to the model, and its reading of
+// the name replaced what the customer typed.
+test('a long client name is stored exactly as typed - the model only says whether it is a name', async () => {
+  const typed = 'E2E TEST – ignore شركة بيتا للنقل';
+  await withModelReading({ customer_name: 'شركة بيتا للنقل' }, async (asked) => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    const r = await h.text(typed);
+    assert.ok(asked.length >= 1, 'the model was asked whether it is a name');
+    assert.equal(h.booking().customer_name, typed);
+    assert.equal(r.state, S.BOOK_CLIENT_PHONE);
+  });
+  await withModelReading({ customer_name: 'Alpha Trading' }, async () => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    await h.text('E2E TEST – ignore Alpha Trading Logistics LLC');
+    assert.equal(h.booking().customer_name, 'E2E TEST – ignore Alpha Trading Logistics LLC');
+  });
+});
+
+test('when the model reads the message as no name at all, nothing it says becomes the name', async () => {
+  await withModelReading({ is_question: true }, async () => {
+    const h = harness();
+    await h.command('/start');
+    await h.tap('menu:book');
+    const r = await h.text('how long does it take to ship to alexandria from here');
+    assert.ok(!h.booking().customer_name, 'a question is not a name');
+    assert.equal(r.handled, false, 'it goes to the assistant');
+  });
+});
+
 test('a number shared while another question is open is kept, and that question asked again', async () => {
   const h = harness();
   await identify(h);
@@ -579,7 +639,7 @@ test('TEST 7 - "I have the MRN" asks for invoice, brief and MRN', async () => {
   const r = await bookUpTo(h, { documents: false, mrn: 'existing' });
 
   assert.match(said(r), /Invoice/);
-  assert.match(said(r), /Brief/);
+  assert.match(said(r), /Transport document/);
   assert.match(said(r), /MRN/);
   assert.equal(h.booking().mrn_choice, 'existing');
 });
@@ -619,7 +679,7 @@ test('TEST 9 - several documents outstanding gives the "just a little more" list
   const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
 
   assert.match(said(r), /Just a little more/);
-  assert.match(said(r), /Brief/);
+  assert.match(said(r), /Transport document/);
   assert.match(said(r), /MRN/);
   assert.doesNotMatch(said(r), /Almost there/);
 });
@@ -743,7 +803,7 @@ test('the caption is read ahead of the file, and the file then only counts', asy
   // Then the three files, the last of which speaks.
   const docs = ['brief', 'invoice', 'mrn'].map((t) => h.upload(t, { vin: 'XLRTEH4350G741552' }));
   const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
-  assert.match(said(r), /Received: Brief, Invoice, MRN/);
+  assert.match(said(r), /Received: Transport document, Invoice, MRN/);
   // And what the caption said, read back in the same message - whichever of
   // the three files ended up speaking.
   assert.match(said(r), /Noted from your message: client Giza Freight Lines · chassis XLRTEH4350G741552 · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
@@ -818,7 +878,7 @@ test('a paper sent before the chassis is kept, and the chassis asked for next', 
   await h.text('Alexandria');
   const docs = await h.tap('bk:mrn:existing');
   assert.doesNotMatch(said(docs), /• Invoice/);
-  assert.match(said(docs), /Brief/);
+  assert.match(said(docs), /Transport document/);
 });
 
 test('three papers sent together get one answer, once all of them are read', async () => {
@@ -839,7 +899,7 @@ test('three papers sent together get one answer, once all of them are read', asy
 
   // The last to finish answers for all three.
   const r = await h.file(mrn, { speak: true, batch });
-  assert.match(said(r), /Received: Invoice, Brief, MRN/);
+  assert.match(said(r), /Received: Invoice, Transport document, MRN/);
   assert.doesNotMatch(said(r), /Just a little more/);
   assert.doesNotMatch(said(r), /Almost there/);
   assert.match(said(r), /We have everything we need/);
@@ -895,7 +955,7 @@ test('a file that could not be read, among several, is asked about in turn', asy
   assert.equal(r.state, S.BOOK_DOCUMENT_CLASSIFY);
 
   const next = await h.tap('bk:doctype:brief');
-  assert.match(said(next), /Brief received/);
+  assert.match(said(next), /Transport document received/);
   assert.match(said(next), /I have scan-2\.pdf, but I am not sure what it is/);
   assert.equal(next.state, S.BOOK_DOCUMENT_CLASSIFY);
 
@@ -977,9 +1037,11 @@ test('TEST 14 - Confirm submits the request and creates exactly one Operations t
   await bookUpTo(h);
   const r = await h.tap('bk:confirm');
 
-  assert.match(said(r), /Booking request confirmed/);
-  assert.match(said(r), /sending your request to our Operations Team/);
-  assert.doesNotMatch(said(r), /Your booking is confirmed/);
+  // Received and passed on - not "confirmed", which is the desk's word to
+  // give and which the live test showed customers read as MKY having agreed.
+  assert.match(said(r), /Booking request received/);
+  assert.match(said(r), /sent it to our Operations Team/);
+  assert.doesNotMatch(said(r), /confirmed/i);
 
   const b = h.booking();
   assert.equal(b.status, 'pending_review');
@@ -1440,9 +1502,33 @@ test('TEST 24 - contact/documents computes what is missing from the database', a
   await h.tap('ct:docs');
   const r = await h.tap('ct:docs:missing');
 
-  assert.match(said(r), /Brief/);
+  assert.match(said(r), /Transport document/);
   assert.match(said(r), /MRN/);
   assert.doesNotMatch(said(r), /Invoice/);
+});
+
+// The live test, 2026-10-08: step 2 asked for "the documents (invoice,
+// transport document, MRN)", and the checklist that followed asked for a
+// "Brief" - the desk's word for the same paper.
+test('the customer reads "transport document" everywhere; "Brief" stays the desk\'s word', async () => {
+  const h = harness();
+  const list = await bookUpTo(h, { documents: false });
+  assert.match(said(list), /Transport document/);
+  assert.doesNotMatch(said(list), /Brief/);
+
+  const kb = await import('../lib/flow/keyboards.js');
+  const titles = kb.classifyDocument(['invoice', 'brief']).flat().map((b) => b.text);
+  assert.ok(titles.some((t) => /Transport document/.test(t)), titles.join(' | '));
+  assert.ok(!titles.some((t) => /Brief/.test(t)));
+
+  const { replacementRequest } = await import('../lib/admin/desk-messages.js');
+  const asked = replacementRequest('brief', 'wrong_vin');
+  assert.match(asked.requested, /transport document/i);
+  assert.doesNotMatch(asked.requested, /Brief/);
+  assert.match(asked.requested_ar, /مستند النقل/);
+
+  const { DOC_LABEL } = await import('../lib/ops/workflow.js');
+  assert.equal(DOC_LABEL.brief, 'Brief', 'the desk keeps the industry term');
 });
 
 test('TEST 25 - Talk to an agent never invents a phone number', async () => {
@@ -1482,6 +1568,96 @@ test('a contact request becomes a ticket with the problem and the number', async
   assert.equal(tickets.length, 1);
   assert.match(tickets[0].contact, /\+20 100 555 1234/);
   assert.equal(tickets[0].department, 'Booking Operations');
+});
+
+// The live test, 2026-10-08: a customer tapped "Talk to an agent", was told
+// their request was logged and an agent would get back to them - and the desk,
+// which lists support tickets, showed nothing, because the tap made only an
+// operations task. The ticket appeared when (if) they typed their problem.
+
+test('tapping "Talk to an agent" puts a call-back on the desk at once, before the customer types a word', async () => {
+  const { requestSentence } = await import('../lib/admin/desk-inbox.js');
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+
+  const tickets = h.db._tables.support_tickets ?? [];
+  assert.equal(tickets.length, 1, 'the desk lists support tickets, so the request is one from the tap');
+  const t = tickets[0];
+  assert.equal(t.status, 'open');
+  assert.equal(t.chat_id, CHAT);
+  assert.equal(t.channel, 'telegram');
+  assert.equal(t.contact, '+201005551234');
+  assert.equal(t.department, 'Booking Operations');
+  assert.equal(t.client_id, 1);
+  assert.match(t.summary, /has not said what about yet/, 'the desk can see they have not described it yet');
+  assert.equal(requestSentence(t), 'Call back +201005551234');
+
+  // A second tap before saying anything is the same request.
+  await h.tap('menu:contact');
+  assert.equal(h.db._tables.support_tickets.length, 1);
+
+  // What they then type fills in that request, and the reply names it.
+  const done = await h.text('The vessel on my shipment is wrong.');
+  assert.equal(h.db._tables.support_tickets.length, 1, 'filled in, not a second ticket');
+  assert.match(h.db._tables.support_tickets[0].summary, /^The vessel on my shipment is wrong/);
+  assert.match(said(done), new RegExp(`Ticket ${t.ticket_ref}`));
+
+  // One request, one task - the tap's and the ticket's used to be two.
+  const callbacks = h.tasks().filter((task) => task.task_type === 'client_callback');
+  assert.equal(callbacks.length, 1);
+  assert.equal(callbacks[0].payload.ticket_ref, t.ticket_ref);
+  assert.equal(callbacks[0].payload.contact, '+201005551234', 'and it follows what the customer has since said');
+});
+
+test('after hours, the tap is on the desk at once too, and an urgent one becomes urgent', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await afterHoursTap(h, 'menu:contact');
+  assert.equal((h.db._tables.support_tickets ?? []).length, 1);
+  await afterHoursTap(h, 'ct:urgent:yes');
+  await h.text('My truck is stuck at the port and the driver has no papers.');
+  const [ticket] = h.db._tables.support_tickets;
+  assert.equal(h.db._tables.support_tickets.length, 1);
+  assert.match(ticket.summary, /^URGENT: My truck is stuck/);
+  assert.equal(ticket.priority, 'urgent', 'the desk sorts urgent first');
+});
+
+// The live test, 2026-10-08: at 17:29 Cairo time the ticket reply said "The
+// team will call you during business hours" - during business hours.
+test('a ticket opened while the desk is open says the team will call shortly, not "during business hours"', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+  const done = await h.text('I need help with the paperwork for my truck');
+  assert.doesNotMatch(said(done), /during business hours|في مواعيد العمل/);
+  assert.match(said(done), /The team will call you on \+201005551234 shortly/);
+
+  // With no number at all, the chat is how they will hear.
+  const chat = harness();
+  await chat.tap('menu:contact');
+  await chat.text('The booking reference on my PDF is wrong.');
+  const r = await chat.text('not now');
+  assert.match(said(r), /The team will get back to you here shortly/);
+
+  // The assistant's own ticket card, raised while the desk is open, says the same.
+  const { ticketCard } = await import('../lib/format.js');
+  const card = ticketCard({ ticket_ref: 'MKY-TKT-1', department: 'Customer Care', summary: 'x', contact: '+201005551234' }, { open: true });
+  assert.doesNotMatch(card, /during business hours/);
+  assert.match(card, /shortly/);
+  assert.match(ticketCard({ ticket_ref: 'MKY-TKT-2', department: 'Customer Care' }, { open: false }), /during business hours/);
+});
+
+test('a request the desk already closed is not reopened by the problem typed afterwards: it is a new one', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+  h.db._tables.support_tickets[0].status = 'resolved';
+  await h.text('One more thing about my invoice, please call me.');
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 2);
+  assert.equal(tickets[0].status, 'resolved');
+  assert.match(tickets[1].summary, /One more thing about my invoice/);
 });
 
 // ---------------------------------------------------------------------------
@@ -1541,7 +1717,7 @@ test('an unfinished request is offered back, never silently resumed or dropped',
   assert.deepEqual(buttons(r), ['bk:draft:continue', 'bk:draft:restart', 'menu:home']);
 
   const resumed = await h.tap('bk:draft:continue');
-  assert.match(said(resumed), /Invoice|Brief|MRN/);
+  assert.match(said(resumed), /Invoice|Transport document|MRN/);
   assert.equal(h.bookings().filter((b) => b.status === 'draft').length, 1);
 });
 
@@ -1776,7 +1952,7 @@ test('regression: Confirm still works when the session has lost the reference', 
   session.active_booking_ref = null;
 
   const r = await h.tap('bk:confirm');
-  assert.match(said(r), /Booking request confirmed/);
+  assert.match(said(r), /Booking request received/);
   assert.equal(h.booking().status, 'pending_review');
 });
 
@@ -1822,13 +1998,75 @@ test('regression: a paper sent for a request already with the desk is acknowledg
   assert.deepEqual(quiet.messages, []);
 });
 
-test('regression: a document with no request to belong to is not filed against one', async () => {
+// The live test, 2026-10-08: a photo of an invoice sent with no booking open
+// was read - eight seconds - and stored, and the customer was told "Sorry, I
+// did not follow that."
+test('a paper with no request to belong to is kept, said so, and a booking offered - never filed against one', async () => {
   const h = harness();
   await h.command('/start');
   const r = await h.file(h.upload('invoice'));
 
-  assert.doesNotMatch(said(r), /received/i);
-  assert.match(said(r), /did not follow/);
+  assert.doesNotMatch(said(r), /did not follow/);
+  assert.match(said(r), /Got your Invoice/);
+  assert.match(said(r), /no booking open/);
+  assert.match(said(r), /Book my shipment/);
+  assert.ok(buttons(r).includes('menu:book'), buttons(r).join(' '));
+  assert.equal(h.db._tables.booking_documents[0].booking_ref, null, 'not filed against a booking it was not sent for');
+  assert.equal(h.bookings().length, 0);
+
+  // And when they do start one, the paper they sent counts for it.
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+  await h.text(PHONE);
+  await h.text('W1T96340310484233');
+  await h.text('Mercedes-Benz');
+  await h.text('Vilnius');
+  await h.text('Alexandria');
+  const list = await h.tap('bk:mrn:existing');
+  assert.doesNotMatch(said(list), /• Invoice/, `the invoice is not asked for again: ${said(list)}`);
+});
+
+test('a paper sent after a booking was confirmed asks whether it is for that booking, and files it there on a tap', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  h.booking().status = 'confirmed';
+
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233' }));
+  assert.match(said(r), new RegExp(`booking ${ref}`));
+  assert.ok(buttons(r).includes(`bk:fileto:${ref}`), buttons(r).join(' '));
+  assert.ok(buttons(r).includes('menu:book'), 'or a new booking');
+  const acid = h.db._tables.booking_documents.find((d) => d.doc_type === 'acid');
+  assert.equal(acid.booking_ref, null, 'not filed until they say');
+
+  const filed = await h.tap(`bk:fileto:${ref}`);
+  assert.equal(acid.booking_ref, ref);
+  assert.match(said(filed), new RegExp(`Added to booking ${ref}`));
+});
+
+test('a paper already filed on the confirmed booking by its chassis is acknowledged, not asked about', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  h.booking().status = 'confirmed';
+  // lib/documents.js files a paper naming the booking's chassis as it is read.
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233', bookingRef: ref }));
+  assert.match(said(r), new RegExp(`Received ACID for booking ${ref}`));
+  assert.ok(!buttons(r).includes(`bk:fileto:${ref}`));
+});
+
+test('a paper for a request already with the desk is filed on it, not left loose', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  // Sent from the menu, so the transport found nothing to file it under.
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233' }));
+  assert.match(said(r), new RegExp(`for booking ${ref}`));
+  assert.equal(h.db._tables.booking_documents.find((d) => d.doc_type === 'acid').booking_ref, ref,
+    'the desk sees it on the case it was said to be added to');
 });
 
 test('regression: the same wrong chassis is reported once, not once per file', async () => {
@@ -2207,7 +2445,12 @@ test('regression: sharing a number asks for the problem instead of raising a tic
 
   const r = await h.send({ kind: 'contact', phone: '+8801818488624' });
 
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0, 'nothing raised yet');
+  // The tap's request is on the desk, still saying it has not been described,
+  // and it now carries the number - but nothing has been raised as a problem.
+  const waiting = h.db._tables.support_tickets ?? [];
+  assert.equal(waiting.length, 1);
+  assert.match(waiting[0].summary, /has not said what about yet/, 'nothing raised as a problem yet');
+  assert.equal(waiting[0].contact, '+8801818488624', 'the desk can call back on the number already');
   assert.match(said(r), /what the problem is/i);
   assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
 
@@ -2226,7 +2469,7 @@ test('describing the problem first then sharing a number also works', async () =
   await h.tap('menu:contact');
 
   const asked = await h.text('The vessel on my shipment is wrong.');
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.match(h.db._tables.support_tickets[0].summary, /has not said what about yet/, 'not raised until there is a number');
   assert.match(said(asked), /phone number/i);
 
   await h.send({ kind: 'contact', phone: '+201005551234' });
@@ -2269,7 +2512,8 @@ test('a bare phone number is never mistaken for a problem description', async ()
 
   const r = await h.text('+8801818488624');
 
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.equal(h.db._tables.support_tickets.length, 1);
+  assert.match(h.db._tables.support_tickets[0].summary, /has not said what about yet/, 'the number is not the problem');
   assert.match(said(r), /what the problem is/i);
 });
 

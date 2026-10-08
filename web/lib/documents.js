@@ -14,6 +14,7 @@ import { extractDocument, crossCheck, missingDocuments, REQUIRED_DOCS, LATER_DOC
 import { normalizeVin } from './tools.js';
 import { requiredDocuments } from './settings.js';
 import { isSchemaMissing } from './chatlog.js';
+import { channelOf } from './channels.js';
 
 // Whether booking_documents has the WhatsApp media columns. Learned once.
 let mediaColumns = null;
@@ -76,11 +77,13 @@ export async function openRequestForFiles(chatId) {
  * @returns {Promise<{ok: true, document: object, replaced: boolean}|{ok: false, error: string}>}
  */
 export async function beginDocument({
-  fileName, mimeType, size = 0, chatId, channel = 'telegram', bookingRef = null,
+  fileName, mimeType, size = 0, chatId, channel: given = null, bookingRef = null,
   telegramFileId = null, telegramFileUniqueId = null, telegramMessageId = null,
   whatsappMediaId = null, whatsappMediaSha256 = null,
   clientId = null, uploadedBy = null,
 }) {
+  // Not 'telegram' by default: a file from a "wa:" chat is a WhatsApp file.
+  const channel = given ?? channelOf(chatId);
   const row = {
     booking_ref: bookingRef,
     chat_id: String(chatId),
@@ -210,6 +213,7 @@ export async function completeDocument(documentId, {
   // claims them - by chassis where the document names one.
   let attachedTo = bookingRef ?? null;
   if (!attachedTo) attachedTo = await attachToOpenBooking(data, chatId);
+  if (attachedTo) await mrnFromPaper(data, attachedTo).catch((err) => console.error('MRN from paper failed:', err?.message));
 
   return {
     ok: true,
@@ -219,6 +223,32 @@ export async function completeDocument(documentId, {
     bookingRef: attachedTo,
     storageError: stored.error,
   };
+}
+
+/**
+ * The customer's own MRN export declaration names their MRN; a booking that
+ * has none takes it.
+ *
+ * In the live test the paper was read, its number sat in `extracted`, and
+ * bookings.mrn_number stayed empty - so the desk, the PDF and the tracking
+ * card all said there was no MRN. Only from a paper read as an MRN, only for
+ * the booking's own chassis (or a paper that names none), and never over a
+ * number already recorded - the desk's, or an earlier paper's.
+ */
+export async function mrnFromPaper(document, bookingRef) {
+  const mrn = String(document?.extracted?.mrn ?? '').trim().toUpperCase();
+  if (document?.doc_type !== 'mrn' || !mrn || !bookingRef) return { recorded: false };
+  const { data: booking } = await db().from('bookings').select('booking_ref, vin, mrn_number')
+    .eq('booking_ref', bookingRef).maybeSingle();
+  if (!booking || booking.mrn_number) return { recorded: false };
+  if (document.vin && booking.vin && normalizeVin(document.vin) !== normalizeVin(booking.vin)) return { recorded: false };
+  const { data, error } = await db().from('bookings').update({ mrn_number: mrn })
+    .eq('booking_ref', bookingRef).is('mrn_number', null).select('booking_ref');
+  if (error) {
+    console.error('recording the MRN from a paper failed:', error.message);
+    return { recorded: false };
+  }
+  return { recorded: Boolean(data?.length), mrn };
 }
 
 /** A file whose reading failed part-way is no longer "still reading". */
@@ -268,11 +298,11 @@ export async function claimReply(chatId, documentIds) {
   if (!ids.length) return true;
 
   const chat = String(chatId);
-  const whatsapp = chat.startsWith('wa:');
+  const channel = channelOf(chat);
   const { error } = await db().from('notification_outbox').insert({
     chat_id: chat,
-    telegram_chat_id: !whatsapp && Number.isSafeInteger(Number(chat)) ? Number(chat) : null,
-    channel: whatsapp ? 'whatsapp' : 'telegram',
+    telegram_chat_id: channel === 'telegram' ? Number(chat) : null,
+    channel,
     event_type: 'document_reply',
     entity_type: 'booking_document',
     entity_id: String(ids[ids.length - 1]),
@@ -539,6 +569,61 @@ async function attachToOpenBooking(document, chatId) {
     return null;
   }
   return match.booking_ref;
+}
+
+/**
+ * Files these papers on a booking, if they are on none yet.
+ *
+ * A paper sent from the menu is recorded with no booking (the transport only
+ * files under a request still in progress), and then told "received for
+ * booking X" - while the desk, which reads a case's papers by reference, never
+ * saw it there. A paper that names another chassis is left where it is: it is
+ * evidence of a mismatch, not this booking's paper.
+ *
+ * @returns {Promise<{filed: number[], skipped: number[]}>}
+ */
+export async function fileDocuments(documentIds, { bookingRef, vin = null }) {
+  const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))];
+  if (!ids.length || !bookingRef) return { filed: [], skipped: [] };
+  const { data, error } = await db().from('booking_documents')
+    .select('id, vin, booking_ref, doc_type, extracted').in('id', ids).is('booking_ref', null).is('deleted_at', null);
+  if (error) {
+    console.error('filing documents failed:', error.message);
+    return { filed: [], skipped: [] };
+  }
+  const norm = vin ? normalizeVin(vin) : null;
+  const filed = [];
+  const skipped = [];
+  for (const d of data ?? []) {
+    if (norm && d.vin && normalizeVin(d.vin) !== norm) { skipped.push(d.id); continue; }
+    const { error: updErr } = await db().from('booking_documents')
+      .update({ booking_ref: bookingRef }).eq('id', d.id).is('booking_ref', null);
+    if (updErr) {
+      console.error('filing a document failed:', updErr.message);
+      continue;
+    }
+    filed.push(d.id);
+    await mrnFromPaper(d, bookingRef).catch(() => null);
+  }
+  return { filed, skipped };
+}
+
+/** Which booking each of these papers is on now, by id. */
+export async function bookingRefsOf(documentIds) {
+  const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))];
+  if (!ids.length) return new Map();
+  const { data } = await db().from('booking_documents').select('id, booking_ref').in('id', ids);
+  return new Map((data ?? []).map((d) => [d.id, d.booking_ref ?? null]));
+}
+
+/** This chat's papers on no booking yet, newest first, from the last `hours`. */
+export async function looseDocuments(chatId, { hours = 24 } = {}) {
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const { data } = await db().from('booking_documents')
+    .select('id, doc_type, file_name, vin, uploaded_at')
+    .eq('chat_id', String(chatId)).is('booking_ref', null).is('deleted_at', null)
+    .gte('uploaded_at', since).order('uploaded_at', { ascending: false }).limit(20);
+  return data ?? [];
 }
 
 export async function attachDocumentsToBooking({ chatId, bookingRef, vin }) {

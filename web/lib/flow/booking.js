@@ -20,15 +20,15 @@
  */
 
 import { S, FLOWS, BASIC_FIELDS } from './states.js';
-import { M, FIELD_LABELS, DOC_LABELS, both, pair } from './messages.js';
-import { pick, routeArrow } from '../lang.js';
+import { M, FIELD_LABELS, DOC_LABELS, both, pair, portName } from './messages.js';
+import { pick, routeArrow, currentLanguage } from '../lang.js';
 import * as kb from './keyboards.js';
 import {
   findDraft, createDraft, updateDraft, bookingByRef, missingBasics,
   lookupVehicle, submitDraft, cancelDraft, cancelAllDrafts, draftIsBlank,
   looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
-import { bookingDocumentState } from '../documents.js';
+import { bookingDocumentState, fileDocuments, looseDocuments, bookingRefsOf } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn, answerIn } from './understand.js';
@@ -141,6 +141,7 @@ async function newDraft(session, ctx) {
     channel: ctx.channel,
     telegramUserId: ctx.telegramUserId ?? null,
     replaceExisting: false,
+    language: currentLanguage(),
   });
   if (!created.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
@@ -551,7 +552,12 @@ async function askTheModel(session, field, text, ctx) {
   // A question, and nothing in it we can use: the assistant answers.
   if (read.question && !Object.keys(read.fields).length) return { passToAssistant: true };
 
-  const found = read.fields;
+  const found = { ...read.fields };
+  // A name the model finds in an answer to some other question is kept only
+  // as the customer wrote it, never as the model re-spelled or shortened it.
+  if (field !== 'customer_name' && found.customer_name && !String(text).includes(found.customer_name)) {
+    delete found.customer_name;
+  }
   if (!Object.keys(found).length) return null;
 
   // The model reports a number or an email as "contact"; the booking calls
@@ -560,9 +566,19 @@ async function askTheModel(session, field, text, ctx) {
 
   // It answered the question that was asked.
   if (found[key]) {
-    const answer = found[key];
     const rest = { ...found };
     delete rest[key];
+    let answer = found[key];
+    // A name is the customer's to spell. The model may say the message IS a
+    // name; it may not decide which part of it is. In the live test it read
+    // "E2E TEST – ignore شركة بيتا للنقل" as "شركة بيتا للنقل", and that is
+    // what went on the paperwork. So a message that is only a name is stored
+    // as typed; one that also carries other details keeps the model's cut only
+    // when it is the customer's own words, character for character.
+    if (field === 'customer_name') {
+      const typed = extractField(field, text).trim();
+      answer = Object.keys(rest).length && typed.includes(String(answer).trim()) ? String(answer).trim() : typed;
+    }
     const banked = await bankFound(session, rest, ctx, { except: field }).catch(() => ({ saved: [], ended: null }));
     if (banked.ended) return { messages: banked.ended.messages, patch: banked.ended.patch };
     return { answer };
@@ -1212,14 +1228,87 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
  * flow that only knew about drafts had to say.
  */
 export function acknowledgeForSubmitted(booking, { ingested, batch = [] }) {
+  const { labelsAr, labelsEn } = paperLabels({ ingested, batch });
+  return reply(say(M.documentsForBooking(booking.booking_ref, labelsAr, labelsEn), kb.afterSubmitted()));
+}
+
+/** The papers of one arrival - a file, or a batch - and what to call them in each language. */
+function paperLabels({ ingested, batch = [] }) {
   const arrived = batch.length ? batch : [ingested?.document].filter(Boolean);
   const types = [...new Set(arrived.map((d) => d.doc_type).filter((t) => t && t !== 'other'))];
   const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
+  return {
+    ids: arrived.map((d) => d.id).filter((id) => id != null),
+    labelsAr: [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])],
+    labelsEn: [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])],
+  };
+}
 
-  const labelsAr = [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])];
-  const labelsEn = [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])];
+/**
+ * Papers for a request already with the desk: filed on it, and said so. They
+ * were said to be "received for booking X" but left on no booking - so the
+ * desk, which reads a case's papers by reference, never saw them.
+ */
+export async function papersForSubmitted(booking, { ingested, batch = [] }) {
+  const { ids } = paperLabels({ ingested, batch });
+  await fileDocuments(ids, { bookingRef: booking.booking_ref, vin: booking.vin });
+  return acknowledgeForSubmitted(booking, { ingested, batch });
+}
 
-  return reply(say(M.documentsForBooking(booking.booking_ref, labelsAr, labelsEn), kb.afterSubmitted()));
+/**
+ * Papers sent with nothing open to put them on. Kept, and said so: "I did not
+ * follow that", which is what the customer heard in the live test, sounded as
+ * if the paper was lost. With no booking at all, the way to start one - the
+ * paper then counts for it, as every loose paper from the chat does. With a
+ * confirmed booking, the question of which: theirs, or a new one.
+ */
+export function papersWithNoRequest({ ingested, batch = [] }, confirmed = null) {
+  const { ids, labelsAr, labelsEn } = paperLabels({ ingested, batch });
+  if (confirmed) {
+    return reply(
+      say(M.fileWhichBooking(confirmed.booking_ref, labelsAr, labelsEn), kb.fileToChoice(confirmed.booking_ref)),
+      { context: { unfiled_document_ids: ids } },
+    );
+  }
+  return reply(say(M.fileNoBooking(labelsAr, labelsEn), kb.mainMenu()));
+}
+
+/**
+ * Papers from a client whose booking is confirmed. Read as naming its chassis,
+ * lib/documents.js has already filed them on it, and that is said; anything
+ * still loose may be for a new booking, so they are asked which.
+ */
+export async function papersForConfirmed(confirmed, arrived) {
+  const { ids } = paperLabels(arrived);
+  const on = await bookingRefsOf(ids);
+  if (ids.length && ids.every((id) => on.get(Number(id)) === confirmed.booking_ref)) {
+    return acknowledgeForSubmitted(confirmed, arrived);
+  }
+  return papersWithNoRequest(arrived, confirmed);
+}
+
+/**
+ * "Add to that booking": the papers just sent go on the client's own booking.
+ * The reference comes back from a button, so it is checked to be this chat's.
+ */
+export async function fileToBooking(session, ref, ctx) {
+  const target = await bookingByRef(ref);
+  if (!target || String(target.chat_id) !== String(ctx.chatId)) return reply(say(M.notUnderstood(), kb.mainMenu()));
+
+  const asked = session.context?.unfiled_document_ids ?? [];
+  const ids = asked.length ? asked : (await looseDocuments(ctx.chatId)).map((d) => d.id);
+  const { filed } = await fileDocuments(ids, { bookingRef: target.booking_ref, vin: target.vin });
+  if (filed.length) {
+    audit({
+      actor_type: 'client', actor_id: ctx.chatId,
+      action: 'documents_filed_by_client',
+      entity_type: 'booking', entity_id: target.booking_ref,
+      metadata: { document_ids: filed },
+    });
+  }
+  return reply(say(M.filedTo(target.booking_ref), kb.afterSubmitted()), {
+    active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
+  });
 }
 
 async function askWhatItIs(session, booking, ctx, { document, remaining = [], leads = [] }) {
@@ -1316,7 +1405,9 @@ export async function confirmationCard(booking, documentState = null) {
     `📱 ${pair('الموبايل', 'Phone')}: ${phone}`,
     `🚘 ${pair('الشاسيه', 'Chassis · VIN')}: ${booking.vin ?? '—'}`,
     `🚗 ${pair('الماركة', 'Make')}: ${[booking.make, booking.model].filter(Boolean).join(' ') || '—'}`,
-    `🌍 ${pair('خط الشحن', 'Route')}: ${booking.origin_port ?? '—'} ${routeArrow()} ${booking.destination_port ?? '—'}`,
+    // The Egyptian port in Arabic for a chat that chose Arabic; the booking
+    // keeps the name customs use, and so does a card read by both.
+    `🌍 ${pair('خط الشحن', 'Route')}: ${booking.origin_port ?? '—'} ${routeArrow()} ${booking.destination_port ? portName(booking.destination_port) : '—'}`,
     '',
     `📄 ${pair('المستندات', 'Documents')}:`,
     ...(docLines.length ? docLines : ['—']),
@@ -1516,6 +1607,10 @@ export async function handleConfirm(session, ctx) {
       'This request will wait until the MRN has been issued. We will message you as soon as it is ready.',
     ), kb.homeOnly()), { current_state: S.BOOK_DOCUMENTS });
   }
+
+  // The language it was booked in goes with it, whatever was set before.
+  const spoken = currentLanguage();
+  if (spoken && booking.language !== spoken) await updateDraft(ref, { language: spoken }, { chatId: ctx.chatId });
 
   const result = await submitDraft(ref, ctx.chatId);
 

@@ -34,7 +34,7 @@ import { storedLanguage } from './flow/language.js';
 import { sessionKey } from './flow/store.js';
 import { S } from './flow/states.js';
 import { settings } from './settings.js';
-import { db } from './supabase.js';
+import { db, retryOnTimeout } from './supabase.js';
 import { defer, flush } from './background.js';
 
 // ---------------------------------------------------------------------------
@@ -62,9 +62,22 @@ export function waIdOf(chatId) {
   return digits || null;
 }
 
-/** Which channel a chat id belongs to, for rows written without saying. */
+/**
+ * Which channel a chat id belongs to, for rows written without saying.
+ *
+ * "wa:…" is WhatsApp. A whole number is Telegram - a group's is negative.
+ * "web:…", or any other id, is the website widget, whose chat id is the
+ * browser's session id (a UUID): Telegram never has one of those. Taking
+ * anything that was not WhatsApp for Telegram is how WhatsApp tasks were
+ * labelled Telegram in the live test, and how a web session would be sent a
+ * Telegram message. `fallback` answers only for no chat id at all.
+ */
 export function channelOf(chatId, fallback = 'telegram') {
-  return waIdOf(chatId) ? 'whatsapp' : fallback;
+  const s = String(chatId ?? '').trim();
+  if (!s) return fallback;
+  if (s.startsWith(WHATSAPP_PREFIX)) return 'whatsapp';
+  if (/^-?\d+$/.test(s)) return 'telegram';
+  return 'web';
 }
 
 // ---------------------------------------------------------------------------
@@ -366,14 +379,20 @@ export async function windowState({ channel, chatId }) {
  * Called by the WhatsApp transport for every message a client sends. A first
  * message has no session row yet; one is created in the state every new
  * session starts in, which is what loadSession would have made of it anyway.
+ *
+ * The turn does not wait for this (api/whatsapp.js): nothing the bot says in
+ * answer depends on it, only what the outbox may send afterwards. Each write
+ * sets a value, so a write that ran out of time is simply made again.
  */
 export async function stampClientMessage({ channel = 'whatsapp', chatId, clientId = null }, at = new Date()) {
   if (windowColumn === false || chatId == null) return { ok: false, skipped: true };
   const id = sessionKey(channel, chatId);
   const when = at.toISOString();
 
-  const updated = await db().from('conversation_sessions')
-    .update({ last_client_message_at: when }).eq('id', id).select('id');
+  const updated = await retryOnTimeout(
+    () => db().from('conversation_sessions').update({ last_client_message_at: when }).eq('id', id).select('id'),
+    'window stamp',
+  );
   if (updated.error) {
     if (isSchemaMissing(updated.error)) windowColumn = false;
     else console.error('window stamp failed:', updated.error.message);
@@ -383,14 +402,19 @@ export async function stampClientMessage({ channel = 'whatsapp', chatId, clientI
   if (updated.data?.length) return { ok: true };
 
   // An insert, never an upsert: a turn running alongside this one may have
-  // just written its state, and an upsert would put MAIN_MENU over it.
-  const inserted = await db().from('conversation_sessions').insert({
+  // just written its state, and an upsert would put MAIN_MENU over it. Safe
+  // to try twice: if the first attempt landed after all, the second is a
+  // 23505, which is handled below like any other row that got there first.
+  const inserted = await retryOnTimeout(() => db().from('conversation_sessions').insert({
     id, channel, chat_id: String(chatId), client_id: clientId,
     current_state: S.MAIN_MENU, context: {}, last_client_message_at: when,
-  });
+  }), 'window stamp insert');
   if (!inserted.error) return { ok: true, created: true };
   if (inserted.error.code === '23505') {
-    const again = await db().from('conversation_sessions').update({ last_client_message_at: when }).eq('id', id);
+    const again = await retryOnTimeout(
+      () => db().from('conversation_sessions').update({ last_client_message_at: when }).eq('id', id),
+      'window stamp',
+    );
     return { ok: !again.error };
   }
   console.error('window stamp insert failed:', inserted.error.message);

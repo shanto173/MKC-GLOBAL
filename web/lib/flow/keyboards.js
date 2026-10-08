@@ -202,7 +202,8 @@ export function classifyDocument(types) {
 function labelFor(type) {
   const map = {
     invoice: ['🧾', 'الفاتورة', 'Invoice'],
-    brief: ['📑', 'مستند النقل', 'Brief'],
+    // The customer's word for it; "Brief" is the desk's.
+    brief: ['📑', 'مستند النقل', 'Transport document'],
     mrn: ['📄', 'MRN', 'MRN'],
     acid: ['🆔', 'ACID', 'ACID'],
     eur1: ['📜', 'EUR.1', 'EUR.1'],
@@ -246,6 +247,19 @@ export function afterSubmitted() {
   return rows(
     button('🚚', 'تتبع الشحنة', 'Track shipment', 'menu:track'),
     button('📦', 'احجز وحدة تانية', 'Book another', 'menu:book'),
+    homeButton(),
+  );
+}
+
+/**
+ * A paper sent with no request open, by a client with a confirmed booking:
+ * is it for that booking, or for a new one? The reference rides in the
+ * payload, which the handler checks belongs to this chat before filing.
+ */
+export function fileToChoice(bookingRef) {
+  return rows(
+    button('📎', 'ضيفه للحجز ده', 'Add to that booking', `bk:fileto:${bookingRef}`),
+    button('📦', 'حجز جديد', 'A new booking', 'menu:book'),
     homeButton(),
   );
 }

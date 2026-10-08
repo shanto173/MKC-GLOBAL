@@ -255,8 +255,17 @@ export const TICKET_ASK_HEADING = [
   'To open this with the team, send in one message:',
 ];
 
-/** The ticket, as the customer sees it: what we took down and what happens next. */
-export function ticketCard(ticket) {
+/**
+ * The ticket, as the customer sees it: what we took down and what happens next.
+ *
+ * `open` is whether the desk is open now (lib/settings.js supportHours). Open,
+ * the team calls shortly; "during business hours" read oddly at five in the
+ * afternoon. Unknown (null) keeps the old words.
+ */
+export function ticketCard(ticket, { open = null } = {}) {
+  const next = open
+    ? bi('الفريق هيكلمك قريب، وهنبعتلك هنا لما الموضوع يتحل', 'The team will call you shortly, and we will message you here when it is resolved.')
+    : bi('الفريق هيكلمك في مواعيد العمل، وهنبعتلك هنا لما الموضوع يتحل', 'The team will call you during business hours, and we will message you here when it is resolved.');
   return block(`\u{1F3AB} ${ticket.ticket_ref}`, [
     `${bi('\u0627\u0644\u0642\u0633\u0645', 'Department')}: ${ticket.department}`,
     ticket.summary ? `${bi('\u0627\u0644\u0645\u0634\u0643\u0644\u0629', 'Problem')}: ${ticket.summary}` : null,
@@ -265,7 +274,7 @@ export function ticketCard(ticket) {
     // card says it in Arabic.
     `${bi('\u0627\u0644\u062d\u0627\u0644\u0629', 'Status')}: ${currentLanguage() === 'ar' ? '\u0645\u0641\u062a\u0648\u062d' : 'open'}`,
     '',
-    bi('\u0627\u0644\u0641\u0631\u064a\u0642 \u0647\u064a\u0643\u0644\u0645\u0643 \u0641\u064a \u0645\u0648\u0627\u0639\u064a\u062f \u0627\u0644\u0639\u0645\u0644\u060c \u0648\u0647\u0646\u0628\u0639\u062a\u0644\u0643 \u0647\u0646\u0627 \u0644\u0645\u0627 \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u064a\u062a\u062d\u0644', 'The team will call you during business hours, and we will message you here when it is resolved.'),
+    next,
   ]);
 }
 

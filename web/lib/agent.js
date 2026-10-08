@@ -569,6 +569,22 @@ export function contactIntent(text, lastFromUs = '') {
   return null;
 }
 
+/**
+ * The ticket card the customer is answering, if the last thing we sent was
+ * one: which department it named. create_support_ticket uses it to take the
+ * department when the model leaves it out, and to raise the ticket with what
+ * it has rather than send the same card again - it went out four times in a
+ * row in the live test.
+ *
+ * @returns {{department: string|null}|null}
+ */
+export function ticketAskedIn(lastFromUs = '') {
+  const last = String(lastFromUs);
+  if (!TICKET_ASK_HEADING.some((h) => last.includes(h.split(/[,،]/)[0]))) return null;
+  // The card opens "💬 <department>" (lib/format.js ticketAskCard).
+  return { department: /^\u{1F4AC}\s*(.+)$/mu.exec(last)?.[1]?.trim() ?? null };
+}
+
 /** Turns the customer's answer to the department list into an instruction. */
 export function departmentAnswer(text) {
   const names = DEPARTMENT_MENU.map(([, en]) => en);
@@ -600,12 +616,15 @@ export async function respond(userText, ctx) {
     return { reply: card, toolsUsed: [] };
   }
 
+  const ticketAsked = ticketAskedIn(lastFromUs);
   const spokenText = contact === 'answer'
     ? departmentAnswer(userText)
     : contact === 'details'
       ? `[The customer is answering the card that asked for their problem and a phone number. They ` +
-        `wrote: "${userText}". Pick the department they chose earlier in this conversation, take the ` +
-        'problem and the number from this message, and call create_support_ticket now.]'
+        `wrote: "${userText}". ` +
+        (ticketAsked?.department ? `The department is ${ticketAsked.department}. ` : 'Pick the department they chose earlier in this conversation. ') +
+        'Take the problem and any number from this message - leave the number null if they gave none, the ' +
+        'one on file is used - and call create_support_ticket now.]'
       : userText;
   const messages = [...history, { role: 'user', content: spokenText }];
 
@@ -643,6 +662,8 @@ export async function respond(userText, ctx) {
     // chose to send. Our own synthetic notes are not the customer speaking.
     customerSaid: String(userText ?? '').trimStart().startsWith('[') ? '' : String(userText ?? ''),
     turnId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    // The ticket card this message answers, if any: sent once is enough.
+    ticketAsked,
   };
 
   let finalText = '';

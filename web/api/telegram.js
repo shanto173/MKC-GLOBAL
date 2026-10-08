@@ -222,7 +222,11 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
 
     defer(sendTyping(chatId));
 
-    const flow = await runFlow(input, ctx);
+    // The reply goes out before the session write lands. Telegram is answered
+    // only after it has (answer() and deliver() both wait), and Telegram does
+    // not send this chat's next update until it is answered - so the next
+    // message still reads the state this one left.
+    const flow = await runFlow(input, ctx, { awaitSave: false });
     await deliver(flow, input, ctx, update, callbackQuery);
     return answer(res, { ok: true });
   } catch (err) {
@@ -288,6 +292,10 @@ async function deliver(flow, input, ctx, update, callbackQuery) {
       await sendToChat(target, { text: reply, inline: kb.mainMenu() });
     });
   }
+
+  // The session write the reply did not wait for. The update is not marked
+  // processed - and Telegram not answered - until it has landed.
+  await flow.saved;
 
   // Anything the flow queued for this client goes out now rather than waiting
   // for the next cron tick, so a confirmation follows its trigger immediately.
@@ -514,7 +522,7 @@ async function finishDocument(input, ctx, update) {
     let speak = !ended && !recent.some((d) => d.id !== mine.id && stillReading(d));
     if (speak) speak = await claimReply(chatId, batch.map((d) => d.id));
 
-    const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx);
+    const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx, { awaitSave: false });
     await deliver(flow, input, ctx, update, null);
   } catch (err) {
     await failed(err, update, chatId, ctx.correlationId);

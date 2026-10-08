@@ -22,8 +22,9 @@
  *      sending the next - so unlike Telegram there is nothing to gain by
  *      answering late, and the work continues under waitUntil.
  *   3. Per message: claim its id in Postgres (a retry loses the race), refresh
- *      the client, stamp the window, run the machine in the client's
- *      language, deliver, drain the outbox.
+ *      the client, stamp the window (alongside the turn, not in front of it),
+ *      run the machine in the client's language, deliver, wait for the stamp
+ *      and the session write, drain the outbox, mark the claim done.
  *   4. Per receipt: mark the chat log and the outbox row delivered/read/failed.
  *
  * Messages from one chat are handled one at a time, in the order they were
@@ -63,8 +64,15 @@ import { markRead, mediaInfo, downloadMedia } from '../lib/whatsapp.js';
 const FLOOD_LIMIT = 20;
 const FLOOD_WINDOW_MS = 60_000;
 
-/** How long a message waits for an earlier one from the same chat. */
-const TURN_WAIT_MS = 8_000;
+/**
+ * How long a message waits for an earlier one from the same chat.
+ *
+ * The earlier one is not done until its session write has landed, which can
+ * now come after its reply: a database call gets up to 4.5 s and one more try
+ * (lib/supabase.js), so a wait shorter than that would let the second message
+ * be answered from the state before the first.
+ */
+const TURN_WAIT_MS = 15_000;
 
 /**
  * WhatsApp has no albums: three papers sent together are three messages with
@@ -330,9 +338,12 @@ async function turn(message, ctx, client, background) {
   const target = targetOf(ctx);
 
   // The client wrote: the window opens from now, and anything the outbox was
-  // holding for them may go. Waited for before the turn's own drain.
+  // holding for them may go. Waited for before the turn's own drain, and not
+  // before: nothing the bot says in answer depends on it, and in the live
+  // test this one write once held a reply for seven seconds.
   const opened = stampClientMessage(ctx).then(() => releaseHeld(chatId)).catch(() => null);
   defer(opened);
+  ctx.opened = opened;
   // A reply to something the desk asked is no longer caught here, by any
   // message at all, before the flow has read it: the state machine decides
   // whether it is an answer, keeps it on the request and says so
@@ -345,7 +356,6 @@ async function turn(message, ctx, client, background) {
     channel: 'whatsapp', chatId, clientId: ctx.clientId, language: ctx.language,
     providerMessageId: message.id, ...describe(message),
   }));
-  const ready = () => opened;
 
   try {
     const flood = await floodCheck(chatId);
@@ -377,12 +387,16 @@ async function turn(message, ctx, client, background) {
       return;
     }
 
-    // START after STOP: they hear it is undone, then the menu as for "start".
+    // START after STOP: they hear it is undone, and the menu as for "start" -
+    // in one message. Sent as two, one word got two notifications.
     if (input.kind === 'opt_in') {
       const { changed } = await setOptOut(ctx.clientId, false);
-      if (changed) await sendToChat(target, { text: T.optedIn() });
-      await ready();
-      const flow = await runFlow({ kind: 'command', command: '/start', text: input.text }, ctx);
+      const flow = await runFlow({ kind: 'command', command: '/start', text: input.text }, ctx, { awaitSave: false });
+      if (changed) {
+        const [first, ...rest] = flow.handled ? flow.messages : [];
+        if (first) flow.messages = [{ ...first, text: `${T.optedIn()}\n\n${first.text ?? ''}`.trim() }, ...rest];
+        else await sendToChat(target, { text: T.optedIn() });
+      }
       await deliver(flow, input, ctx);
       return;
     }
@@ -411,12 +425,13 @@ async function turn(message, ctx, client, background) {
     // file can be recorded too; the reading carries on beside it.
     if (input.kind === 'file_recorded') {
       await finishClaim(message.id, 'reading');
-      background.push(withLanguage(ctx.language, () => finishDocument(input, ctx, ready)));
+      background.push(withLanguage(ctx.language, () => finishDocument(input, ctx)));
       return;
     }
 
-    await ready();
-    const flow = await runFlow(input, ctx);
+    // The reply goes out before the session write lands; deliver() waits for
+    // the write before this message is marked done.
+    const flow = await runFlow(input, ctx, { awaitSave: false });
     await deliver(flow, input, ctx);
   } catch (err) {
     await failed(err, message, ctx);
@@ -428,6 +443,13 @@ const targetOf = (ctx) => ({ channel: 'whatsapp', chatId: ctx.chatId, clientId: 
 /**
  * Sends what the flow said - or, when it said nothing, what the assistant
  * says - then the outbox, then the bookkeeping.
+ *
+ * The order is the point. The reply is sent while the turn's session write
+ * and the window stamp may still be on their way; both are waited for after
+ * it - the stamp because the outbox must not judge the window from a clock
+ * that has not moved yet, the session because the claim is what makes the
+ * next message from this chat wait (waitForTurn), and it must not be released
+ * while the state that message will read is still being written.
  */
 async function deliver(flow, input, ctx) {
   const target = targetOf(ctx);
@@ -447,6 +469,8 @@ async function deliver(flow, input, ctx) {
       await sendToChat(target, { text: reply, inline: kb.mainMenu() }, { author: 'bot' });
     }
   });
+
+  await Promise.all([flow.saved, ctx.opened].filter(Boolean));
 
   // Anything the flow queued goes now rather than at the next retry, so a
   // confirmation follows its trigger. Failures are the outbox's to retry.
@@ -754,14 +778,12 @@ async function recordIncomingFile(file, message, ctx) {
  * The slow half: the caption, the download, the reading, and - if this is the
  * last of its batch to finish - the reply.
  */
-async function finishDocument(input, ctx, ready) {
+async function finishDocument(input, ctx) {
   const { file, message, begun, bookingRef, caption } = input;
   const { chatId } = ctx;
   const target = targetOf(ctx);
 
   try {
-    await ready();
-
     // The details written on the file go onto the request first, so whichever
     // file of a batch ends up speaking, they are already there. A chassis in
     // them that is already booked ends the flow here, and the file is then
@@ -832,7 +854,7 @@ async function finishDocument(input, ctx, ready) {
     let speak = !ended && !recent.some((d) => d.id !== mine.id && stillReading(d));
     if (speak) speak = await claimReply(chatId, batch.map((d) => d.id));
 
-    const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx);
+    const flow = await runFlow({ kind: 'document', document: ingested, speak, batch }, ctx, { awaitSave: false });
     await deliver(flow, { kind: 'document' }, ctx);
   } catch (err) {
     await failed(err, message, ctx);

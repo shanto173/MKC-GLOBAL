@@ -33,7 +33,7 @@ const realFetch = globalThis.fetch;
 const { createFakeDb } = await import('./helpers/fake-db.mjs');
 const {
   fakeNetwork, sign, mockRes, serverReq, vercelReq, inbound, receipts,
-  withWhatsAppClaims, withoutSchema, MIGRATION_COLUMNS,
+  withWhatsAppClaims, withoutSchema, MIGRATION_COLUMNS, gateCalls, waitUntil, sleep,
 } = await import('./helpers/whatsapp.mjs');
 const { provideWaitUntil, settle, createApp, loadRoutes, loadRewrites } = await import('../server.js');
 const { setClientForTests } = await import('../lib/supabase.js');
@@ -382,7 +382,11 @@ test('STOP is recorded and confirmed once; START undoes it and shows the menu', 
   net.reset();
   await post(text('START'));
   assert.equal(client.opted_out_at, null);
+  // One message: "welcome back" and the menu together. The live test got two
+  // - two notifications - for one word.
+  assert.equal(net.sent().length, 1, JSON.stringify(bodies()));
   assert.match(bodies()[0], /Welcome back/);
+  assert.match(bodies()[0], /How can we help you today/);
   assert.equal(net.sent().at(-1).interactive.action.buttons[0].reply.id, 'menu:book');
 });
 
@@ -440,6 +444,38 @@ test('two papers sent together are each read, and answered once', async () => {
 
   const replies = net.sent();
   assert.equal(replies.length, 1, `one answer for the batch, got: ${JSON.stringify(bodies())}`);
+});
+
+// The live test, 2026-10-08: the customer's own MRN export declaration was
+// read, and the booking's mrn_number stayed empty.
+const MRN_PAPER = readFileSync(path.join(WEB, 'data', 'takeA-mrn-export-declaration.pdf'));
+const MRN_CHASSIS = 'WMA06XZZ8KM745219';
+const MRN_ON_PAPER = '26LTVR375677905219';
+
+test('the MRN read from the customer\'s own export declaration goes on a booking that has none', async () => {
+  const draft = (extra = {}) => ({
+    booking_ref: 'MKY-BKG-M1', chat_id: CHAT, client_id: 7, channel: 'whatsapp', status: 'draft', vin: MRN_CHASSIS,
+    make: 'MAN', customer_name: 'Nile Motors', origin_port: 'Vilnius', destination_port: 'Port Said', mrn_choice: 'existing', ...extra,
+  });
+  const session = { id: `whatsapp:${CHAT}`, channel: 'whatsapp', chat_id: CHAT, client_id: 7, active_flow: 'booking', current_state: S.BOOK_DOCUMENTS, active_booking_ref: 'MKY-BKG-M1', context: {} };
+  const send = async (db) => {
+    net.model = '{"doc_type":"mrn"}';
+    const [url] = offerMedia('m-mrn', MRN_PAPER);
+    net.files.set(url, { status: 200, buffer: MRN_PAPER });
+    await post(inbound([{ type: 'document', document: { id: 'm-mrn', filename: 'mrn.pdf', mime_type: 'application/pdf', sha256: 'sha-m-mrn' } }]));
+    return db._tables.bookings.find((b) => b.booking_ref === 'MKY-BKG-M1');
+  };
+
+  let db = setup({ seed: { bookings: [draft()], conversation_sessions: [{ ...session }] } });
+  assert.equal((await send(db)).mrn_number, MRN_ON_PAPER);
+
+  // One already recorded is kept.
+  db = setup({ seed: { bookings: [draft({ mrn_number: '26DEE2E0000000001' })], conversation_sessions: [{ ...session }] } });
+  assert.equal((await send(db)).mrn_number, '26DEE2E0000000001');
+
+  // A paper for another chassis gives this booking nothing.
+  db = setup({ seed: { bookings: [draft({ vin: 'YV2RT40A8FB712905' })], conversation_sessions: [{ ...session }] } });
+  assert.ok(!(await send(db)).mrn_number);
 });
 
 test('a media link that has expired is asked for again, once', async () => {
@@ -816,4 +852,116 @@ test('one reply is as few WhatsApp messages as it fits in: plain steps fold into
   assert.equal(coalesce([{ text: 'Here it is' }, { text: '', document: { buffer: Buffer.from('x') } }]).length, 2);
   assert.deepEqual(coalesce([{ text: 'a' }, { text: 'b' }]), [{ text: 'a\n\nb' }]);
   assert.deepEqual(coalesce([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// A slow database must not hold the reply (live test, 2026-10-08: one session
+// write hung 17 s, one window stamp 6 s, and the customer waited for both)
+// ---------------------------------------------------------------------------
+
+const tap = (id, title, extra = {}) => inbound([{ type: 'interactive', interactive: { type: 'button_reply', button_reply: { id, title } }, ...extra }]);
+
+/** Starts a webhook without waiting for the work behind it. */
+async function postNoWait(payload) {
+  const raw = Buffer.from(JSON.stringify(payload));
+  const res = mockRes();
+  await handler(serverReq(raw, { 'x-hub-signature-256': sign(raw, SECRET) }), res);
+  return res;
+}
+
+const sessionOf = (db, chat = CHAT) => db._tables.conversation_sessions?.find((s) => s.id === `whatsapp:${chat}`);
+
+test('a slow session write does not hold the reply, and the message is done only once the write lands', async () => {
+  const db = setup();
+  const held = gateCalls(db, (table, q) => table === 'conversation_sessions' && q.op === 'upsert');
+  try {
+    await postNoWait(tap('menu:track', 'Track', { id: 'wamid.slowsave' }));
+    const replied = await waitUntil(() => bodies().some((b) => /VIN \/ Chassis number or Booking Reference/.test(b)));
+    assert.ok(replied, `the reply went out while the session write was still held; sent: ${JSON.stringify(bodies())}`);
+    assert.equal(held.waiting, 1, 'the write is the one being held');
+    const claim = db._tables.processed_whatsapp_messages.find((r) => r.message_id === 'wamid.slowsave');
+    assert.equal(claim.status, 'processing', 'not done while the state the next message reads is still being written');
+    assert.notEqual(sessionOf(db)?.current_state, S.TRACK_IDENTIFIER);
+  } finally {
+    held.release();
+  }
+  await settle(20_000);
+  assert.equal(db._tables.processed_whatsapp_messages.find((r) => r.message_id === 'wamid.slowsave').status, 'processed');
+  assert.equal(sessionOf(db).current_state, S.TRACK_IDENTIFIER);
+});
+
+test('a slow window stamp does not hold the reply; the outbox still waits for it', async () => {
+  const db = setup();
+  const held = gateCalls(db, (table, q) => table === 'conversation_sessions' && q.op === 'update'
+    && Object.hasOwn(q.payload ?? {}, 'last_client_message_at'));
+  try {
+    await postNoWait(text('menu', { id: 'wamid.slowstamp' }));
+    const replied = await waitUntil(() => net.sent().some((m) => m.interactive?.action?.buttons?.[0]?.reply?.id === 'menu:book'));
+    assert.ok(replied, 'the menu went out while the stamp was still held');
+    const claim = db._tables.processed_whatsapp_messages.find((r) => r.message_id === 'wamid.slowstamp');
+    assert.equal(claim.status, 'processing', 'the drain, and so the claim, wait for the stamp');
+  } finally {
+    held.release();
+  }
+  await settle(20_000);
+  assert.equal(db._tables.processed_whatsapp_messages.find((r) => r.message_id === 'wamid.slowstamp').status, 'processed');
+  assert.ok(sessionOf(db).last_client_message_at, 'and the window was stamped');
+});
+
+test('two quick messages are still answered in order while the first one\'s write is slow', async () => {
+  const db = setup();
+  gateCalls(db, (table, q) => table === 'conversation_sessions' && q.op === 'upsert', { delayMs: 400, times: 1 });
+  await postNoWait(tap('menu:track', 'Track', { id: 'wamid.order1' }));
+  await sleep(30);
+  await postNoWait(text('MKY-BKG-000000-ZZZZ', { id: 'wamid.order2' }));
+  await settle(20_000);
+  const said = bodies();
+  assert.match(said.at(-1), /could not find a shipment/, `the reference was read as the answer to "which shipment?": ${JSON.stringify(said)}`);
+  assert.equal(said.length, 2);
+  const claims = db._tables.processed_whatsapp_messages;
+  assert.ok(claims.every((r) => r.status === 'processed'));
+});
+
+test('a database call that never answers is given up on, and the customer still gets a reply', async () => {
+  const db = setup();
+  // The write fails the way the deadline fails it, twice: the reply has
+  // already gone, the failure is logged, and the message is still finished.
+  const timedOut = { data: null, error: { message: 'AbortError: database call timed out after 4500 ms (POST conversation_sessions)', code: '' } };
+  let attempts = 0;
+  const from = db.from.bind(db);
+  db.from = (name) => {
+    const q = from(name);
+    const run = q.run.bind(q);
+    q.run = async () => (name === 'conversation_sessions' && q.op === 'upsert' ? (attempts++, timedOut) : run());
+    return q;
+  };
+  await post(tap('menu:track', 'Track', { id: 'wamid.deadline' }));
+  assert.ok(bodies().some((b) => /VIN \/ Chassis number/.test(b)));
+  assert.equal(attempts, 2, 'a timed-out upsert is tried once more, and only once');
+  assert.equal(db._tables.processed_whatsapp_messages.find((r) => r.message_id === 'wamid.deadline').status, 'processed');
+});
+
+test('on Telegram too, the reply goes out before the session write lands, and the update is answered after it', async () => {
+  const db = setup({ client: null, seed: { clients: [{ id: 1, telegram_user_id: 999, telegram_chat_id: 555, language: 'en' }] } });
+  const held = gateCalls(db, (table, q) => table === 'conversation_sessions' && q.op === 'upsert');
+  const res = mockRes();
+  const update = tgMessage('/menu', 404);
+  let answered = false;
+  const handling = telegramHandler({
+    method: 'POST', headers: { 'x-telegram-bot-api-secret-token': 'tg-secret' }, query: {}, body: update,
+  }, res).then(() => { answered = true; });
+  try {
+    const replied = await waitUntil(() => net.telegram('sendMessage').length > 0);
+    assert.ok(replied, 'the menu went out while the write was held');
+    assert.equal(answered, false, 'Telegram is not answered - and sends nothing more for this chat - until the write lands');
+    const claim = db._tables.processed_updates.find((r) => String(r.update_id) === String(update.update_id));
+    assert.equal(claim.status, 'processing');
+  } finally {
+    held.release();
+  }
+  await handling;
+  await settle(20_000);
+  assert.equal(res.body?.ok, true);
+  assert.equal(db._tables.processed_updates.find((r) => String(r.update_id) === String(update.update_id)).status, 'processed');
+  assert.equal(db._tables.conversation_sessions.find((s) => s.id === 'telegram:555').current_state, S.MAIN_MENU);
 });

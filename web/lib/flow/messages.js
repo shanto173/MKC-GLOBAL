@@ -23,7 +23,18 @@
 
 import { pick, currentChannel, currentLanguage } from '../lang.js';
 import { displayPhone } from '../phone.js';
+import { DESTINATION_PORTS_AR } from '../config.js';
 import { languageSupported } from './language.js';
+
+/** An Egyptian port in Arabic, for the Arabic half; anything else as it is. */
+const portAr = (port) => DESTINATION_PORTS_AR[port] ?? port;
+
+/**
+ * A port as this turn names it: in Arabic for a chat that chose Arabic, as
+ * the booking spells it otherwise - one line read by both before a choice
+ * keeps the paperwork's name.
+ */
+export const portName = (port) => (currentLanguage() === 'ar' ? portAr(port) : port);
 
 const RULE = '━━━━━━━━━━━━';
 
@@ -232,7 +243,7 @@ export const M = {
   vinAlreadyBooked: (b) => both(
     `✅ الوحدة دي محجوزة بالفعل.\n\n` +
     `رقم الحجز: ${b.booking_ref}\n` +
-    `خط الشحن: ${b.origin_port} ← ${b.destination_port}\n\n` +
+    `خط الشحن: ${b.origin_port} ← ${portAr(b.destination_port)}\n\n` +
     'مش محتاج تبعت طلب تاني.',
     `✅ This unit is already booked.\n\n` +
     `Booking Ref: ${b.booking_ref}\n` +
@@ -245,12 +256,13 @@ export const M = {
     '🌍 هتشحن من فين؟ اكتب المدينة أو ميناء الشحن (فيلنيوس، كلايبيدا، أنتويرب…).',
     '🌍 Where does it ship from? The city or port of loading (Vilnius, Klaipeda, Antwerp…).',
   ),
+  // The Arabic half lists the ports in Arabic; matchPort() takes them back.
   askDestination: (ports) => both(
-    `🇪🇬 وميناء الوصول في مصر؟\n${ports.map((p) => `• ${p}`).join('\n')}`,
+    `🇪🇬 وميناء الوصول في مصر؟\n${ports.map((p) => `• ${portAr(p)}`).join('\n')}`,
     `🇪🇬 And the Egyptian destination port?\n${ports.map((p) => `• ${p}`).join('\n')}`,
   ),
   destinationNotServed: (value, ports) => both(
-    `⚠️ "${value}" مش من الموانئ اللي بنخدمها. اختار من دول:\n${ports.map((p) => `• ${p}`).join('\n')}`,
+    `⚠️ "${value}" مش من الموانئ اللي بنخدمها. اختار من دول:\n${ports.map((p) => `• ${portAr(p)}`).join('\n')}`,
     `⚠️ "${value}" is not a port we serve. Please choose one of:\n${ports.map((p) => `• ${p}`).join('\n')}`,
   ),
 
@@ -310,6 +322,18 @@ What I need right now is ${needEn}.`,
     '📝 In one message, tell us what you know about the export (country of export, exporter name, invoice number) so we can start the MRN application.',
   ),
 
+  // The desk recorded the MRN it obtained for the customer. Said as ours, with
+  // the booking it is for: "✅ Received MRN …" - the words for a paper the
+  // customer sends - read as if they had sent it.
+  mrnIssued: (number, bookingRef = null) => both(
+    bookingRef
+      ? `✅ MKY استخرجت رقم الـ MRN لحجزك ${bookingRef}:\n${number}\n\nمش محتاج تبعت حاجة تانية عشانه.`
+      : `✅ MKY استخرجت رقم الـ MRN بتاعك: ${number}\n\nمش محتاج تبعت حاجة تانية عشانه.`,
+    bookingRef
+      ? `✅ MKY has issued the MRN for your booking ${bookingRef}:\n${number}\n\nThere is nothing you need to send for it.`
+      : `✅ MKY has issued your MRN: ${number}\n\nThere is nothing you need to send for it.`,
+  ),
+
   mrnRequestOpened: (ref) => both(
     `✅ اتسجل طلب استخراج MRN برقم ${ref}. الفريق هيراجعه.`,
     `✅ Your MRN request ${ref} has been logged. The team will review it.`,
@@ -334,6 +358,27 @@ What I need right now is ${needEn}.`,
   documentsForBooking: (ref, labelsAr, labelsEn) => both(
     `✅ وصلنا ${labelsAr.join('، ')} واتضافت للحجز ${ref}.\nفريق العمليات هيراجعها ويكلمك لو محتاج حاجة تانية.`,
     `✅ Received ${labelsEn.join(', ')} for booking ${ref}.\nOur Operations Team will check it and get back to you if anything else is needed.`,
+  ),
+
+  // A paper sent with nothing open to put it on. It is kept, and counts for a
+  // booking started next; "I did not follow that" left the customer thinking
+  // it was lost.
+  fileNoBooking: (labelsAr, labelsEn) => both(
+    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\n` +
+    `مفيش عندك حجز مفتوح معانا دلوقتي. اضغط "احجز شحنة" عشان تبدأ واحد وهنستخدم المستند ده فيه، أو "${AGENT.ar}" لو الموضوع حاجة تانية.`,
+    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\n` +
+    `You have no booking open with us right now. Tap "Book my shipment" to start one and this paper will be used for it, or "${AGENT.en}" if it is about something else.`,
+  ),
+
+  // The same, from a customer whose booking is already confirmed.
+  fileWhichBooking: (ref, labelsAr, labelsEn) => both(
+    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\nده للحجز ${ref}، ولا لحجز جديد؟`,
+    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\nIs it for booking ${ref}, or for a new booking?`,
+  ),
+
+  filedTo: (ref) => both(
+    `✅ اتضاف للحجز ${ref}. فريق العمليات هيراجعه ويكلمك لو محتاج حاجة تانية.`,
+    `✅ Added to booking ${ref}. Our Operations Team will check it and get back to you if anything else is needed.`,
   ),
 
   notedFromMessage: (notedAr, notedEn) => both(
@@ -417,13 +462,15 @@ What I need right now is ${needEn}.`,
 
   // The reference is the thing the client keeps. It is said here, in the one
   // message that answers the yes, and repeated on the PDF that follows.
+  // "Received", not "confirmed": confirming is Operations' to do, and the old
+  // "🎉 Booking request confirmed!" read as if MKY had already agreed to it.
   submitted: (ref) => both(
-    '🎉 اتأكد طلب الحجز!\n\n' +
+    '✅ وصلنا طلب الحجز وبعتناه لفريق العمليات.\n\n' +
     (ref ? `📋 رقم الحجز بتاعك: ${ref}\nاحتفظ بيه - هتتتبع الشحنة بيه.\n\n` : '') +
-    'ببعت الطلب لفريق العمليات دلوقتي، ونسختك PDF جاية حالاً. 😊',
-    '🎉 Booking request confirmed!\n\n' +
+    'نسختك PDF جاية حالاً. الفريق هيراجع الطلب ويرجعلك بتأكيد الحجز. 😊',
+    '✅ Booking request received - we have sent it to our Operations Team.\n\n' +
     (ref ? `📋 Your booking reference: ${ref}\nKeep it — it is how you track the shipment.\n\n` : '') +
-    'I am sending your request to our Operations Team now, and your PDF copy follows. 😊',
+    'Your PDF copy follows. The team will check the request and come back to you to confirm the booking. 😊',
   ),
 
   submittedAlready: (ref) => both(
@@ -447,7 +494,7 @@ What I need right now is ${needEn}.`,
     `رقم الحجز: ${b.booking_ref}\n` +
     `الشاسيه: ${b.vin}\n` +
     `الماركة: ${b.make}\n` +
-    `خط الشحن: ${b.origin_port} ← ${b.destination_port}\n\n` +
+    `خط الشحن: ${b.origin_port} ← ${portAr(b.destination_port)}\n\n` +
     'شكراً لاختيارك MKY Forwarding! 😊',
     `🎉 Your booking is confirmed!\n\n` +
     `Booking Ref: ${b.booking_ref}\n` +
@@ -630,17 +677,20 @@ What I need right now is ${needEn}.`,
     'To open this with the team, send in one message:\n• What the problem is\n• A phone number we can call you on',
   ),
 
-  // In hours: the team calls back. After hours: when. Urgent: marked so, and
-  // the direct line again, so it is in the last message the client reads.
-  ticketOpened: (ref, department, { urgent = false, directPhone = null, start = null, tomorrow = true } = {}) => both(
+  // In hours (start null): the team calls back shortly - on the number they
+  // gave, or here in the chat when they gave none. It said "during business
+  // hours", which read oddly at five in the afternoon. After hours: when.
+  // Urgent: marked so, and the direct line again, so it is in the last
+  // message the client reads.
+  ticketOpened: (ref, department, { urgent = false, directPhone = null, start = null, tomorrow = true, phone = null } = {}) => both(
     `🎫 اتفتح طلب رقم ${ref} مع قسم ${department}${urgent ? ' ومتعلّم إنه مستعجل' : ''}.\n` +
     (start === null
-      ? 'الفريق هيكلمك في مواعيد العمل.'
+      ? (phone ? `الفريق هيكلمك على ${phone} قريب.` : 'الفريق هيرد عليك هنا قريب.')
       : `الفريق هيتواصل معاك ${tomorrow ? 'بكرة' : 'النهاردة'} من الساعة ${hourAr(start)}.`) +
     (urgent && directPhone ? `\n☎️ ولحد ما يبدأوا، المسؤول عندنا على ${directPhone}.` : ''),
     `🎫 Ticket ${ref} has been opened with ${department}${urgent ? ' and marked urgent' : ''}.\n` +
     (start === null
-      ? 'The team will call you during business hours.'
+      ? (phone ? `The team will call you on ${phone} shortly.` : 'The team will get back to you here shortly.')
       : `The team will get back to you ${tomorrow ? 'tomorrow' : 'today'} from ${hourEn(start)}.`) +
     (urgent && directPhone ? `\n☎️ Until then, our responsible person is on ${directPhone}.` : ''),
   ),
@@ -707,10 +757,16 @@ export const FIELD_LABELS = {
   destination_port: ['ميناء الوصول', 'Destination'],
 };
 
-/** Bilingual labels for document types, as [ar, en] pairs. */
+/**
+ * Bilingual labels for document types, as [ar, en] pairs.
+ *
+ * What the customer reads. "Brief" is the desk's word for the transport
+ * document (public/desk/workflow.js DOC_LABEL) and stays there; to a customer
+ * step 2 says "transport document", so the checklist does too.
+ */
 export const DOC_LABELS = {
   invoice: ['الفاتورة التجارية', 'Invoice'],
-  brief: ['مستند النقل', 'Brief'],
+  brief: ['مستند النقل', 'Transport document'],
   mrn: ['رقم MRN', 'MRN'],
   acid: ['رقم ACID (نافذة)', 'ACID'],
   eur1: ['شهادة المنشأ EUR.1', 'EUR.1'],

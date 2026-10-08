@@ -21,6 +21,7 @@ import { settings } from '../settings.js';
 import { enqueue, drain } from '../outbox.js';
 import { audit } from '../audit.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
 import { customerFor, isMissingTable, HISTORY_PENDING, actionKeyOf, ago } from './desk-shared.js';
 import { failureWords, DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 import { statusWords, statusTone, requestStatusWords, REQUEST_OPEN } from '../ops/workflow.js';
@@ -266,7 +267,7 @@ async function targetOf(body) {
       .select('booking_ref, channel, chat_id, client_id, customer_name, customer_contact')
       .eq('booking_ref', String(body.booking_ref)).maybeSingle();
     if (!b) return null;
-    return { channel: b.channel ?? 'telegram', chatId: b.chat_id, clientId: b.client_id ?? null, bookingRef: b.booking_ref,
+    return { channel: b.channel ?? channelOf(b.chat_id), chatId: b.chat_id, clientId: b.client_id ?? null, bookingRef: b.booking_ref,
       entityType: 'booking', entityId: b.booking_ref, name: b.customer_name, contact: b.customer_contact };
   }
   if (body.ticket_ref) {
@@ -274,7 +275,7 @@ async function targetOf(body) {
       .select('ticket_ref, channel, chat_id, client_id, customer, contact, booking_ref')
       .eq('ticket_ref', String(body.ticket_ref)).maybeSingle();
     if (!t) return null;
-    return { channel: t.channel ?? 'telegram', chatId: t.chat_id, clientId: t.client_id ?? null, bookingRef: t.booking_ref ?? null,
+    return { channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, clientId: t.client_id ?? null, bookingRef: t.booking_ref ?? null,
       entityType: 'support_ticket', entityId: t.ticket_ref, name: t.customer, contact: t.contact };
   }
   const channel = String(body.channel ?? '');
@@ -454,10 +455,16 @@ export async function retryOutbox(req, res, who) {
   return res.status(200).json({ ok: true, status: row?.status === 'sent' ? 'sent' : 'queued' });
 }
 
-/** POST { action: 'dismiss_problem', problem_id: 'message:1' | 'outbox:2' | 'document:3' } */
+/**
+ * POST { action: 'dismiss_problem', problem_id: 'message:1' | 'outbox:2' | 'document:3' | 'chat:whatsapp:wa:2010…' }
+ *
+ * A chat's failures are one problem in the inbox (lib/admin/desk-inbox.js),
+ * and set aside together: everything that failed in that chat up to now.
+ */
 export async function dismissProblem(req, res, who) {
   const id = String(req.body?.problem_id ?? '');
-  if (!/^(message|outbox|document):\d+$/.test(id)) return res.status(400).json({ error: 'problem_id is required' });
+  const valid = /^(message|outbox|document):\d+$/.test(id) || /^chat:(telegram|whatsapp|web):[\w:.+-]{1,120}$/.test(id);
+  if (!valid) return res.status(400).json({ error: 'problem_id is required' });
   await audit({
     actor_type: 'operator', actor_id: who.name, action: 'problem_dismissed',
     entity_type: 'problem', entity_id: id, metadata: { note: String(req.body?.note ?? '').slice(0, 200) || null },

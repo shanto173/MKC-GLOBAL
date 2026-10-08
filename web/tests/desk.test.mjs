@@ -615,6 +615,79 @@ test('a problem can be set aside, and stays aside', async () => {
   assert.ok(!inbox.body.items.some((i) => i.id === 'message:3'));
 });
 
+// The live test, 2026-10-08: every failed message was its own red Problem
+// row - 77 of them, most for test numbers WhatsApp does not know - and the
+// one real item was buried under them.
+
+/** Failed bot replies to one chat, as markDelivery leaves them, newest last. */
+function failures(chatId, n, { error = '131026: Message undeliverable - Message Undeliverable.', from = 100, clientId = null } = {}) {
+  const made = [];
+  for (let i = 0; i < n; i++) {
+    const row = {
+      id: from + i, channel: 'whatsapp', chat_id: chatId, client_id: clientId, direction: 'out', author: 'bot', kind: 'buttons',
+      body: `reply ${i}`, status: 'failed', error, provider_message_id: `wamid.f${from + i}`, created_at: iso((n - i) * 60_000),
+    };
+    rows('chat_messages').push(row);
+    made.push(row);
+  }
+  return made;
+}
+
+test('failed messages are one problem per chat - and a number not on WhatsApp is one item, said plainly', async () => {
+  const lost = failures('wa:999000000005', 6);
+  // The outbox's own record of two of them - the same messages, not more.
+  for (const m of lost.slice(-2)) {
+    rows('notification_outbox').push({
+      id: 500 + m.id, channel: 'whatsapp', chat_id: 'wa:999000000005', event_type: 'booking_confirmed', entity_type: 'booking',
+      entity_id: 'MKY-BKG-X', payload: {}, status: 'dead', delivery_status: 'failed', provider_message_id: m.provider_message_id,
+      last_error: m.error, idempotency_key: `k-${m.id}`, created_at: m.created_at, updated_at: m.created_at,
+    });
+  }
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const mine = r.body.items.filter((i) => i.link?.chat_id === 'wa:999000000005');
+  assert.equal(mine.length, 1, `one item for the customer, not ${mine.length}`);
+  const [item] = mine;
+  assert.equal(item.id, 'chat:whatsapp:wa:999000000005');
+  assert.match(item.sentence, /isn’t on WhatsApp/);
+  assert.match(item.detail, /\+999000000005/);
+  assert.match(item.detail, /6 messages/);
+  assert.equal(item.problem.type, 'chat');
+  assert.equal(item.problem.count, 6, 'the outbox rows are the same messages, not more');
+  assert.equal(item.problem.last_attempt, lost.at(-1).created_at);
+  assert.equal(item.problem.reason, 'not_on_whatsapp');
+  assert.equal(item.problem.retryable, false, 'sending again cannot reach a number WhatsApp does not know');
+
+  // Delta Trans's one failure is still its own row, retryable as before.
+  assert.ok(r.body.items.some((i) => i.id === 'message:3'));
+});
+
+test('several failures for one chat: one item, with how many, the last error and the last attempt', async () => {
+  const more = failures(WA, 2, { error: '(#131047) Re-engagement message', from: 200, clientId: 2 });
+  const r = await get({ view: 'inbox', filter: 'problems' });
+  const forWa = r.body.items.filter((i) => i.link?.chat_id === WA && i.kind === 'problem');
+  assert.equal(forWa.length, 1);
+  const [item] = forWa;
+  assert.equal(item.sentence, '3 messages didn’t reach Delta Trans');
+  assert.equal(item.problem.count, 3);
+  assert.equal(item.problem.last_attempt, more.at(-1).created_at);
+  assert.match(item.problem.last_error, /hasn’t written in 24 hours/);
+  assert.match(item.detail, /hasn’t written in 24 hours/);
+
+  // Set aside, it stays aside - until something new fails.
+  const aside = await post({ action: 'dismiss_problem', problem_id: item.id });
+  assert.equal(aside.status, 200);
+  let after = await get({ view: 'inbox', filter: 'problems' });
+  assert.ok(!after.body.items.some((i) => i.link?.chat_id === WA && i.kind === 'problem'));
+  rows('chat_messages').push({
+    id: 299, channel: 'whatsapp', chat_id: WA, client_id: 2, direction: 'out', author: 'bot', kind: 'text', body: 'later',
+    status: 'failed', error: 'boom', created_at: new Date(Date.now() + 1000).toISOString(),
+  });
+  after = await get({ view: 'inbox', filter: 'problems' });
+  const back = after.body.items.filter((i) => i.link?.chat_id === WA && i.kind === 'problem');
+  assert.equal(back.length, 1);
+  assert.equal(back[0].id, 'message:299', 'just the new one');
+});
+
 test('the chats list: both channels, newest first, failures counted', async () => {
   const r = await get({ view: 'chats' });
   assert.equal(r.status, 200);
@@ -718,6 +791,205 @@ test('the request-resolved preview is word for word what notify.js sends', async
   assert.match(JSON.stringify(sent.body.reply_markup ?? {}), /menu:contact/);
 });
 
+// ---------------------------------------------------------------------------
+// What the redesigned desk reads from the server instead of guessing
+// ---------------------------------------------------------------------------
+
+const TONES = ['blue', 'amber', 'green', 'red', 'gray'];
+const MEANINGS = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
+
+/** Two MRN applications that are rows of their own: one for a decided booking, one for a WhatsApp chat with none. */
+function mrnApplications() {
+  rows('mrn_requests').push(
+    { id: 31, request_ref: 'MKY-MRN-31', booking_ref: 'MKY-BKG-3', chat_id: '555', client_id: 1, status: 'approved', created_at: iso(3600_000), submitted_at: iso(3600_000) },
+    { id: 32, request_ref: 'MKY-MRN-32', booking_ref: null, chat_id: WA, client_id: 2, status: 'submitted', created_at: iso(1800_000), submitted_at: iso(1800_000) },
+  );
+}
+
+test('every inbox row says its status as a label and a tone, not just a sentence to read it from', async () => {
+  mrnApplications();
+  failures('wa:999000000005', 2);
+  for (const tab of ['needs_us', 'waiting', 'done']) {
+    const r = await get({ view: 'inbox', tab });
+    for (const item of r.body.items) {
+      assert.ok(item.status?.label, `${item.id} has a status label`);
+      assert.ok(TONES.includes(item.status.tone), `${item.id}: ${item.status.tone}`);
+      assert.equal(item.status.meaning, MEANINGS[item.status.tone], `${item.id} says what its tone means`);
+    }
+  }
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const byId = Object.fromEntries(r.body.items.map((i) => [i.id, i]));
+  assert.deepEqual(byId['request:MKY-T-1'].status, { label: 'New', tone: 'blue', meaning: 'info' });
+  assert.deepEqual(byId['mrn:MKY-MRN-31'].status, { label: 'Approved — record the number', tone: 'blue', meaning: 'info' });
+  assert.deepEqual(byId['mrn:MKY-MRN-32'].status, { label: 'New application', tone: 'blue', meaning: 'info' });
+  assert.equal(byId['chat:whatsapp:wa:999000000005'].status.label, 'Not on WhatsApp');
+  assert.equal(byId['message:3'].status.label, 'Not delivered');
+  assert.equal(byId['document:103'].status.label, 'Unreadable');
+  assert.equal(byId['booking:MKY-BKG-1'].status.label, 'New request', 'a booking says what its status_words say');
+  assert.equal(byId['booking:MKY-BKG-1'].status_words, 'New request', 'and status_words is still there');
+});
+
+test('an MRN row names the customer and their channel, not the booking reference', async () => {
+  mrnApplications();
+  const r = await get({ view: 'inbox', filter: 'mrn' });
+  const byRef = Object.fromEntries(r.body.items.filter((i) => i.kind === 'mrn').map((i) => [i.ref, i]));
+  assert.equal(byRef['MKY-MRN-31'].who, 'Nile Motors');
+  assert.equal(byRef['MKY-MRN-31'].channel, 'telegram');
+  assert.equal(byRef['MKY-MRN-31'].booking_ref, 'MKY-BKG-3');
+  assert.match(byRef['MKY-MRN-31'].detail, /MKY-BKG-3/);
+  assert.equal(byRef['MKY-MRN-32'].channel, 'whatsapp');
+  assert.notEqual(byRef['MKY-MRN-32'].who, 'MRN application');
+
+  // And the case page says the application's own channel.
+  const c = await get({ view: 'case', type: 'mrn', ref: 'MKY-MRN-32' });
+  assert.equal(c.body.mrn.channel, 'whatsapp');
+  assert.equal(c.body.conversation.channel, 'whatsapp');
+});
+
+test('inbox rows carry their record\'s version, so taking one needs no second read', async () => {
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const booking = r.body.items.find((i) => i.id === 'booking:MKY-BKG-1');
+  const callback = r.body.items.find((i) => i.id === 'request:MKY-T-1');
+  const bookingCase = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  const requestCase = await get({ view: 'case', type: 'request', ref: 'MKY-T-1' });
+  assert.equal(booking.version, bookingCase.body.version);
+  assert.equal(callback.version, requestCase.body.version);
+
+  assert.equal((await post({ action: 'take', booking_ref: 'MKY-BKG-1', version: booking.version })).status, 200);
+  assert.equal((await post({ action: 'take', ticket_ref: 'MKY-T-1', version: callback.version })).status, 200);
+});
+
+test('call-backs and MRN applications found by search have a tone, like bookings', async () => {
+  mrnApplications();
+  const r = await get({ view: 'search', q: 'MKY' });
+  const requests = r.body.groups.find((g) => g.key === 'requests');
+  assert.ok(requests.items.length);
+  for (const i of requests.items) assert.ok(TONES.includes(i.tone), JSON.stringify(i));
+  const mrn = r.body.groups.find((g) => g.key === 'mrn');
+  for (const i of mrn.items) assert.ok(TONES.includes(i.tone), JSON.stringify(i));
+});
+
+test('the shipments list counts each filter, whichever one is shown', async () => {
+  rows('shipments').push({ shipment_id: 'MKY-26002', customer_name: 'Nile Motors', status: 'Delivered', delivery_status: 'Complete', updated_at: iso(3600_000) });
+  for (const filter of ['active', 'delivered', 'all']) {
+    const r = await get({ view: 'shipments', filter });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.counts, { active: 1, delivered: 1, all: 2 }, filter);
+  }
+});
+
+// The live test, 2026-10-08: a photo of an invoice sent with no booking open
+// was stored under unfiled/ and appeared nowhere on the desk.
+test('a paper on no booking, and one that arrived after its booking was decided, are each a row on the desk', async () => {
+  rows('booking_documents').push(
+    { id: 301, booking_ref: null, chat_id: WA, client_id: 2, channel: 'whatsapp', doc_type: 'invoice', status: 'received', file_name: 'photo-1.jpg', uploaded_at: iso(600_000) },
+    { id: 302, booking_ref: 'MKY-BKG-3', chat_id: '555', client_id: 1, channel: 'telegram', doc_type: 'acid', status: 'received', file_name: 'acid.jpg', uploaded_at: iso(30_000) },
+    // Sent while a booking is being filled in: it is that booking's, not the desk's yet.
+    { id: 303, booking_ref: null, chat_id: 'wa:201009990000', channel: 'whatsapp', doc_type: 'invoice', status: 'received', uploaded_at: iso(60_000) },
+  );
+  rows('bookings').push({ booking_ref: 'MKY-BKG-D', status: 'draft', chat_id: 'wa:201009990000', channel: 'whatsapp' });
+
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const loose = r.body.items.find((i) => i.id === 'document:301');
+  assert.ok(loose, 'the paper with no booking is on the desk');
+  assert.match(loose.sentence, /sent an Invoice with no booking/);
+  assert.equal(loose.link.type, 'chat');
+  assert.equal(loose.link.chat_id, WA);
+  assert.equal(loose.link.document_id, 301);
+  assert.equal(loose.status.label, 'No booking');
+
+  const late = r.body.items.find((i) => i.id === 'document:302');
+  assert.ok(late, 'the paper that came after the booking was confirmed is on the desk');
+  assert.match(late.sentence, /ACID .*after .*MKY-BKG-3 was confirmed/);
+  assert.deepEqual(late.link, { type: 'booking', ref: 'MKY-BKG-3', document_id: 302 });
+
+  assert.ok(!r.body.items.some((i) => i.id === 'document:303'), 'a booking being filled in will take it');
+
+  // Set aside, it stays aside.
+  await post({ action: 'dismiss_problem', problem_id: 'document:301' });
+  const after = await get({ view: 'inbox', tab: 'needs_us' });
+  assert.ok(!after.body.items.some((i) => i.id === 'document:301'));
+});
+
+// The live test, 2026-10-08: the customer sent an invoice for the wrong
+// chassis, then the right one, which the desk verified. "Ask for a new one" on
+// the wrong one still asked the customer for "A new Invoice" and put the
+// booking back on them - and the answer carried no told/not-told words, so
+// the desk showed no toast.
+
+test('asking for a new copy of a paper already put right sets the wrong one aside, without asking again', async () => {
+  rows('booking_documents').push({
+    id: 104, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'invoice', status: 'received', vin: 'YV2RT40A8FB799999',
+    storage_path: '1/MKY-BKG-1/inv-wrong.pdf', mime_type: 'application/pdf', extraction_ok: true, extracted: { ok: true, vin: 'YV2RT40A8FB799999' },
+    uploaded_at: iso(6 * 3600_000),
+  });
+  // The right invoice (101) is in, for this chassis, and checked.
+  rows('booking_documents').find((d) => d.id === 101).status = 'verified';
+  const outboxBefore = rows('notification_outbox').length;
+
+  const r = await post({ action: 'reject_document', document_id: 104, reason_code: 'wrong_vin', reason: 'chassis on this invoice is different' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'rejected');
+  assert.equal(r.body.set_aside, true);
+  assert.equal(r.body.replaced_by.id, 101);
+  assert.match(r.body.customer_told.words, /already sent a correct Invoice/);
+  assert.match(r.body.customer_told.words, /not asked/);
+  assert.equal(r.body.customer_told.warn, false);
+  assert.equal(rows('notification_outbox').length, outboxBefore, 'nothing sent to the customer');
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').status, 'pending_review', 'the booking is not put back on them');
+  assert.equal(rows('booking_documents').find((d) => d.id === 104).status, 'rejected');
+});
+
+test('asking for a new copy of a paper not yet put right asks the customer, and says whether they were told', async () => {
+  const r = await post({ action: 'reject_document', document_id: 102, reason_code: 'wrong_vin', reason: 'chassis on this CMR is different' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'replacement_requested');
+  assert.ok(r.body.customer_told.words, 'words for the toast, like every other action that messages the customer');
+  assert.equal(typeof r.body.customer_told.warn, 'boolean');
+  assert.ok(['sent', 'queued', 'held', 'failed', 'none', 'email'].includes(r.body.customer_told.reached));
+  assert.equal(rows('bookings').find((b) => b.booking_ref === 'MKY-BKG-1').status, 'needs_client_action');
+  assert.ok(rows('notification_outbox').some((o) => o.event_type === 'document_rejected' && o.entity_id === 'MKY-BKG-1'));
+});
+
+/** A request's call-back tasks as the bot writes them - and as it wrote them before 2026-10-08. */
+function callbackTasks() {
+  const t = rows('support_tickets')[0];
+  rows('operations_tasks').push(
+    // The request's own task.
+    { id: 901, task_ref: 'MKY-TSK-OWN', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      priority: 'normal', idempotency_key: 'ticket:MKY-T-1', payload: { ticket_ref: 'MKY-T-1' }, created_at: t.created_at },
+    // The tap's, from before the fix: no ticket named, made a minute earlier.
+    { id: 902, task_ref: 'MKY-TSK-TAP', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      priority: 'high', idempotency_key: 'client_callback:555:2026-10-08T15', payload: { after_hours: false }, created_at: iso(41 * 60_000) },
+    // Somebody else's, and this customer's request from three days ago: not this request's.
+    { id: 903, task_ref: 'MKY-TSK-OTHER', task_type: 'client_callback', chat_id: '777', channel: 'telegram', status: 'open',
+      payload: {}, created_at: iso(41 * 60_000) },
+    { id: 904, task_ref: 'MKY-TSK-OLD', task_type: 'client_callback', chat_id: '555', channel: 'telegram', status: 'open',
+      payload: {}, created_at: iso(3 * 86400_000) },
+  );
+  return (ref) => rows('operations_tasks').find((x) => x.task_ref === ref).status;
+}
+
+test('resolving a request closes its call-back tasks - including the tap\'s second one from before the fix', async () => {
+  const status = callbackTasks();
+  const r = await post({ action: 'request_resolve', ticket_ref: 'MKY-T-1', note: 'Called them back and sorted the paperwork.' });
+  assert.equal(r.status, 200);
+  assert.equal(status('MKY-TSK-OWN'), 'done');
+  assert.equal(status('MKY-TSK-TAP'), 'done', 'resolving it left both open');
+  assert.equal(status('MKY-TSK-OTHER'), 'open', 'another chat\'s');
+  assert.equal(status('MKY-TSK-OLD'), 'open', 'an older request of theirs');
+  const closed = rows('operations_tasks').find((x) => x.task_ref === 'MKY-TSK-OWN');
+  assert.equal(closed.completed_by, 'Sara');
+});
+
+test('closing a request without a message closes its tasks too', async () => {
+  const status = callbackTasks();
+  const r = await post({ action: 'request_status', ticket_ref: 'MKY-T-1', status: 'closed' });
+  assert.equal(r.status, 200);
+  assert.equal(status('MKY-TSK-OWN'), 'done');
+  assert.equal(status('MKY-TSK-TAP'), 'done');
+});
+
 test('settings: every value checked, refused with a sentence, saved with its history', async () => {
   const bad = await post({ action: 'settings_write', changes: { support_hours_start: '9am', direct_phone: 'call me' } }, 'Ariful');
   assert.equal(bad.status, 400);
@@ -817,6 +1089,28 @@ test('the desk number is set in Settings and is the one the bot gives; the old e
 
   const view = await get({ view: 'settings' }, 'Ariful');
   assert.equal(view.body.values.operations_phone, '+20 3 111 2222', 'and the page shows what is set');
+});
+
+// The live test, 2026-10-08: an urgent after-hours customer was told to ring
+// "our responsible person directly on +48 512 345 678" - the placeholder the
+// setup seeded as direct_phone, and the number the tests and docs use.
+test('Settings says when the direct line still looks like the example number from the setup', async () => {
+  rows('bot_settings').push({ key: 'direct_phone', value: '+48 512 345 678' });
+  invalidateSettings();
+  const view = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(view.status, 200);
+  assert.equal(view.body.values.direct_phone, '+48 512 345 678', 'the value is shown as it is - nothing is changed');
+  assert.match(view.body.warnings.direct_phone, /looks like the example number/);
+
+  const saved = await post({ action: 'settings_write', changes: { direct_phone: '+48 512-345-678' } }, 'Ariful');
+  assert.equal(saved.status, 200, 'saving it is not refused');
+  assert.match(saved.body.warnings.direct_phone, /looks like the example number/);
+
+  const real = await post({ action: 'settings_write', changes: { direct_phone: '+20 100 222 3333' } }, 'Ariful');
+  assert.equal(real.status, 200);
+  assert.equal(real.body.warnings?.direct_phone ?? null, null);
+  const after = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(after.body.warnings?.direct_phone ?? null, null);
 });
 
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {

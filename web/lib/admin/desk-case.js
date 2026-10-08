@@ -13,6 +13,7 @@
  */
 
 import { db } from '../supabase.js';
+import { channelOf } from '../channels.js';
 import { signedUrl } from '../storage.js';
 import { audit } from '../audit.js';
 import { requiredDocuments, settings } from '../settings.js';
@@ -345,7 +346,7 @@ export async function bookingCase(req, res, who) {
   ]);
 
   const customer = await customerFor({
-    clientId: booking.client_id, channel: booking.channel ?? 'telegram', chatId: booking.chat_id,
+    clientId: booking.client_id, channel: booking.channel ?? channelOf(booking.chat_id), chatId: booking.chat_id,
     name: booking.customer_name, contact: booking.customer_contact,
   });
   const nextStep = bookingNextStep(who, state, docsOut);
@@ -375,7 +376,7 @@ export async function bookingCase(req, res, who) {
       status: booking.status,
       mrn_choice: booking.mrn_choice ?? null,
       mrn_number: booking.mrn_number ?? null,
-      channel: booking.channel ?? 'telegram',
+      channel: booking.channel ?? channelOf(booking.chat_id, null),
       chat_id: booking.chat_id ?? null,
       confirmed_at: booking.confirmed_at ?? null,
       confirmed_by: booking.confirmed_by ?? null,
@@ -416,7 +417,7 @@ export async function bookingCase(req, res, who) {
       id: n.id, event_type: n.event_type, status: n.status, at: n.sent_at ?? n.created_at, error: n.last_error ?? null,
     })),
     last_change: (auditQ.data ?? [])[0] ? describeActivity(auditQ.data[0]) : null,
-    conversation: { channel: booking.channel ?? 'telegram', chat_id: booking.chat_id ?? null },
+    conversation: { channel: booking.channel ?? channelOf(booking.chat_id), chat_id: booking.chat_id ?? null },
   });
 }
 
@@ -515,7 +516,7 @@ export async function requestCase(req, res, who) {
     notesFor(ref),
   ]);
   const customer = await customerFor({
-    clientId: t.client_id, channel: t.channel ?? 'telegram', chatId: t.chat_id, name: t.customer || t.client_display_name, contact: phone,
+    clientId: t.client_id, channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, name: t.customer || t.client_display_name, contact: phone,
   });
   const type = REQUEST_TYPE[t.request_type] ?? REQUEST_TYPE.other;
 
@@ -548,7 +549,7 @@ export async function requestCase(req, res, who) {
     notes,
     history: (auditQ.data ?? []).map(describeActivity),
     last_change: (auditQ.data ?? [])[0] ? describeActivity(auditQ.data[0]) : null,
-    conversation: { channel: t.channel ?? 'telegram', chat_id: t.chat_id ?? null },
+    conversation: { channel: t.channel ?? channelOf(t.chat_id), chat_id: t.chat_id ?? null },
   });
 }
 
@@ -579,8 +580,13 @@ export async function mrnCase(req, res, who) {
       .in('entity_id', [ref, m.booking_ref].filter(Boolean)).order('created_at', { ascending: false }).limit(40),
     notesFor(ref),
   ]);
+  // The application's own channel: its chat says which, and the booking's
+  // channel is only the fallback for an application with no chat. The page
+  // read booking?.channel and, with no booking, fell back to Telegram.
+  const chatId = m.chat_id ?? booking?.chat_id ?? null;
+  const channel = m.chat_id ? channelOf(m.chat_id) : booking?.channel ?? (chatId ? channelOf(chatId) : null);
   const customer = await customerFor({
-    clientId: m.client_id ?? booking?.client_id, channel: booking?.channel ?? 'telegram', chatId: m.chat_id ?? booking?.chat_id,
+    clientId: m.client_id ?? booking?.client_id, channel, chatId,
     name: booking?.customer_name, contact: booking?.customer_contact,
   });
 
@@ -596,8 +602,12 @@ export async function mrnCase(req, res, who) {
     mrn: {
       request_ref: m.request_ref, booking_ref: m.booking_ref ?? null, status: m.status, mrn_number: m.mrn_number ?? null,
       supplied: m.supplied_information?.notes ?? [], missing: m.missing_information ?? [], notes: m.operations_notes ?? null,
+      channel, chat_id: chatId,
     },
-    booking: booking ? { booking_ref: booking.booking_ref, status_words: statusWords(booking.status), customer_name: booking.customer_name } : null,
+    booking: booking ? {
+      booking_ref: booking.booking_ref, status_words: statusWords(booking.status), customer_name: booking.customer_name,
+      channel: booking.channel ?? channelOf(booking.chat_id, null),
+    } : null,
     customer,
     next_step: {
       owner: meta.owner, owner_words: turnWords(meta.owner), owner_tone: TURN[meta.owner]?.tone ?? 'gray',
@@ -609,7 +619,7 @@ export async function mrnCase(req, res, who) {
     notes,
     history: (auditRows ?? []).map(describeActivity),
     last_change: (auditRows ?? [])[0] ? describeActivity(auditRows[0]) : null,
-    conversation: { channel: booking?.channel ?? 'telegram', chat_id: m.chat_id ?? booking?.chat_id ?? null },
+    conversation: { channel, chat_id: chatId },
   });
 }
 
@@ -681,7 +691,7 @@ export async function previewView(req, res) {
     return b;
   };
   const targetOf = (row, name, contact) => ({
-    channel: row?.channel ?? 'telegram', chatId: row?.chat_id ?? null, clientId: row?.client_id ?? null, name, contact,
+    channel: row?.channel ?? channelOf(row?.chat_id), chatId: row?.chat_id ?? null, clientId: row?.client_id ?? null, name, contact,
   });
 
   if (kind === 'reject_document') {

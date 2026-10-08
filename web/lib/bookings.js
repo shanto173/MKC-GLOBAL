@@ -14,6 +14,7 @@ import { db } from './supabase.js';
 import { config, DESTINATION_PORTS } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { makeTaskRef } from './operations.js';
+import { channelOf } from './channels.js';
 import { looksLikePhone } from './phone.js';
 import { setting } from './settings.js';
 
@@ -203,8 +204,11 @@ export async function openBookingFor(chatId) {
  * that never deleted anything - on the tap the client is waiting on.
  */
 export async function createDraft({
-  chatId, clientId = null, channel = 'telegram', telegramUserId = null, replaceExisting = true,
+  chatId, clientId = null, channel: given = null, telegramUserId = null, replaceExisting = true, language = null,
 }) {
+  // The chat says which channel when the caller does not: never 'telegram'
+  // for a "wa:" chat.
+  const channel = given ?? channelOf(chatId);
   if (replaceExisting) {
     await db().from('bookings').delete().eq('chat_id', String(chatId)).eq('status', 'draft');
   }
@@ -223,6 +227,9 @@ export async function createDraft({
     // client walks away from before that still points somewhere.
     customer_contact: `${channel}:${chatId}`,
     raw: {},
+    // The conversation's language, when the customer chose one. The column's
+    // default is 'en', which is what every Arabic customer's booking said.
+    ...(language ? { language } : {}),
   };
 
   const { data, error } = await db().from('bookings').insert(row).select().single();
@@ -248,6 +255,17 @@ export async function createDraft({
  * Refuses to touch anything that is no longer a draft, so a retried callback
  * cannot edit a request an operator is already reading.
  */
+/**
+ * A language chosen while a booking is being filled in goes on that booking,
+ * so it is not left saying 'en' for a customer who switched to Arabic.
+ */
+export async function setDraftLanguage(chatId, language) {
+  if (chatId == null || !['en', 'ar'].includes(language)) return;
+  const { error } = await db().from('bookings').update({ language })
+    .eq('chat_id', String(chatId)).eq('status', 'draft');
+  if (error) console.error('draft language not saved:', error.message);
+}
+
 export async function updateDraft(ref, patch, { chatId } = {}) {
   const clean = { ...patch, updated_at: undefined };
   delete clean.updated_at;

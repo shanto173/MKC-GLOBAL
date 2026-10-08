@@ -20,6 +20,7 @@ import { db } from './supabase.js';
 import { config } from './config.js';
 import { audit, logEvent } from './audit.js';
 import { sendMessage } from './telegram.js';
+import { channelOf } from './channels.js';
 import { pumbleNotifier } from './integrations/pumble.js';
 
 /** A short reference an operator can quote: MKY-TSK-260908-4F2A. */
@@ -49,7 +50,10 @@ export async function createTask(task) {
     mrn_request_id: task.mrnRequestId ?? null,
     client_id: task.clientId ?? null,
     chat_id: task.chatId != null ? String(task.chatId) : null,
-    channel: task.channel ?? 'telegram',
+    // The caller's word, else the chat's own: a "wa:" chat is WhatsApp. This
+    // defaulted to 'telegram', and the MRN and confirm-booking tasks of
+    // WhatsApp bookings - whose callers pass none - said Telegram on the desk.
+    channel: task.channel ?? channelOf(task.chatId, null),
     status: 'open',
     priority: task.priority ?? 'normal',
     payload: task.payload ?? {},
@@ -119,6 +123,56 @@ export async function closeTasksForBooking(bookingRef, { operator = 'operations'
     .eq('booking_ref', bookingRef)
     .in('status', ['open', 'in_progress']);
   if (error) console.error('closing tasks failed:', error.message);
+}
+
+/**
+ * Closes the call-back task(s) behind a request once the request is resolved
+ * or closed, so the work queue agrees with the desk.
+ *
+ * A request's task names it (idempotency key ticket:<ref>, payload.ticket_ref).
+ * Before 2026-10-08 a tap on "Talk to an agent" also made a task of its own,
+ * naming no ticket, a moment before the customer typed the problem that raised
+ * the request - and resolving the request closed neither. Such a task, from
+ * the same chat and no more than two hours before the request, is taken to be
+ * this request's too.
+ *
+ * @param {{ticket_ref: string, chat_id?: string|null, created_at?: string}} ticket
+ */
+export async function closeTasksForTicket(ticket, { operator = 'operations', reason = null } = {}) {
+  const ref = ticket?.ticket_ref;
+  if (!ref) return { ok: false, closed: 0 };
+
+  const query = db().from('operations_tasks').select('*')
+    .eq('task_type', 'client_callback').in('status', ['open', 'in_progress']);
+  const { data, error } = await (ticket.chat_id ? query.eq('chat_id', String(ticket.chat_id)) : query.eq('idempotency_key', `ticket:${ref}`));
+  if (error) {
+    console.error('reading call-back tasks failed:', error.message);
+    return { ok: false, closed: 0 };
+  }
+
+  const raised = ticket.created_at ? new Date(ticket.created_at).getTime() : null;
+  const tapBefore = (t) => {
+    if (t.payload?.ticket_ref || !String(t.idempotency_key ?? '').startsWith('client_callback:') || raised === null) return false;
+    const at = new Date(t.created_at).getTime();
+    return at <= raised + 5 * 60_000 && at >= raised - 2 * 3600_000;
+  };
+  const mine = (data ?? []).filter((t) => t.idempotency_key === `ticket:${ref}` || t.payload?.ticket_ref === ref || tapBefore(t));
+  if (!mine.length) return { ok: true, closed: 0 };
+
+  const now = new Date().toISOString();
+  const { error: closeErr } = await db().from('operations_tasks').update({
+    status: 'done',
+    completed_at: now,
+    completed_by: operator,
+    updated_at: now,
+    ...(reason ? { notes: reason } : {}),
+  }).in('id', mine.map((t) => t.id)).in('status', ['open', 'in_progress']);
+  if (closeErr) {
+    console.error('closing call-back tasks failed:', closeErr.message);
+    return { ok: false, closed: 0 };
+  }
+  logEvent('callback_tasks_closed', { ticket_ref: ref, closed: mine.length });
+  return { ok: true, closed: mine.length };
 }
 
 // ---------------------------------------------------------------------------

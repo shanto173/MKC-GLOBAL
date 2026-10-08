@@ -552,13 +552,65 @@ test('an Arabic booking is Arabic from the menu to the card - no English half an
   const card = said(replies[replies.length - 1]);
   assert.match(card, /راجع بيانات الحجز/);
   assert.match(card, /العميل: شركة النيل/);
-  assert.match(card, /Vilnius ← Alexandria Port/, 'the Arabic arrow');
+  assert.match(card, /Vilnius ← ميناء الإسكندرية/, 'the Arabic arrow, and the port in Arabic');
   assert.doesNotMatch(card, /Please confirm|Client|Route/);
   assert.equal(replies[replies.length - 1].state, S.BOOK_FINAL_CONFIRMATION);
 
   const done = await h.tap('bk:confirm');
   assertArabicOnly(done, 'submitted');
-  assert.match(said(done), /اتأكد طلب الحجز/);
+  assert.match(said(done), /وصلنا طلب الحجز وبعتناه لفريق العمليات/);
+  assert.doesNotMatch(said(done), /اتأكد/, 'received, not confirmed');
+});
+
+// The live test, 2026-10-08: an Arabic customer's booking was stored with
+// language 'en' - the column's default - so anything reading the booking
+// (the desk, a PDF rebuilt later) took it for English.
+test('a booking records the language of the conversation it was made in', async () => {
+  const ar = harness();
+  await ar.command('/start');
+  await ar.tap('lang:ar');
+  await bookToCard(ar, { name: 'شركة النيل' });
+  await ar.tap('bk:confirm');
+  assert.equal(ar.booking().language, 'ar');
+
+  const en = harness({ channel: 'whatsapp' });
+  await en.command('/start', 'hi');
+  await en.tap('lang:en');
+  await bookToCard(en);
+  assert.equal(en.booking().language, 'en');
+
+  // Chosen half-way through: the booking follows.
+  const late = harness({ settings: [{ key: 'ask_language_first', value: false }] });
+  await late.command('/start');
+  await late.tap('menu:book');
+  await late.text('arabic');
+  assert.equal(late.booking().language, 'ar');
+});
+
+// The live test, 2026-10-08: an Arabic chat was shown the list of Egyptian
+// ports, and the route on the review card, in English.
+test('an Arabic chat names the Egyptian ports in Arabic - in the list and on the card', async () => {
+  const { matchPort } = await import('../lib/bookings.js');
+  const h = harness();
+  await h.command('/start');
+  await h.tap('lang:ar');
+  const replies = await bookToCard(h, { name: 'شركة النيل' });
+
+  const asked = said(replies[5]);
+  for (const port of ['ميناء الإسكندرية', 'ميناء بورسعيد', 'ميناء دمياط', 'ميناء العين السخنة', 'ميناء السويس']) {
+    assert.ok(asked.includes(port), `${port} in: ${asked}`);
+    assert.ok(matchPort(port), `${port} typed back is understood`);
+  }
+  assert.doesNotMatch(asked, /Alexandria Port|Port Said|Damietta Port|Sokhna|Suez Port/);
+
+  const card = said(replies.at(-1));
+  assert.match(card, /Vilnius ← ميناء الإسكندرية/);
+  assert.doesNotMatch(card, /Alexandria Port/);
+  assert.equal(h.booking().destination_port, 'Alexandria Port (incl. El Dekheila)', 'the paperwork keeps the name customs use');
+
+  // English and bilingual chats are as they were.
+  const en = withLanguage('en', () => M.askDestination(['Port Said']));
+  assert.match(en, /• Port Said/);
 });
 
 test('an English booking is English from the menu to the card - no Arabic anywhere', async () => {

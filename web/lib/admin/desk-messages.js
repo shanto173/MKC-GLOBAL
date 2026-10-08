@@ -49,11 +49,25 @@ export const REPLACEMENT_REASONS = [
 const reasonFor = (code) => REPLACEMENT_REASONS.find((r) => r.code === code) ?? REPLACEMENT_REASONS.at(-1);
 
 /**
+ * The papers as the customer calls them. The desk's own labels (DOC_LABEL)
+ * say "Brief", the industry's word; a customer asked for "a new Brief" had
+ * been asked for a "transport document" everywhere else.
+ */
+const DOC_EN = {
+  invoice: 'Invoice',
+  brief: 'transport document (CMR or bill of lading)',
+  mrn: 'MRN document',
+  acid: 'ACID certificate',
+  eur1: 'EUR.1 certificate',
+  other: 'document',
+};
+
+/**
  * What the customer is asked for when a document is sent back, in both
  * languages: the outbox renderer picks the half that matches the customer.
  */
 export function replacementRequest(docType, code, note = '') {
-  const label = DOC_LABEL[docType] ?? 'document';
+  const label = DOC_EN[docType] ?? DOC_LABEL[docType] ?? 'document';
   const r = reasonFor(code);
   const extra = String(note ?? '').trim();
   return {

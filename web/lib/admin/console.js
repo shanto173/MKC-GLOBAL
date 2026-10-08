@@ -38,7 +38,7 @@ import { db } from '../supabase.js';
 import { audit } from '../audit.js';
 import { enqueue, drain } from '../outbox.js';
 import { customerReached } from '../notify.js';
-import { createTask, completeTask } from '../operations.js';
+import { createTask, completeTask, closeTasksForTicket } from '../operations.js';
 import { requiredDocuments } from '../settings.js';
 import { openMrnRequest } from '../mrn.js';
 import decideBooking from '../../api/admin/bookings.js';
@@ -47,7 +47,8 @@ import shipmentsApi from '../../api/admin/shipments.js';
 import mrnApi from './mrn.js';
 import {
   readiness, canTransition, statusLabel, statusWords, statusTone, canTransitionRequest, requestStatusLabel,
-  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES,
+  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES, DOC_LABEL,
+  requestStatusTone, MRN_STATUS,
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
@@ -64,6 +65,7 @@ import {
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -488,6 +490,47 @@ async function reviewDocument(req, res, who, verify, ctx) {
 
   const code = String(req.body.reason_code ?? 'other');
   const note = String(req.body.reason ?? '').trim().slice(0, 300);
+  const { data: booking } = doc.booking_ref
+    ? await db().from('bookings').select('client_id, chat_id, channel, customer_name, vin')
+      .eq('booking_ref', doc.booking_ref).maybeSingle()
+    : { data: null };
+
+  // A paper the customer has already put right is not asked for again. In the
+  // live test the wrong-chassis invoice was sent back after the right one had
+  // been checked, and the customer was asked for "A new Invoice" they had
+  // already sent, with the booking put back on them. The wrong one is set
+  // aside instead - kept, as the record of what was sent - and the desk is
+  // told why nobody was asked. `ask_anyway` asks regardless.
+  const replacement = req.body.ask_anyway === true ? null : await putRight(doc, booking);
+  if (replacement) {
+    const { error } = await db().from('booking_documents').update({
+      status: 'rejected',
+      rejection_code: code,
+      rejection_reason: note || null,
+      reviewed_at: new Date().toISOString(),
+      verified_by: who.name,
+    }).eq('id', id);
+    if (error) return res.status(500).json({ error: 'We could not save that.' });
+    await audit({
+      actor_type: 'operator', actor_id: who.name, action: 'document_set_aside',
+      entity_type: 'booking_document', entity_id: String(id),
+      metadata: { doc_type: doc.doc_type, booking_ref: doc.booking_ref, reason_code: code, replaced_by: replacement.id },
+    });
+    const label = DOC_LABEL[doc.doc_type] ?? 'document';
+    const state = replacement.status === 'verified' ? 'checked' : 'for this chassis, not checked yet';
+    return res.status(200).json({
+      ok: true,
+      status: 'rejected',
+      set_aside: true,
+      replaced_by: { id: replacement.id, doc_type: replacement.doc_type, status: replacement.status },
+      customer_told: {
+        reached: 'not_asked',
+        warn: false,
+        words: `Set aside. The customer already sent a correct ${label} (${state}), so they were not asked for another.`,
+      },
+    });
+  }
+
   const { error } = await db().from('booking_documents').update({
     status: 'replacement_requested',
     rejection_code: code,
@@ -499,30 +542,33 @@ async function reviewDocument(req, res, who, verify, ctx) {
 
   // The old file stays. It is the record of what was sent, and a replacement
   // that arrives later points back at it.
-  let told = null;
+  let told = { reached: 'none', warn: true, words: 'This document is on no booking, so there was no customer to ask. Contact them directly.' };
   if (doc.booking_ref) {
-    const { data: booking } = await db().from('bookings').select('client_id, chat_id, channel, customer_name')
-      .eq('booking_ref', doc.booking_ref).maybeSingle();
     await db().from('bookings').update({ status: 'needs_client_action' })
       .eq('booking_ref', doc.booking_ref)
       .in('status', ['pending_review', 'under_review']);
 
-    const customer = await customerFor({ clientId: booking?.client_id, channel: booking?.channel ?? 'telegram', chatId: booking?.chat_id ?? doc.chat_id });
+    const channel = booking?.channel ?? channelOf(booking?.chat_id ?? doc.chat_id);
+    const customer = await customerFor({ clientId: booking?.client_id, channel, chatId: booking?.chat_id ?? doc.chat_id });
+    const idempotencyKey = `doc_replacement:${id}:${code}`;
     const queued = await enqueue({
       chatId: booking?.chat_id ?? doc.chat_id,
       clientId: booking?.client_id ?? null,
-      channel: booking?.channel ?? 'telegram',
+      channel,
       // Its own event, so on WhatsApp outside the 24 hours the template that
       // carries it says "send a new document", not "we need information".
       eventType: 'document_rejected',
       entityType: 'booking',
       entityId: doc.booking_ref,
       language: customer.language,
-      idempotencyKey: `doc_replacement:${id}:${code}`,
+      idempotencyKey,
       payload: { booking_ref: doc.booking_ref, ...replacementRequest(doc.doc_type, code, note) },
     });
     await drain({ limit: 5 }).catch(() => null);
-    told = { queued: queued.ok, duplicate: queued.ok && !queued.queued };
+    // Told or not, in the same words every other action that messages the
+    // customer uses, so the desk can say so. This answered only "queued".
+    const reached = await customerReached({ chat: queued.ok, channel, key: idempotencyKey });
+    told = { queued: queued.ok, duplicate: queued.ok && !queued.queued, ...reached };
   }
 
   await audit({
@@ -558,12 +604,12 @@ async function requestInfo(req, res, who) {
   }).eq('booking_ref', ref).in('status', ['pending_review', 'under_review', 'needs_client_action']);
 
   const key = actionKeyOf(req.body);
-  const customer = await customerFor({ clientId: booking.client_id, channel: booking.channel ?? 'telegram', chatId: booking.chat_id });
+  const customer = await customerFor({ clientId: booking.client_id, channel: booking.channel ?? channelOf(booking.chat_id), chatId: booking.chat_id });
   const idempotencyKey = `request_info:${ref}:${hash(requested)}${key ? `:${key}` : ''}`;
   const queued = await enqueue({
     chatId: booking.chat_id,
     clientId: booking.client_id ?? null,
-    channel: booking.channel ?? 'telegram',
+    channel: booking.channel ?? channelOf(booking.chat_id),
     eventType: 'missing_information_requested',
     entityType: 'booking',
     entityId: ref,
@@ -582,7 +628,7 @@ async function requestInfo(req, res, who) {
 
   // What became of the message, so the desk says "sent", "waiting for them to
   // write" or "not delivered" rather than "sent" in every case.
-  const told = await customerReached({ chat: queued.ok, channel: booking.channel ?? 'telegram', key: idempotencyKey });
+  const told = await customerReached({ chat: queued.ok, channel: booking.channel ?? channelOf(booking.chat_id), key: idempotencyKey });
   res.status(200).json({
     ok: true, queued: queued.ok, duplicate: queued.ok && !queued.queued, status: 'needs_client_action', customer_told: told,
   });
@@ -625,8 +671,14 @@ async function createBookingRecord(req, res, who) {
   if (req.body.note) patch.ops_notes = String(req.body.note).trim();
   if (Object.keys(patch).length) await db().from('bookings').update(patch).eq('booking_ref', ref);
 
+  // 'booking_confirmation', the type operations_tasks_type_check allows: the
+  // 'confirm_booking' this wrote was refused by the database every time, and
+  // createTask reports a refusal rather than throwing, so nobody noticed. The
+  // channel comes from the booking - the task used to say Telegram whatever
+  // the customer was on.
   await createTask({
-    taskType: 'confirm_booking', bookingRef: ref, chatId: booking.chat_id,
+    taskType: 'booking_confirmation', bookingRef: ref, chatId: booking.chat_id,
+    channel: booking.channel ?? channelOf(booking.chat_id, null),
     clientId: booking.client_id ?? null, priority: 'high',
     payload: { reference }, idempotencyKey: `confirm_booking:${ref}`,
   }).catch(() => null);
@@ -701,6 +753,27 @@ async function mrnAction(req, res, who, action) {
   return mrnApi(proxied, res);
 }
 
+/**
+ * Another paper of the same kind on this booking that has put this one right:
+ * checked by the desk, or carrying the booking's own chassis. Brief and EUR.1
+ * count as one kind, as they do for the requirement (lib/documents.js).
+ *
+ * @returns {Promise<object|null>} that document, or null
+ */
+async function putRight(doc, booking) {
+  if (!doc.booking_ref) return null;
+  const { data: others } = await db().from('booking_documents')
+    .select('id, doc_type, status, vin, uploaded_at').eq('booking_ref', doc.booking_ref).is('deleted_at', null);
+  const kind = (t) => (['brief', 'eur1'].includes(t) ? 'transport' : t);
+  const norm = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const chassis = norm(booking?.vin);
+  const right = (others ?? []).filter((d) => d.id !== doc.id && kind(d.doc_type) === kind(doc.doc_type)
+    && (d.status === 'verified'
+      || (['received', 'pending_verification'].includes(d.status) && chassis && norm(d.vin) === chassis)));
+  // A checked one first: that is the one the desk has already vouched for.
+  return right.find((d) => d.status === 'verified') ?? right[0] ?? null;
+}
+
 /** Closes the review task once a document is checked, so the work queue agrees with the record. */
 async function closeDocumentTask(bookingRef, operator) {
   if (!bookingRef) return;
@@ -747,7 +820,7 @@ async function requestStatus(req, res, who) {
   const ref = String(req.body.ticket_ref ?? '').trim();
   const to = String(req.body.status ?? '').trim();
 
-  const { data: before } = await db().from('support_tickets').select('status').eq('ticket_ref', ref).maybeSingle();
+  const { data: before } = await db().from('support_tickets').select('status, ticket_ref, chat_id, created_at').eq('ticket_ref', ref).maybeSingle();
   if (!before) return res.status(404).json({ error: `There is no request ${ref}.` });
 
   if (!canTransitionRequest(before.status, to)) {
@@ -760,6 +833,11 @@ async function requestStatus(req, res, who) {
     .update({ status: to }).eq('ticket_ref', ref).eq('status', before.status).select('status');
   if (error) return res.status(500).json({ error: 'We could not change the status.' });
   if (!data?.length) return res.status(409).json({ error: 'Somebody else changed this a moment ago. Refresh and look again.' });
+
+  // Closed without a message is still finished: its task goes with it.
+  if (to === 'resolved' || to === 'closed') {
+    await closeTasksForTicket(before, { operator: who.name, reason: `The request was ${to}.` });
+  }
 
   await audit({
     actor_type: 'operator', actor_id: who.name, action: 'request_status_changed',
@@ -774,9 +852,9 @@ async function requestReply(req, res, who) {
   const { data: t } = await db().from('support_tickets').select('*').eq('ticket_ref', ref).maybeSingle();
   if (!t?.chat_id) return res.status(404).json({ error: 'We have no chat to reply in.' });
 
-  const customer = await customerFor({ clientId: t.client_id, channel: t.channel ?? 'telegram', chatId: t.chat_id, name: t.customer });
+  const customer = await customerFor({ clientId: t.client_id, channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, name: t.customer });
   const sent = await sendToCustomer({
-    who, channel: t.channel ?? 'telegram', chatId: t.chat_id, clientId: customer.client_id, text: req.body.text,
+    who, channel: t.channel ?? channelOf(t.chat_id), chatId: t.chat_id, clientId: customer.client_id, text: req.body.text,
     actionKey: actionKeyOf(req.body), bookingRef: t.booking_ref ?? null,
     entityType: 'support_ticket', entityId: ref, language: customer.language,
   });
@@ -822,8 +900,19 @@ async function shipmentList(req, res) {
   if (filter === 'delivered') query.eq('delivery_status', 'Complete');
   else if (filter !== 'all') query.neq('delivery_status', 'Complete');
 
+  // How many each filter holds, whichever is shown, so the filter tabs can
+  // carry their numbers. Counted, not fetched.
+  const [all, delivered] = await Promise.all([
+    db().from('shipments').select('shipment_id', { count: 'exact', head: true }),
+    db().from('shipments').select('shipment_id', { count: 'exact', head: true }).eq('delivery_status', 'Complete'),
+  ]);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: 'We could not load shipments.' });
+  const counts = all.error || delivered.error ? null : {
+    active: (all.count ?? 0) - (delivered.count ?? 0),
+    delivered: delivered.count ?? 0,
+    all: all.count ?? 0,
+  };
 
   let rows = (data ?? []).map((s) => ({
     shipment_id: s.shipment_id,
@@ -844,7 +933,7 @@ async function shipmentList(req, res) {
     rows = rows.filter((s) => [s.shipment_id, s.booking_ref, s.customer_name, s.vin, s.vessel]
       .some((v) => String(v ?? '').toLowerCase().includes(q)));
   }
-  res.status(200).json({ filter, total: rows.length, milestones: SHIPMENT_MILESTONES, rows });
+  res.status(200).json({ filter, total: rows.length, counts, milestones: SHIPMENT_MILESTONES, rows });
 }
 
 /** GET view=shipment&id= */
@@ -860,7 +949,7 @@ async function shipmentDetail(req, res, who) {
       .eq('booking_ref', s.booking_ref).maybeSingle() : { data: null },
   ]);
   const customer = await customerFor({
-    clientId: booking?.client_id, channel: s.channel ?? booking?.channel ?? 'telegram', chatId: s.chat_id ?? booking?.chat_id,
+    clientId: booking?.client_id, channel: s.channel ?? booking?.channel ?? channelOf(s.chat_id ?? booking?.chat_id), chatId: s.chat_id ?? booking?.chat_id,
     name: s.customer_name, contact: booking?.customer_contact,
   });
 
@@ -918,7 +1007,7 @@ async function shipmentUpdate(req, res, who) {
     const { data: b } = s?.booking_ref
       ? await db().from('bookings').select('client_id, chat_id, channel').eq('booking_ref', s.booking_ref).maybeSingle()
       : { data: null };
-    const channel = s?.channel ?? b?.channel ?? 'telegram';
+    const channel = s?.channel ?? b?.channel ?? channelOf(s?.chat_id ?? b?.chat_id);
     const chatId = s?.chat_id ?? b?.chat_id ?? null;
     const customer = await customerFor({ clientId: b?.client_id, channel, chatId, name: s?.customer_name });
     const said = { status: changes.status, eta: changes.eta, note: body.note };
@@ -1007,14 +1096,15 @@ async function search(req, res) {
       key: 'mrn', title: 'MRN applications',
       items: mrn.map((m) => ({
         title: `${m.request_ref}${m.booking_ref ? ` · ${m.booking_ref}` : ''}`, detail: [m.vin, m.mrn_number].filter(Boolean).join(' · '),
-        status_words: mrnStatusWords(m.status), link: { type: 'mrn', ref: m.request_ref },
+        status_words: mrnStatusWords(m.status), tone: MRN_STATUS[m.status]?.tone ?? 'gray', link: { type: 'mrn', ref: m.request_ref },
       })),
     },
     {
       key: 'requests', title: 'Call-backs and requests',
       items: tickets.map((t) => ({
         title: `${t.ticket_ref} · ${t.customer ?? ''}`.trim(), detail: [t.contact, t.summary ? String(t.summary).slice(0, 80) : null].filter(Boolean).join(' · '),
-        status_words: requestStatusWords(t.status), link: { type: 'request', ref: t.ticket_ref },
+        // A tone like every other result, so the badge is not grey.
+        status_words: requestStatusWords(t.status), tone: requestStatusTone(t.status), link: { type: 'request', ref: t.ticket_ref },
       })),
     },
   ].filter((g) => g.items.length);

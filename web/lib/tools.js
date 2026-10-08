@@ -9,9 +9,37 @@ import { embed, embeddingsAvailable } from './llm.js';
 import { config, DESTINATION_PORTS, DEPARTMENTS } from './config.js';
 import { notifyBooking } from './notify.js';
 import { documentStatus, attachDocumentsToBooking } from './documents.js';
-import { shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard, ticketAskCard, ticketCard } from './format.js';
+import { phoneOnFile } from './clients.js';
+import { supportHours } from './settings.js';
+import {
+  shipmentCard, bookingCard, documentsCard, checklistCard, documentsRequestCard, ticketAskCard, ticketCard, DEPARTMENT_MENU,
+} from './format.js';
 
-export const toolDefinitions = [
+/**
+ * Makes every field a tool does not require accept null, and an enum on such a
+ * field accept null too.
+ *
+ * Models fill a field they know nothing about with null rather than leaving it
+ * out. OpenAI lets that through; Groq validates every call against the schema
+ * and refused create_support_ticket in the live test ("/customer expected
+ * string, but got null") - the reply then waited for OpenAI behind it, 10 s.
+ * Done here, once, so no tool added later can forget it. The executors already
+ * treat null as absent.
+ */
+function acceptingNull(tools) {
+  return tools.map((tool) => {
+    const { properties = {}, required = [] } = tool.parameters ?? {};
+    const open = Object.fromEntries(Object.entries(properties).map(([name, prop]) => {
+      if (required.includes(name) && !prop.nullable) return [name, prop];
+      const { nullable: _nullable, ...rest } = prop;
+      const types = [...new Set([...[].concat(rest.type ?? []), 'null'])];
+      return [name, { ...rest, type: types, ...(rest.enum ? { enum: [...rest.enum.filter((v) => v !== null), null] } : {}) }];
+    }));
+    return { ...tool, parameters: { ...tool.parameters, properties: open } };
+  });
+}
+
+export const toolDefinitions = acceptingNull([
   {
     name: 'track_shipment',
     description:
@@ -174,16 +202,25 @@ export const toolDefinitions = [
     parameters: {
       type: 'object',
       properties: {
-        department: { type: 'string', enum: DEPARTMENTS },
+        // Exactly lib/config.js DEPARTMENTS - the names the prompt and the
+        // department card give. Null is allowed (`nullable`) when the customer
+        // is answering a card that already named the department: the tool
+        // takes it from there rather than having the call refused.
+        department: {
+          type: 'string',
+          enum: DEPARTMENTS,
+          nullable: true,
+          description: `One of: ${DEPARTMENTS.join(', ')}. Null only when the customer is answering a card that already named it.`,
+        },
         summary: { type: 'string', description: 'One paragraph describing the issue.' },
-        contact: { type: 'string', description: 'Customer email or phone, if known.' },
+        contact: { type: 'string', description: 'Customer email or phone, if they gave one. Null otherwise - the number on file is used.' },
         customer: { type: 'string', description: 'Customer name, if known.' },
       },
       required: ['department', 'summary'],
       additionalProperties: false,
     },
   },
-];
+]);
 
 // ---------------------------------------------------------------------------
 // Executors
@@ -1021,22 +1058,39 @@ const executors = {
   },
 
   async create_support_ticket(args, ctx) {
-    const department = DEPARTMENTS.includes(args.department) ? args.department : 'Customer Care';
+    // The card the customer is answering, when they are answering one (see
+    // lib/agent.js): it named the department, and it has been sent once.
+    const asked = ctx?.ticketAsked ?? null;
+    const department = departmentFrom(args.department) ?? departmentFrom(asked?.department) ?? 'Customer Care';
+    const said = String(ctx?.customerSaid ?? '').trim();
 
     // A ticket with no problem and no number is a note to nobody. Both are
     // asked for together, once, before anything is raised - the desk has to be
     // able to call the customer, and has to know what about.
-    const summary = String(args.summary ?? '').trim();
-    const contact = String(args.contact ?? '').trim();
-    const looksLikePhone = /(\+?\d[\d\s-]{7,}\d)/.test(contact);
-    const looksLikeEmail = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(contact);
-    const needProblem = summary.length < 8 || /^(no summary|none|-|contact|help)/i.test(summary);
-    const needContact = !(looksLikePhone || looksLikeEmail);
-    // "I will type it" and "not now" are answers too: raise it with the chat as
-    // the contact rather than asking a fourth time.
-    const declined = /\b(not now|no number|type it|later)\b|\u0645\u0634 \u062f\u0644\u0648\u0642\u062a\u064a|\u0647\u0643\u062a\u0628\u0647/i.test(String(ctx?.customerSaid ?? ''));
-    const contactOrChat = needContact && declined ? `${ctx.channel}:${ctx.chatId}` : contact;
-    if (needProblem || (needContact && !declined)) {
+    let summary = String(args.summary ?? '').trim();
+    let contact = String(args.contact ?? '').trim();
+    const reachable = (c) => /(\+?\d[\d\s-]{7,}\d)/.test(c) || /[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(c);
+    const vague = (s) => s.length < 8 || /^(no summary|none|-|contact|help)/i.test(s);
+
+    // A number we already have is not asked for. On WhatsApp the chat IS the
+    // number, and a customer there does not type it - insisting on a typed one
+    // is how the same card went out four times in the live test. Elsewhere,
+    // the number on their client record or a recent booking.
+    if (!reachable(contact)) {
+      const held = await phoneOnFile({ chatId: ctx?.chatId, clientId: ctx?.clientId ?? null }).catch(() => null);
+      if (held) contact = held;
+    }
+    // What they wrote in answer to the card is the problem, if the model
+    // summarised it into nothing.
+    if (asked && vague(summary) && !vague(said)) summary = said;
+
+    const needProblem = vague(summary);
+    const needContact = !reachable(contact);
+    // "I will type it" and "not now" are answers too - and so is whatever came
+    // back after the card was sent once: the ticket is raised with what we
+    // have, the chat as the way back, rather than the card going out again.
+    const declined = /\b(not now|no number|type it|later)\b|\u0645\u0634 \u062f\u0644\u0648\u0642\u062a\u064a|\u0647\u0643\u062a\u0628\u0647/i.test(said);
+    if (!asked && (needProblem || (needContact && !declined))) {
       return {
         ok: false,
         needs_details: true,
@@ -1051,10 +1105,11 @@ const executors = {
       ticket_ref: makeRef('TKT'),
       channel: ctx.channel,
       chat_id: String(ctx.chatId),
+      client_id: ctx.clientId ?? null,
       department,
-      customer: args.customer?.trim() || ctx.userName || null,
-      contact: contactOrChat || null,
-      summary: String(args.summary || '').trim() || 'No summary supplied.',
+      customer: String(args.customer ?? '').trim() || ctx.userName || null,
+      contact: needContact ? `${ctx.channel}:${ctx.chatId}` : contact,
+      summary: summary || 'No summary supplied.',
     };
     const { data, error } = await db().from('support_tickets').insert(row).select().single();
     if (error) return { ok: false, error: error.message };
@@ -1065,7 +1120,8 @@ const executors = {
       // The ticket goes to the customer as a card, in both languages, exactly
       // as it was taken down - so what the desk reads and what the customer
       // was told are the same thing.
-      display: ticketCard(data),
+      // Whether the desk is open now decides "shortly" or "during business hours".
+      display: ticketCard(data, { open: (await supportHours().catch(() => null))?.open ?? null }),
       verbatim: true,
       next_step: 'The ticket card has been sent to the customer as it is.',
     };
@@ -1093,6 +1149,19 @@ export async function runTool(name, args, ctx) {
 
 function strip(row) {
   return { source: row.source, title: row.title, content: row.content };
+}
+
+/**
+ * A department as the model, or a card it is answering, named it - as one of
+ * DEPARTMENTS exactly, whatever its case or language - or null.
+ */
+export function departmentFrom(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const named = DEPARTMENTS.find((d) => d.toLowerCase() === s.toLowerCase());
+  if (named) return named;
+  const arabic = DEPARTMENT_MENU.find(([ar]) => ar === s);
+  return arabic ? arabic[1] : null;
 }
 
 /** Customers type a chassis number with spaces, dashes and lower case. */

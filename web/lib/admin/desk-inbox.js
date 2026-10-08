@@ -16,13 +16,29 @@
 import { db } from '../supabase.js';
 import { supportHours } from '../settings.js';
 import {
-  OPEN_STATUSES, DOC_LABEL, readiness, REQUEST_OPEN, REQUEST_TYPE, MRN_OPEN, statusWords,
+  OPEN_STATUSES, DOC_LABEL, readiness, REQUEST_OPEN, REQUEST_TYPE, MRN_OPEN, MRN_STATUS, statusWords, statusTone,
+  requestStatusLabel, requestStatusTone, mrnStatusWords,
 } from '../ops/workflow.js';
 import {
-  enrichAll, isMissingTable, todayCheck, unreadable, customerFor,
+  enrichAll, isMissingTable, todayCheck, unreadable, customerFor, bookingVersion, ticketVersion, mrnVersion,
 } from './desk-shared.js';
 import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
+import { channelOf } from '../channels.js';
+
+/** What each of the desk's tones means, for a screen that names its own. */
+const MEANING = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
+
+/**
+ * A row's status as the badge shows it: a short label, the server's tone, and
+ * what that tone means. Every kind of row carries one, so the desk never has
+ * to read a status back out of the sentence - which breaks the day the
+ * sentence is reworded.
+ */
+export function statusBadge(label, tone = 'gray') {
+  const t = MEANING[tone] ? tone : 'gray';
+  return { label, tone: t, meaning: MEANING[t] };
+}
 
 const PROBLEM_DAYS = 14;
 export const TABS = ['needs_us', 'waiting', 'done'];
@@ -139,11 +155,18 @@ export async function inboxItems() {
       .order('confirmed_at', { ascending: false }).limit(200),
     db().from('client_request_queue').select('*').order('created_at', { ascending: false }).limit(400),
     db().from('mrn_requests').select('*').order('created_at', { ascending: false }).limit(300),
-    db().from('audit_logs').select('entity_id, action').eq('entity_type', 'problem').gte('created_at', since).limit(1000),
+    db().from('audit_logs').select('entity_id, action, created_at').eq('entity_type', 'problem').gte('created_at', since).limit(1000),
   ]);
   if (openQ.error) throw new Error(`booking queue: ${openQ.error.message}`);
 
   const handled = new Set((handledQ.data ?? []).map((r) => r.entity_id));
+  // A whole chat's failures set aside at once: everything up to that moment.
+  const chatSetAside = new Map();
+  for (const r of handledQ.data ?? []) {
+    if (!String(r.entity_id).startsWith('chat:')) continue;
+    const at = r.created_at ?? new Date().toISOString();
+    if (!chatSetAside.has(r.entity_id) || chatSetAside.get(r.entity_id) < at) chatSetAside.set(r.entity_id, at);
+  }
   const open = openQ.data ?? [];
   const refs = open.map((r) => r.booking_ref);
 
@@ -154,6 +177,17 @@ export async function inboxItems() {
     : { data: [] };
   const docsByRef = new Map();
   for (const d of docs ?? []) docsByRef.set(d.booking_ref, [...(docsByRef.get(d.booking_ref) ?? []), d]);
+
+  // What a booking's version is made of that the queue view does not carry,
+  // so each row's version is the one its case page gives (bookingVersion) and
+  // "Take it" can be sent straight from the list. The latest application per
+  // booking, as loadBooking reads it: mrn_requests comes newest first.
+  const { data: contacts } = refs.length
+    ? await db().from('bookings').select('booking_ref, customer_contact').in('booking_ref', refs)
+    : { data: [] };
+  const contactOf = new Map((contacts ?? []).map((b) => [b.booking_ref, b.customer_contact ?? null]));
+  const latestMrn = new Map();
+  for (const m of mrnQ.data ?? []) if (m.booking_ref && !latestMrn.has(m.booking_ref)) latestMrn.set(m.booking_ref, m);
 
   const enriched = await enrichAll(open, { docsByRef });
   const items = [];
@@ -178,6 +212,9 @@ export async function inboxItems() {
       overdue: Boolean(r.overdue),
       is_new: r.status === 'pending_review',
       status_words: statusWords(r.status),
+      status: statusBadge(statusWords(r.status), statusTone(r.status)),
+      version: bookingVersion({ ...r, customer_contact: contactOf.get(r.booking_ref) ?? null },
+        docsByRef.get(r.booking_ref) ?? [], latestMrn.get(r.booking_ref) ?? null),
       since: r.waiting_since,
     });
 
@@ -201,6 +238,8 @@ export async function inboxItems() {
         assigned_to: r.assigned_to ?? null,
         priority: 'normal',
         since: d.uploaded_at,
+        status: statusBadge('Unreadable', 'red'),
+        version: null,
         problem: { type: 'document', id: d.id },
       });
     }
@@ -223,6 +262,9 @@ export async function inboxItems() {
       assigned_to: r.assigned_to ?? null,
       priority: r.priority ?? 'normal',
       status_words: statusWords(r.status),
+      status: statusBadge(statusWords(r.status), statusTone(r.status)),
+      // Decided: nothing is taken from here, so no version is worked out.
+      version: null,
       since: r.confirmed_at,
     });
   }
@@ -253,6 +295,8 @@ export async function inboxItems() {
       priority: t.priority ?? 'normal',
       after_hours: afterHours,
       unowned: isOpen && !t.assigned_to,
+      status: statusBadge(requestStatusLabel(t.status), requestStatusTone(t.status)),
+      version: ticketVersion(t),
       since: !isOpen ? doneAt : (t.status_changed_at || t.created_at),
     });
   }
@@ -260,11 +304,28 @@ export async function inboxItems() {
   // MRN applications that are not already a booking row: a booking still open
   // shows its MRN as its own next step, and two rows for one job is noise.
   const openRefs = new Set(refs);
-  for (const m of mrnQ.data ?? []) {
+  const mrnRows = (mrnQ.data ?? []).filter((m) => {
     const isOpen = MRN_OPEN.includes(m.status);
-    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) continue;
-    if (isOpen && m.booking_ref && openRefs.has(m.booking_ref)) continue;
+    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) return false;
+    return !(isOpen && m.booking_ref && openRefs.has(m.booking_ref));
+  });
+  // Who the application is for, and on which channel: the row named the
+  // booking reference and no channel, so the desk could not say whose it was.
+  const mrnBookingRefs = [...new Set(mrnRows.map((m) => m.booking_ref).filter(Boolean))];
+  const { data: mrnBookings } = mrnBookingRefs.length
+    ? await db().from('bookings').select('booking_ref, customer_name, channel, chat_id, client_id').in('booking_ref', mrnBookingRefs)
+    : { data: [] };
+  const mrnBookingOf = new Map((mrnBookings ?? []).map((b) => [b.booking_ref, b]));
+  for (const m of mrnRows) {
     const tab = m.status === 'issued' ? 'done' : m.status === 'missing_information' ? 'waiting' : 'needs_us';
+    const b = m.booking_ref ? mrnBookingOf.get(m.booking_ref) ?? null : null;
+    const chatId = m.chat_id ?? b?.chat_id ?? null;
+    // The application's own chat decides its channel; the booking's says the
+    // same thing, and is the fallback for an application with no chat.
+    const channel = m.chat_id ? channelOf(m.chat_id) : b?.channel ?? (chatId ? channelOf(chatId) : null);
+    const name = b?.customer_name
+      || (chatId || m.client_id ? (await customerFor({ clientId: m.client_id ?? b?.client_id ?? null, channel, chatId }).catch(() => null))?.name : null)
+      || m.booking_ref || 'MRN application';
     items.push({
       id: `mrn:${m.request_ref}`,
       kind: 'mrn',
@@ -272,23 +333,221 @@ export async function inboxItems() {
       tab,
       tone: tab === 'needs_us' ? 'blue' : tab === 'waiting' ? 'amber' : 'green',
       sentence: mrnSentence(m),
-      who: m.booking_ref ?? 'MRN application',
-      detail: [m.request_ref, m.vin].filter(Boolean).join(' · '),
+      who: name,
+      detail: [m.booking_ref, m.request_ref, m.vin].filter(Boolean).join(' · '),
       ref: m.request_ref,
+      booking_ref: m.booking_ref ?? null,
       link: { type: 'mrn', ref: m.request_ref },
-      channel: null,
+      channel,
       assigned_to: null,
       priority: 'normal',
+      status: statusBadge(mrnStatusWords(m.status), MRN_STATUS[m.status]?.tone ?? 'gray'),
+      version: mrnVersion(m),
       since: tab === 'done' ? m.issued_at : (m.submitted_at || m.created_at),
     });
   }
 
-  items.push(...await problemItems({ since, handled }));
+  items.push(...await paperItems({ since, handled, decided: decidedQ.data ?? [] }));
+  items.push(...await problemItems({ since, handled, chatSetAside }));
   return items;
 }
 
-/** Messages that did not reach a customer, from both the conversation log and the outbox. */
-async function problemItems({ since, handled }) {
+const PAPER_COLUMNS = 'id, booking_ref, chat_id, client_id, channel, doc_type, file_name, status, uploaded_at';
+
+/**
+ * Papers a customer sent that no open case shows.
+ *
+ * One sent with nothing open is kept on no booking - it counts for a booking
+ * the customer starts next, which is why it is left alone while one is being
+ * filled in. In the live test such a photo was stored and appeared nowhere on
+ * the desk. One sent after its booking was decided is on that booking, but a
+ * decided booking is not in the inbox, so nobody would look. Each is a row
+ * until the paper is checked, filed, or set aside.
+ */
+async function paperItems({ since, handled, decided }) {
+  const decidedAt = new Map(decided.filter((b) => b.confirmed_at).map((b) => [b.booking_ref, b]));
+  const [looseQ, lateQ] = await Promise.all([
+    db().from('booking_documents').select(PAPER_COLUMNS).is('booking_ref', null).is('deleted_at', null)
+      .in('status', ['received', 'pending_verification']).gte('uploaded_at', since)
+      .order('uploaded_at', { ascending: false }).limit(100),
+    decidedAt.size
+      ? db().from('booking_documents').select(PAPER_COLUMNS).in('booking_ref', [...decidedAt.keys()]).is('deleted_at', null)
+        .in('status', ['received', 'pending_verification']).gte('uploaded_at', since).limit(100)
+      : { data: [] },
+  ]);
+
+  const loose = (looseQ.data ?? []).filter((d) => d.chat_id && !handled.has(`document:${d.id}`));
+  const chats = [...new Set(loose.map((d) => String(d.chat_id)))];
+  const { data: drafts } = chats.length
+    ? await db().from('bookings').select('chat_id').in('chat_id', chats).eq('status', 'draft')
+    : { data: [] };
+  const drafting = new Set((drafts ?? []).map((b) => String(b.chat_id)));
+
+  const out = [];
+  const names = new Map();
+  const nameOf = async (d) => {
+    const k = `${d.chat_id}|${d.client_id}`;
+    if (!names.has(k)) {
+      const c = await customerFor({ clientId: d.client_id ?? null, channel: d.channel ?? channelOf(d.chat_id), chatId: d.chat_id })
+        .catch(() => null);
+      names.set(k, c?.name || 'The customer');
+    }
+    return names.get(k);
+  };
+  const label = (d) => DOC_LABEL[d.doc_type] && d.doc_type !== 'other' ? DOC_LABEL[d.doc_type] : (d.file_name || 'a paper');
+
+  for (const d of loose) {
+    if (drafting.has(String(d.chat_id))) continue;
+    const name = await nameOf(d);
+    const channel = d.channel ?? channelOf(d.chat_id);
+    out.push({
+      id: `document:${d.id}`,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'amber',
+      sentence: `${name} sent ${/^[AEIOU]/i.test(label(d)) ? 'an' : 'a'} ${label(d)} with no booking open — look at it`,
+      who: name,
+      detail: [d.file_name, 'Kept on no booking. It counts for a booking they start; or file it on one of theirs.'].filter(Boolean).join(' · '),
+      ref: null,
+      link: { type: 'chat', channel, chat_id: d.chat_id, document_id: d.id },
+      channel,
+      priority: 'normal',
+      since: d.uploaded_at,
+      status: statusBadge('No booking', 'amber'),
+      version: null,
+      problem: { type: 'document', id: d.id },
+    });
+  }
+
+  for (const d of lateQ.data ?? []) {
+    const b = decidedAt.get(d.booking_ref);
+    if (!b || handled.has(`document:${d.id}`) || String(d.uploaded_at ?? '') <= String(b.confirmed_at)) continue;
+    const name = b.customer_name || await nameOf(d);
+    out.push({
+      id: `document:${d.id}`,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'amber',
+      sentence: `New ${label(d)} after ${d.booking_ref} was ${b.status === 'confirmed' ? 'confirmed' : b.status} — check it`,
+      who: name,
+      detail: [d.booking_ref, d.file_name].filter(Boolean).join(' · '),
+      ref: d.booking_ref,
+      link: { type: 'booking', ref: d.booking_ref, document_id: d.id },
+      channel: b.channel ?? d.channel ?? null,
+      priority: 'normal',
+      since: d.uploaded_at,
+      status: statusBadge('New paper', 'amber'),
+      version: null,
+      problem: { type: 'document', id: d.id },
+    });
+  }
+  return out;
+}
+
+/** Meta's "this number is not on WhatsApp". Sending again cannot fix it. */
+const NOT_ON_WHATSAPP = /\b131026\b/;
+
+/** "a message", "6 messages". */
+const messages = (n) => (n === 1 ? 'a message' : `${n} messages`);
+
+/**
+ * Messages that did not reach a customer, from both the conversation log and
+ * the outbox - one problem per chat.
+ *
+ * Each failure used to be its own red row: in the live test 77 of them, most
+ * for numbers WhatsApp does not know, buried the one real item. A chat with one
+ * failure still gets the row it always got, with Retry on it. A chat with more
+ * gets one row saying how many, the last error and when it was last tried, and
+ * a number WhatsApp does not know is one row for that customer, saying so
+ * plainly - whatever the count.
+ *
+ * The outbox records the same message the conversation log does once it was
+ * sent and then refused (the delivery receipt marks both), so an outbox row
+ * carrying the provider id of a failed message is not counted twice.
+ */
+async function problemItems({ since, handled, chatSetAside = new Map() }) {
+  const singles = await problemEntries({ since, handled });
+  const groups = new Map();
+  for (const entry of singles) {
+    const key = `chat:${entry.channel ?? 'unknown'}:${entry.chatId}`;
+    // Set aside as a whole chat: only what failed after that comes back.
+    const asideAt = chatSetAside.get(key);
+    if (asideAt && String(entry.at ?? '') <= asideAt) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+
+  const out = [];
+  for (const [key, entries] of groups) {
+    entries.sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+    const last = entries.at(-1);
+    const lost = entries.some((e) => NOT_ON_WHATSAPP.test(e.error ?? ''));
+    const summary = {
+      count: entries.length,
+      last_error: last.words,
+      last_error_raw: last.error ? String(last.error).slice(0, 300) : null,
+      last_attempt: last.at,
+      first_failed: entries[0].at,
+    };
+
+    // Held is waiting for something (a template, a customer who wrote STOP),
+    // not broken: amber, as the held rows have always been worded.
+    const badgeFor = (heldWhy) => (heldWhy ? statusBadge('Held', 'amber') : statusBadge('Not delivered', 'red'));
+
+    if (entries.length === 1 && !lost) {
+      out.push({ ...last.item, status: badgeFor(last.held), version: null, problem: { ...last.item.problem, ...summary } });
+      continue;
+    }
+
+    const held = entries.every((e) => e.held);
+    const reason = lost ? 'not_on_whatsapp' : held ? last.held : 'failed';
+    const phone = last.channel === 'whatsapp' ? `+${String(last.chatId).replace(/^wa:/, '')}` : null;
+    out.push({
+      id: key,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'red',
+      sentence: lost
+        ? `${last.name} isn’t on WhatsApp — call them instead`
+        : held && last.held === 'opted_out'
+          ? `${entries.length} messages held — ${last.name} wrote STOP`
+          : held
+            ? `${entries.length} messages wait for a WhatsApp template — ${last.name} hasn’t written in 24 h`
+            : `${entries.length} messages didn’t reach ${last.name}`,
+      who: last.name,
+      detail: lost
+        ? `WhatsApp says ${phone ?? 'this number'} has no WhatsApp account, so ${messages(entries.length)} could not be delivered. `
+          + 'Call them, or ask them for a number that is on WhatsApp.'
+        : `Last: ${last.words}`,
+      ref: last.item.ref ?? null,
+      link: { type: 'chat', channel: last.channel, chat_id: last.chatId },
+      channel: last.channel,
+      priority: 'normal',
+      since: last.at,
+      status: lost ? statusBadge('Not on WhatsApp', 'red') : badgeFor(held ? last.held : null),
+      version: null,
+      problem: {
+        type: 'chat',
+        id: key.slice('chat:'.length),
+        // Each failed message can be sent again from the conversation itself;
+        // the row's own action is setting the lot aside.
+        retryable: false,
+        reason,
+        ...summary,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * Every message that did not reach a customer, one entry each, with the row
+ * the inbox showed for it before they were grouped.
+ */
+async function problemEntries({ since, handled }) {
   const out = [];
   const [failedQ, outboxQ] = await Promise.all([
     db().from('chat_messages').select('*').eq('status', 'failed').eq('direction', 'out')
@@ -309,26 +568,34 @@ async function problemItems({ since, handled }) {
     return names.get(k);
   };
 
+  // Provider ids of the failed messages, so the outbox's record of the same
+  // message is not a second failure.
+  const failedIds = new Set();
   if (!failedQ.error) {
     for (const m of failedQ.data ?? []) {
+      if (m.provider_message_id) failedIds.add(String(m.provider_message_id));
       const pid = `message:${m.id}`;
       if (handled.has(pid)) continue;
       const name = await nameFor(m.channel, m.chat_id, m.client_id);
+      const words = failureWords(m.error, { template: m.payload?.template ?? null });
       out.push({
-        id: pid,
-        kind: 'problem',
-        tags: ['problems'],
-        tab: 'needs_us',
-        tone: 'red',
-        sentence: `Message failed — couldn’t reach ${name}`,
-        who: name,
-        detail: failureWords(m.error, { template: m.payload?.template ?? null }),
-        ref: m.booking_ref ?? null,
-        link: { type: 'chat', channel: m.channel, chat_id: m.chat_id },
-        channel: m.channel,
-        priority: 'normal',
-        since: m.created_at,
-        problem: { type: 'message', id: m.id, retryable: ['text', 'template', null, undefined].includes(m.kind) },
+        channel: m.channel, chatId: String(m.chat_id), name, at: m.created_at, error: m.error ?? null, words, held: null,
+        item: {
+          id: pid,
+          kind: 'problem',
+          tags: ['problems'],
+          tab: 'needs_us',
+          tone: 'red',
+          sentence: `Message failed — couldn’t reach ${name}`,
+          who: name,
+          detail: words,
+          ref: m.booking_ref ?? null,
+          link: { type: 'chat', channel: m.channel, chat_id: m.chat_id },
+          channel: m.channel,
+          priority: 'normal',
+          since: m.created_at,
+          problem: { type: 'message', id: m.id, retryable: ['text', 'template', null, undefined].includes(m.kind) },
+        },
       });
     }
   } else if (!isMissingTable(failedQ.error)) {
@@ -344,33 +611,41 @@ async function problemItems({ since, handled }) {
     const stopped = o.delivery_status === 'opted_out';
     const dead = ['dead', 'failed'].includes(o.status);
     if (!needsTemplate && !stopped && !dead) continue;
+    if (o.provider_message_id && failedIds.has(String(o.provider_message_id))) continue;
     const pid = `outbox:${o.id}`;
     if (handled.has(pid)) continue;
     const name = await nameFor(o.channel, o.chat_id, o.client_id);
     const what = OUTBOX_WORDS[o.event_type] ?? String(o.event_type).replace(/_/g, ' ');
+    const words = needsTemplate ? failureWords(null, { status: 'needs_template' })
+      : stopped ? failureWords(null, { status: 'opted_out' })
+        : failureWords(o.last_error, { template: o.template_name ?? null });
     out.push({
-      id: pid,
-      kind: 'problem',
-      tags: ['problems'],
-      tab: 'needs_us',
-      tone: 'red',
-      sentence: needsTemplate
-        ? `Waiting for a WhatsApp template — ${name} hasn’t written in 24 h`
-        : stopped ? `Not sent — ${name} wrote STOP`
-          : `The ${what} didn’t reach ${name}`,
-      who: name,
-      detail: needsTemplate
-        ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
-        : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
-          : failureWords(o.last_error, { template: o.template_name ?? null }),
-      ref: o.entity_id ?? null,
-      link: o.entity_type === 'booking' ? { type: 'booking', ref: o.entity_id }
-        : o.entity_type === 'support_ticket' ? { type: 'request', ref: o.entity_id }
-          : { type: 'chat', channel: o.channel, chat_id: o.chat_id },
-      channel: o.channel,
-      priority: 'normal',
-      since: o.updated_at || o.created_at,
-      problem: { type: 'outbox', id: o.id, retryable: dead },
+      channel: o.channel, chatId: String(o.chat_id), name, at: o.updated_at || o.created_at,
+      error: o.last_error ?? null, words, held: needsTemplate ? 'needs_template' : stopped ? 'opted_out' : null,
+      item: {
+        id: pid,
+        kind: 'problem',
+        tags: ['problems'],
+        tab: 'needs_us',
+        tone: 'red',
+        sentence: needsTemplate
+          ? `Waiting for a WhatsApp template — ${name} hasn’t written in 24 h`
+          : stopped ? `Not sent — ${name} wrote STOP`
+            : `The ${what} didn’t reach ${name}`,
+        who: name,
+        detail: needsTemplate
+          ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
+          : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
+            : failureWords(o.last_error, { template: o.template_name ?? null }),
+        ref: o.entity_id ?? null,
+        link: o.entity_type === 'booking' ? { type: 'booking', ref: o.entity_id }
+          : o.entity_type === 'support_ticket' ? { type: 'request', ref: o.entity_id }
+            : { type: 'chat', channel: o.channel, chat_id: o.chat_id },
+        channel: o.channel,
+        priority: 'normal',
+        since: o.updated_at || o.created_at,
+        problem: { type: 'outbox', id: o.id, retryable: dead },
+      },
     });
   }
   return out;

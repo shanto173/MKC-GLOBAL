@@ -48,6 +48,26 @@ const digitsOf = (v) => String(v).replace(/\D/g, '');
 const isExampleNumber = (v) => digitsOf(v) === digitsOf('+20 3 555 0143');
 const EXAMPLE_REFUSED = 'That is the example number from the setup notes, not a real line. Type the number customers should call.';
 
+/**
+ * The direct line the setup seeded as a placeholder, which the tests and the
+ * docs use. It is a well-formed number, so it is not refused, and it may be
+ * live - so it is not changed either. The desk says what it looks like
+ * instead: in the live test an urgent customer was told to ring it.
+ */
+const SEEDED_EXAMPLES = ['+48 512 345 678'];
+const looksSeeded = (v) => Boolean(v) && SEEDED_EXAMPLES.some((e) => digitsOf(v) === digitsOf(e));
+const SEEDED_WARNING = 'This looks like the example number from the setup (+48 512 345 678), not a real line - '
+  + 'urgent customers after hours are told to ring it. Type the responsible person’s own number, or clear it.';
+
+/** What the screen should point out about these values, without refusing them. */
+function warningsFor(values) {
+  const out = {};
+  for (const key of ['direct_phone', 'operations_phone']) {
+    if (looksSeeded(values[key])) out[key] = SEEDED_WARNING;
+  }
+  return out;
+}
+
 function validTimezone(tz) {
   try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return true; } catch { return false; }
 }
@@ -156,6 +176,7 @@ export async function settingsView(req, res) {
     values,
     versions,
     changed,
+    warnings: warningsFor(values),
     template_events: TEMPLATE_EVENTS.map((e) => ({ event: e, words: TEMPLATE_WORDS[e] })),
     document_types: DOC_TYPES,
     users: (users ?? []).map(userOut),
@@ -226,7 +247,7 @@ export async function settingsWrite(req, res, who) {
     });
   }
   invalidateSettings();
-  return res.status(200).json({ ok: true, saved: keys });
+  return res.status(200).json({ ok: true, saved: keys, warnings: warningsFor(clean) });
 }
 
 /** Enough of a value to read in the audit trail; the trail is not a backup. */

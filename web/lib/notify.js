@@ -17,7 +17,7 @@ import { sendDocument, sendMessage } from './telegram.js';
 import { refreshPinSafely } from './pinned.js';
 import { splitLanguages } from './agent.js';
 import { enqueue, drain } from './outbox.js';
-import { sendToChat, phrase } from './channels.js';
+import { sendToChat, phrase, channelOf } from './channels.js';
 import { currentLanguage, withLanguage } from './lang.js';
 import { storedLanguage } from './flow/language.js';
 import { bookingLanguage } from './i18n.js';
@@ -56,7 +56,7 @@ async function recipientLanguage(record) {
   if (now) return now;
   if (!record?.chat_id) return null;
   return storedLanguage({
-    channel: record.channel ?? 'telegram', chatId: record.chat_id, clientId: record.client_id ?? null,
+    channel: record.channel ?? channelOf(record.chat_id), chatId: record.chat_id, clientId: record.client_id ?? null,
   }).catch(() => null);
 }
 

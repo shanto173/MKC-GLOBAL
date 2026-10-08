@@ -447,12 +447,10 @@ export function render(row) {
       };
     }
 
+    // MKY obtained it; the customer is told so, and for which booking.
     case 'mrn_issued':
       if (!p.mrn_number) return null;
-      return {
-        text: M.documentReceived(`رقم MRN ${p.mrn_number}`, `MRN ${p.mrn_number}`),
-        inline: kb.homeOnly(),
-      };
+      return { text: M.mrnIssued(p.mrn_number, p.booking_ref ?? null), inline: kb.homeOnly() };
 
     case 'operations_message':
       if (!p.text) return null;
