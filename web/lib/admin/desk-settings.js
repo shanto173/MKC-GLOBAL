@@ -39,6 +39,15 @@ const TEMPLATE_WORDS = {
 
 const isPhone = (v) => /^\+?[\d\s().-]{7,25}$/.test(v) && v.replace(/\D/g, '').length >= 7;
 
+/**
+ * The number .env.example and this page's own hint used to show as an
+ * illustration. The bot refuses to read it out (lib/settings.js), so saving it
+ * here would look set and behave as unset - refused instead, saying why.
+ */
+const digitsOf = (v) => String(v).replace(/\D/g, '');
+const isExampleNumber = (v) => digitsOf(v) === digitsOf('+20 3 555 0143');
+const EXAMPLE_REFUSED = 'That is the example number from the setup notes, not a real line. Type the number customers should call.';
+
 function validTimezone(tz) {
   try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return true; } catch { return false; }
 }
@@ -61,12 +70,14 @@ const RULES = {
   direct_phone: (v) => {
     const s = String(v ?? '').trim();
     if (!s) return { value: null };
-    return isPhone(s) ? { value: s } : { error: 'The direct line must be a phone number, e.g. +20 100 555 1234.' };
+    if (isExampleNumber(s)) return { error: EXAMPLE_REFUSED };
+    return isPhone(s) ? { value: s } : { error: 'The direct line must be a phone number, with the country code.' };
   },
   operations_phone: (v) => {
     const s = String(v ?? '').trim();
     if (!s) return { value: null };
-    return isPhone(s) ? { value: s } : { error: 'The desk number must be a phone number, e.g. +20 3 555 0143.' };
+    if (isExampleNumber(s)) return { error: EXAMPLE_REFUSED };
+    return isPhone(s) ? { value: s } : { error: 'The desk number must be a phone number, with the country code.' };
   },
   required_booking_documents: (v) => docList(v, { allowMrn: true }),
   required_booking_documents_mky_mrn: (v) => docList(v, { allowMrn: false }),

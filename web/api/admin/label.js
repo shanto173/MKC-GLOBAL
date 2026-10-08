@@ -14,6 +14,7 @@ import PDFDocument from 'pdfkit';
 import { config } from '../../lib/config.js';
 import { hasArabic, drawBidiLine, ARABIC_WORD_SPACING } from '../../lib/rtl.js';
 import { db } from '../../lib/supabase.js';
+import { companyPhone } from '../../lib/settings.js';
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -37,14 +38,16 @@ export default async function handler(req, res) {
   if (have.has('eur1')) have.add('brief');
   const required = [['invoice', 'Commercial invoice'], ['brief', 'Transport document / EUR.1'], ['mrn', 'MRN'], ['acid', 'ACID']];
 
-  const pdf = await buildLabel(booking, { required, have, shipment });
+  // The desk's number from Settings, or none: never a default nobody answers.
+  const phone = await companyPhone().catch(() => null);
+  const pdf = await buildLabel(booking, { required, have, shipment, phone });
 
   res.setHeader('content-type', 'application/pdf');
   res.setHeader('content-disposition', `inline; filename="${ref}-label.pdf"`);
   res.status(200).send(pdf);
 }
 
-function buildLabel(b, { required, have, shipment }) {
+function buildLabel(b, { required, have, shipment, phone = null }) {
   return new Promise((resolve, reject) => {
     // A5 landscape: fits an A4 sheet folded, or prints two to a page.
     const doc = new PDFDocument({ size: [595, 421], margin: 28 });
@@ -136,7 +139,7 @@ function buildLabel(b, { required, have, shipment }) {
     // moment a width is given, and that wrapper starts a new page once the
     // cursor passes the bottom margin - which put this footer on a page 2 that
     // nobody wanted on a printed label. Centred by measuring instead.
-    const footer = `${config.companyName} · ${config.companyEmail} · ${config.companyPhone}`;
+    const footer = [config.companyName, config.companyEmail, phone].filter(Boolean).join(' · ');
     doc.font('Helvetica').fontSize(7.5).fillColor('#5b6b7c');
     const footerX = L + (R - L - doc.widthOfString(footer)) / 2;
     doc.text(footer, footerX, 392, { lineBreak: false });

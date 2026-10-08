@@ -650,6 +650,49 @@ test('/api/health reports WhatsApp settings and whether its migration is applied
   assert.match(before.body.whatsapp.schema.migration, /^20261007090000 not applied/);
 });
 
+// ---------------------------------------------------------------------------
+// The number we give out
+// ---------------------------------------------------------------------------
+
+/** The instructions the assistant was given for its last answer. */
+const lastPrompt = () => net.calls.filter((c) => c.host === 'api.openai.com').at(-1)?.json?.messages?.[0]?.content ?? '';
+
+test('with no number configured, the assistant is never handed the example number - it is told to give none', async () => {
+  setup();
+  await post(text('How long does customs clearance take at Port Said?'));
+  const prompt = lastPrompt();
+  assert.ok(prompt, 'the assistant answered this one');
+  assert.doesNotMatch(prompt, /555 ?0143/, 'the .env.example illustration is not a phone number');
+  assert.match(prompt, /no phone number has been set/i);
+});
+
+test('the number set in the desk\'s Settings is the one the assistant gives', async () => {
+  const db = setup();
+  db._tables.bot_settings.find((s) => s.key === 'operations_phone').value = '+20 3 111 2222';
+  invalidateSettings();
+  await post(text('How long does customs clearance take at Port Said?'));
+  assert.match(lastPrompt(), /\+20 3 111 2222/);
+});
+
+test('the booking PDF prints the desk number from Settings, and no number at all when none is set', async () => {
+  const { bookingConfirmationPdf } = await import('../lib/pdf.js');
+  const { pdfText } = await import('../lib/read-file.js');
+  const booking = {
+    booking_ref: 'MKY-BKG-PDF1', status: 'pending_review', channel: 'whatsapp', customer_name: 'Delta Trans',
+    vin: 'YV2RT40A8FB712905', make: 'Volvo', origin_port: 'Klaipeda', destination_port: 'Port Said',
+  };
+
+  const db = setup();
+  const bare = await pdfText(await bookingConfirmationPdf(booking, { lang: 'en' }));
+  assert.match(bare, /MKY-BKG-PDF1/, 'the text layer is readable');
+  assert.doesNotMatch(bare, /555 ?0143/);
+
+  db._tables.bot_settings.find((s) => s.key === 'operations_phone').value = '+20 3 111 2222';
+  invalidateSettings();
+  const set = await pdfText(await bookingConfirmationPdf(booking, { lang: 'en' }));
+  assert.match(set, /\+20 3 111 2222/);
+});
+
 test('the project stays within Vercel Hobby\'s twelve functions', () => {
   const count = (dir) => readdirSync(dir).reduce((n, name) => {
     if (/^[_.]/.test(name)) return n;

@@ -43,8 +43,20 @@ const FALLBACK = {
   support_timezone: 'Africa/Cairo',
 };
 
-/** The number .env.example ships as an illustration. Never read out. */
+/** The number .env.example used to ship as an illustration. Never read out. */
 const PLACEHOLDER_PHONE = '+20 3 555 0143';
+
+/**
+ * A number fit to give a customer, or null. Blank is not a number, and neither
+ * is the illustration, however it is spaced: a deployment that copied
+ * .env.example once still has it in its environment.
+ */
+function realPhone(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const digits = (v) => String(v).replace(/\D/g, '');
+  return digits(s) === digits(PLACEHOLDER_PHONE) ? null : s;
+}
 
 async function load() {
   const { data, error } = await db().from('bot_settings').select('key, value');
@@ -101,28 +113,44 @@ export async function writeSetting(key, value, { operator = 'operations', note =
 /**
  * The number a client is given when they ask for a person.
  *
- * Order: what Operations set in the database, then the environment. `config`
- * carries a placeholder default so the bot never crashes, but a placeholder is
- * not a phone number - `configured` says which it is, and the contact flow
- * refuses to read out an unconfigured one.
+ * Order: what Operations set in the desk's Settings (bot_settings
+ * operations_phone), then the environment - OPERATIONS_PHONE, then
+ * COMPANY_PHONE, the same chain config used to follow. Nothing is invented:
+ * with none of them set, `phone` is null, `configured` is false, and every
+ * caller says what the bot can do instead of reading out a number.
  */
 export async function operationsContact() {
   const table = await settings();
-  const phone = table.operations_phone || process.env.OPERATIONS_PHONE || '';
+  const phone = realPhone(table.operations_phone)
+    ?? realPhone(process.env.OPERATIONS_PHONE)
+    ?? realPhone(process.env.COMPANY_PHONE);
   const email = table.operations_email || config.mail.opsEmail || process.env.COMPANY_EMAIL || '';
   // The direct line, for a client who asks for a person after hours and says
   // it is urgent. Its own setting, because the number the boss hands out for
   // that is not necessarily the desk's; it falls back to the desk's number.
-  const direct = table.direct_phone || process.env.DIRECT_PHONE || phone;
+  const direct = realPhone(table.direct_phone) ?? realPhone(process.env.DIRECT_PHONE) ?? phone;
   return {
-    phone: phone || null,
+    phone,
     email: email || null,
     hours: table.human_support_hours || null,
     // Reading the .env.example illustration out to a customer is worse than
     // saying we cannot connect them right now.
-    configured: Boolean(phone) && phone !== PLACEHOLDER_PHONE,
-    directPhone: direct && direct !== PLACEHOLDER_PHONE ? direct : null,
+    configured: Boolean(phone),
+    directPhone: direct,
   };
+}
+
+/**
+ * The company's number as printed on paperwork - the booking PDF, the label.
+ * The desk's Settings first, so changing the number there changes the next PDF
+ * too; then COMPANY_PHONE, then OPERATIONS_PHONE. Null when none is set: the
+ * footer then simply has no number, rather than one nobody answers.
+ */
+export async function companyPhone() {
+  const table = await settings();
+  return realPhone(table.operations_phone)
+    ?? realPhone(process.env.COMPANY_PHONE)
+    ?? realPhone(process.env.OPERATIONS_PHONE);
 }
 
 /**

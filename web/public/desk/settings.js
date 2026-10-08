@@ -141,8 +141,8 @@ export function renderSettings({ main }) {
     const end = h('select', { class: 'input', id: 's-end' }, HOURS.map((n) => h('option', { value: n, selected: Number(v.support_hours_end) === n }, hourWords(n))));
     const tz = h('input', { class: 'input', id: 's-tz', value: v.support_timezone ?? 'Africa/Cairo', list: 'tz-list' });
     const sentence = h('input', { class: 'input', id: 's-sentence', value: v.human_support_hours ?? '', placeholder: 'Sunday to Thursday, 9:00–19:00 Cairo time' });
-    const direct = h('input', { class: 'input', id: 's-direct', value: v.direct_phone ?? '', inputmode: 'tel', placeholder: '+20 100 555 1234' });
-    const desk = h('input', { class: 'input', id: 's-desk', value: v.operations_phone ?? '', inputmode: 'tel', placeholder: '+20 3 555 0143' });
+    const direct = h('input', { class: 'input', id: 's-direct', value: v.direct_phone ?? '', inputmode: 'tel', placeholder: 'With the country code, +20…' });
+    const desk = h('input', { class: 'input', id: 's-desk', value: v.operations_phone ?? '', inputmode: 'tel', placeholder: 'With the country code, +20…' });
     const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save hours and phone');
     const c = card('hours', 'Office hours and phone numbers', 'When a person answers, and the numbers the bot gives out.');
     const form = h('form', {},
@@ -154,7 +154,7 @@ export function renderSettings({ main }) {
         fieldWith('Opening hours, as the customer reads them', sentence, 's-sentence', 'human_support_hours')),
       h('div', { class: 'form-grid' },
         fieldWith('Direct line (urgent, after hours)', direct, 's-direct', 'direct_phone', h('span', { class: 'muted small' }, 'Leave empty and the bot gives no number after hours.')),
-        fieldWith('Desk number', desk, 's-desk', 'operations_phone')),
+        fieldWith('Desk number', desk, 's-desk', 'operations_phone', h('span', { class: 'muted small' }, 'Given to customers who ask for a person, and printed on their booking PDF. Leave empty and the bot gives no number.'))),
       h('div', { class: 'form-actions' }, button));
     form.addEventListener('submit', (e) => {
       e.preventDefault();

@@ -724,6 +724,26 @@ test('settings: every value checked, refused with a sentence, saved with its his
   assert.equal(stale.status, 409, 'somebody saved it since this form loaded');
 });
 
+test('the desk number is set in Settings and is the one the bot gives; the old example number is refused', async () => {
+  const { operationsContact, companyPhone } = await import('../lib/settings.js');
+  assert.equal((await operationsContact()).phone, null, 'nothing set, nothing invented');
+  assert.equal(await companyPhone(), null);
+
+  const example = await post({ action: 'settings_write', changes: { operations_phone: '+20 3 555 0143' } }, 'Ariful');
+  assert.equal(example.status, 400);
+  assert.match(example.body.errors.operations_phone, /example/);
+
+  const ok = await post({ action: 'settings_write', changes: { operations_phone: '+20 3 111 2222' } }, 'Ariful');
+  assert.equal(ok.status, 200);
+  const contact = await operationsContact();
+  assert.equal(contact.phone, '+20 3 111 2222');
+  assert.equal(contact.configured, true);
+  assert.equal(await companyPhone(), '+20 3 111 2222', 'the PDF footer follows the desk');
+
+  const view = await get({ view: 'settings' }, 'Ariful');
+  assert.equal(view.body.values.operations_phone, '+20 3 111 2222', 'and the page shows what is set');
+});
+
 test('the team: people are added and changed, and the last administrator cannot be removed', async () => {
   const add = await post({ action: 'user_save', name: 'Mona', role: 'ops_agent' }, 'Ariful');
   assert.equal(add.status, 200);

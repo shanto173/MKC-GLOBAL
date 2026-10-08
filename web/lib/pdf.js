@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from './config.js';
+import { companyPhone } from './settings.js';
 import { t, bookingLanguage } from './i18n.js';
 import { hasArabic, drawBidiLine, drawBidiParagraph, ARABIC_WORD_SPACING } from './rtl.js';
 
@@ -33,10 +34,20 @@ const BOTTOM = 735;      // last y a line may start on, above the footer
 
 /**
  * @param {object} b a row from the bookings table
- * @param {{lang?: 'en'|'ar'}} [opts]
+ * @param {{lang?: 'en'|'ar', phone?: string|null}} [opts]
+ *   `phone` is the number for the footer; left out, it is read from the desk's
+ *   Settings (companyPhone() in ./settings.js), and with none set the footer
+ *   carries no number at all.
  * @returns {Promise<Buffer>}
  */
-export function bookingConfirmationPdf(b, opts = {}) {
+export async function bookingConfirmationPdf(b, opts = {}) {
+  // Read before drawing starts. The footer used to print config.companyPhone,
+  // whose default was the .env.example illustration - on every customer's PDF.
+  const phone = opts.phone !== undefined ? opts.phone : await companyPhone().catch(() => null);
+  return drawConfirmation(b, { ...opts, phone });
+}
+
+function drawConfirmation(b, opts) {
   const lang = opts.lang ?? bookingLanguage(b);
   const s = t(lang);
   const other = t(lang === 'ar' ? 'en' : 'ar');
@@ -255,7 +266,7 @@ export function bookingConfirmationPdf(b, opts = {}) {
     const fy = 762;
     doc.moveTo(LEFT, fy).lineTo(RIGHT, fy).strokeColor(LINE).stroke();
     const when = new Date(b.created_at ?? Date.now()).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-    line(`${config.companyName}  ·  ${config.companyEmail}  ·  ${config.companyPhone}`,
+    line([config.companyName, config.companyEmail, opts.phone].filter(Boolean).join('  ·  '),
       LEFT, fy + 8, RIGHT - LEFT, { align: 'center', size: 8, color: MUTED });
     line(`${s.receivedVia(when, b.channel)}  ·  ${s.reference} ${b.booking_ref}`,
       LEFT, fy + 20, RIGHT - LEFT, { align: 'center', size: 8, color: MUTED });

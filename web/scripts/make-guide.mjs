@@ -479,7 +479,8 @@ function renderGuide(doc, lang, { firstPage }) {
   room(60);
   doc.roundedRect(LEFT, y, WIDTH, 46, 6).fill(BRAND);
   line(COMPANY, LEFT + 16, y + 10, WIDTH - 32, { size: 11, font: BOLD, color: '#ffffff' });
-  line(`${config.companyEmail}  ·  ${config.companyPhone}  ·  @${BOT}  ·  ${SITE}`,
+  // No number unless one is set: the guide is handed to customers.
+  line([config.companyEmail, config.companyPhone, `@${BOT}`, SITE].filter(Boolean).join('  ·  '),
     LEFT + 16, y + 27, WIDTH - 32, { size: 9, color: '#bfd8e8' });
   y += 58;
 }

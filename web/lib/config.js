@@ -8,13 +8,19 @@ const env = process.env;
 export const config = {
   companyName: env.COMPANY_NAME || 'MKY Global Forwarding',
   bookingFormUrl: env.BOOKING_FORM_URL || '',
-  companyEmail: env.COMPANY_EMAIL || 'bookings@mkyglobal.example',
+  // Printed in the PDF footer. No default for the same reason as the phone
+  // below: an address on a .example domain reaches nobody.
+  companyEmail: env.COMPANY_EMAIL || '',
   // Prefix on every booking and ticket reference, e.g. MKY-BKG-260904-AB12.
   refPrefix: (env.REFERENCE_PREFIX || 'MKY').toUpperCase(),
-  companyPhone: env.COMPANY_PHONE || '+20 3 555 0143',
-  // The number the bot gives when a customer asks for a person. Roadmap steps
-  // 2 and 3 both end at "Operations: [PHONE NUMBER]".
-  operationsPhone: env.OPERATIONS_PHONE || env.COMPANY_PHONE || '+20 3 555 0143',
+  // No default, and no operationsPhone here at all any more. Both used to fall
+  // back to the .env.example illustration, +20 3 555 0143, and production has
+  // neither COMPANY_PHONE nor OPERATIONS_PHONE set - so that number was printed
+  // on every booking PDF and handed to the assistant as the one to give
+  // customers. The number the bot uses is read at run time by
+  // operationsContact() / companyPhone() in lib/settings.js: the desk's
+  // Settings first, then the environment, and none at all when nothing is set.
+  companyPhone: env.COMPANY_PHONE || '',
   adminSecret: env.ADMIN_SECRET || '',
 
   /**
