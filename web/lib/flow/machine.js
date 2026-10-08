@@ -34,7 +34,7 @@ import * as booking from './booking.js';
 import * as tracking from './tracking.js';
 import * as contact from './contact.js';
 import { findVin } from './paste.js';
-import { bookingByRef, findDraft, openBookingFor } from '../bookings.js';
+import { bookingByRef, findDraft, openBookingFor, setDraftLanguage } from '../bookings.js';
 import { setting } from '../settings.js';
 import {
   withTurn, withLanguage, currentLanguage, normaliseLanguage, detectLanguage, languageFromChoice, looksFrancoArabic,
@@ -852,10 +852,14 @@ function askLanguage(session, ctx, { first = true, again = false, asked = 1 } = 
  * first message with no row yet, be the only place it is kept at all.
  */
 async function remember(session, lang, ctx) {
-  await rememberLanguage(
-    { channel: ctx.channel, chatId: ctx.chatId, clientId: ctx.clientId ?? session.client_id ?? null },
-    lang,
-  ).catch((err) => console.error('language not saved:', err?.message));
+  await Promise.all([
+    rememberLanguage(
+      { channel: ctx.channel, chatId: ctx.chatId, clientId: ctx.clientId ?? session.client_id ?? null },
+      lang,
+    ).catch((err) => console.error('language not saved:', err?.message)),
+    // A booking being filled in is in this language from now on, too.
+    setDraftLanguage(ctx.chatId, lang).catch(() => null),
+  ]);
   logEvent('language_chosen', { chat_id: String(ctx.chatId), channel: ctx.channel, language: lang });
 }
 

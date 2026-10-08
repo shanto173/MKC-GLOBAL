@@ -562,6 +562,31 @@ test('an Arabic booking is Arabic from the menu to the card - no English half an
   assert.doesNotMatch(said(done), /اتأكد/, 'received, not confirmed');
 });
 
+// The live test, 2026-10-08: an Arabic customer's booking was stored with
+// language 'en' - the column's default - so anything reading the booking
+// (the desk, a PDF rebuilt later) took it for English.
+test('a booking records the language of the conversation it was made in', async () => {
+  const ar = harness();
+  await ar.command('/start');
+  await ar.tap('lang:ar');
+  await bookToCard(ar, { name: 'شركة النيل' });
+  await ar.tap('bk:confirm');
+  assert.equal(ar.booking().language, 'ar');
+
+  const en = harness({ channel: 'whatsapp' });
+  await en.command('/start', 'hi');
+  await en.tap('lang:en');
+  await bookToCard(en);
+  assert.equal(en.booking().language, 'en');
+
+  // Chosen half-way through: the booking follows.
+  const late = harness({ settings: [{ key: 'ask_language_first', value: false }] });
+  await late.command('/start');
+  await late.tap('menu:book');
+  await late.text('arabic');
+  assert.equal(late.booking().language, 'ar');
+});
+
 // The live test, 2026-10-08: an Arabic chat was shown the list of Egyptian
 // ports, and the route on the review card, in English.
 test('an Arabic chat names the Egyptian ports in Arabic - in the list and on the card', async () => {

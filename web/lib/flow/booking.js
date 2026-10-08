@@ -21,7 +21,7 @@
 
 import { S, FLOWS, BASIC_FIELDS } from './states.js';
 import { M, FIELD_LABELS, DOC_LABELS, both, pair, portName } from './messages.js';
-import { pick, routeArrow } from '../lang.js';
+import { pick, routeArrow, currentLanguage } from '../lang.js';
 import * as kb from './keyboards.js';
 import {
   findDraft, createDraft, updateDraft, bookingByRef, missingBasics,
@@ -141,6 +141,7 @@ async function newDraft(session, ctx) {
     channel: ctx.channel,
     telegramUserId: ctx.telegramUserId ?? null,
     replaceExisting: false,
+    language: currentLanguage(),
   });
   if (!created.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
@@ -1592,6 +1593,10 @@ export async function handleConfirm(session, ctx) {
       'This request will wait until the MRN has been issued. We will message you as soon as it is ready.',
     ), kb.homeOnly()), { current_state: S.BOOK_DOCUMENTS });
   }
+
+  // The language it was booked in goes with it, whatever was set before.
+  const spoken = currentLanguage();
+  if (spoken && booking.language !== spoken) await updateDraft(ref, { language: spoken }, { chatId: ctx.chatId });
 
   const result = await submitDraft(ref, ctx.chatId);
 
