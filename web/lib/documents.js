@@ -544,6 +544,49 @@ async function attachToOpenBooking(document, chatId) {
   return match.booking_ref;
 }
 
+/**
+ * Files these papers on a booking, if they are on none yet.
+ *
+ * A paper sent from the menu is recorded with no booking (the transport only
+ * files under a request still in progress), and then told "received for
+ * booking X" - while the desk, which reads a case's papers by reference, never
+ * saw it there. A paper that names another chassis is left where it is: it is
+ * evidence of a mismatch, not this booking's paper.
+ *
+ * @returns {Promise<{filed: number[], skipped: number[]}>}
+ */
+export async function fileDocuments(documentIds, { bookingRef, vin = null }) {
+  const ids = [...new Set((documentIds ?? []).map(Number).filter(Number.isFinite))];
+  if (!ids.length || !bookingRef) return { filed: [], skipped: [] };
+  const { data, error } = await db().from('booking_documents')
+    .select('id, vin, booking_ref').in('id', ids).is('booking_ref', null).is('deleted_at', null);
+  if (error) {
+    console.error('filing documents failed:', error.message);
+    return { filed: [], skipped: [] };
+  }
+  const norm = vin ? normalizeVin(vin) : null;
+  const filed = [];
+  const skipped = [];
+  for (const d of data ?? []) {
+    if (norm && d.vin && normalizeVin(d.vin) !== norm) { skipped.push(d.id); continue; }
+    const { error: updErr } = await db().from('booking_documents')
+      .update({ booking_ref: bookingRef }).eq('id', d.id).is('booking_ref', null);
+    if (updErr) console.error('filing a document failed:', updErr.message);
+    else filed.push(d.id);
+  }
+  return { filed, skipped };
+}
+
+/** This chat's papers on no booking yet, newest first, from the last `hours`. */
+export async function looseDocuments(chatId, { hours = 24 } = {}) {
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const { data } = await db().from('booking_documents')
+    .select('id, doc_type, file_name, vin, uploaded_at')
+    .eq('chat_id', String(chatId)).is('booking_ref', null).is('deleted_at', null)
+    .gte('uploaded_at', since).order('uploaded_at', { ascending: false }).limit(20);
+  return data ?? [];
+}
+
 export async function attachDocumentsToBooking({ chatId, bookingRef, vin }) {
   const { data: loose, error: readErr } = await db()
     .from('booking_documents')

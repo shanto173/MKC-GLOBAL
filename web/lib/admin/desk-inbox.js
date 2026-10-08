@@ -347,8 +347,103 @@ export async function inboxItems() {
     });
   }
 
+  items.push(...await paperItems({ since, handled, decided: decidedQ.data ?? [] }));
   items.push(...await problemItems({ since, handled, chatSetAside }));
   return items;
+}
+
+const PAPER_COLUMNS = 'id, booking_ref, chat_id, client_id, channel, doc_type, file_name, status, uploaded_at';
+
+/**
+ * Papers a customer sent that no open case shows.
+ *
+ * One sent with nothing open is kept on no booking - it counts for a booking
+ * the customer starts next, which is why it is left alone while one is being
+ * filled in. In the live test such a photo was stored and appeared nowhere on
+ * the desk. One sent after its booking was decided is on that booking, but a
+ * decided booking is not in the inbox, so nobody would look. Each is a row
+ * until the paper is checked, filed, or set aside.
+ */
+async function paperItems({ since, handled, decided }) {
+  const decidedAt = new Map(decided.filter((b) => b.confirmed_at).map((b) => [b.booking_ref, b]));
+  const [looseQ, lateQ] = await Promise.all([
+    db().from('booking_documents').select(PAPER_COLUMNS).is('booking_ref', null).is('deleted_at', null)
+      .in('status', ['received', 'pending_verification']).gte('uploaded_at', since)
+      .order('uploaded_at', { ascending: false }).limit(100),
+    decidedAt.size
+      ? db().from('booking_documents').select(PAPER_COLUMNS).in('booking_ref', [...decidedAt.keys()]).is('deleted_at', null)
+        .in('status', ['received', 'pending_verification']).gte('uploaded_at', since).limit(100)
+      : { data: [] },
+  ]);
+
+  const loose = (looseQ.data ?? []).filter((d) => d.chat_id && !handled.has(`document:${d.id}`));
+  const chats = [...new Set(loose.map((d) => String(d.chat_id)))];
+  const { data: drafts } = chats.length
+    ? await db().from('bookings').select('chat_id').in('chat_id', chats).eq('status', 'draft')
+    : { data: [] };
+  const drafting = new Set((drafts ?? []).map((b) => String(b.chat_id)));
+
+  const out = [];
+  const names = new Map();
+  const nameOf = async (d) => {
+    const k = `${d.chat_id}|${d.client_id}`;
+    if (!names.has(k)) {
+      const c = await customerFor({ clientId: d.client_id ?? null, channel: d.channel ?? channelOf(d.chat_id), chatId: d.chat_id })
+        .catch(() => null);
+      names.set(k, c?.name || 'The customer');
+    }
+    return names.get(k);
+  };
+  const label = (d) => DOC_LABEL[d.doc_type] && d.doc_type !== 'other' ? DOC_LABEL[d.doc_type] : (d.file_name || 'a paper');
+
+  for (const d of loose) {
+    if (drafting.has(String(d.chat_id))) continue;
+    const name = await nameOf(d);
+    const channel = d.channel ?? channelOf(d.chat_id);
+    out.push({
+      id: `document:${d.id}`,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'amber',
+      sentence: `${name} sent ${/^[AEIOU]/i.test(label(d)) ? 'an' : 'a'} ${label(d)} with no booking open — look at it`,
+      who: name,
+      detail: [d.file_name, 'Kept on no booking. It counts for a booking they start; or file it on one of theirs.'].filter(Boolean).join(' · '),
+      ref: null,
+      link: { type: 'chat', channel, chat_id: d.chat_id, document_id: d.id },
+      channel,
+      priority: 'normal',
+      since: d.uploaded_at,
+      status: statusBadge('No booking', 'amber'),
+      version: null,
+      problem: { type: 'document', id: d.id },
+    });
+  }
+
+  for (const d of lateQ.data ?? []) {
+    const b = decidedAt.get(d.booking_ref);
+    if (!b || handled.has(`document:${d.id}`) || String(d.uploaded_at ?? '') <= String(b.confirmed_at)) continue;
+    const name = b.customer_name || await nameOf(d);
+    out.push({
+      id: `document:${d.id}`,
+      kind: 'problem',
+      tags: ['problems'],
+      tab: 'needs_us',
+      tone: 'amber',
+      sentence: `New ${label(d)} after ${d.booking_ref} was ${b.status === 'confirmed' ? 'confirmed' : b.status} — check it`,
+      who: name,
+      detail: [d.booking_ref, d.file_name].filter(Boolean).join(' · '),
+      ref: d.booking_ref,
+      link: { type: 'booking', ref: d.booking_ref, document_id: d.id },
+      channel: b.channel ?? d.channel ?? null,
+      priority: 'normal',
+      since: d.uploaded_at,
+      status: statusBadge('New paper', 'amber'),
+      version: null,
+      problem: { type: 'document', id: d.id },
+    });
+  }
+  return out;
 }
 
 /** Meta's "this number is not on WhatsApp". Sending again cannot fix it. */

@@ -360,6 +360,27 @@ What I need right now is ${needEn}.`,
     `✅ Received ${labelsEn.join(', ')} for booking ${ref}.\nOur Operations Team will check it and get back to you if anything else is needed.`,
   ),
 
+  // A paper sent with nothing open to put it on. It is kept, and counts for a
+  // booking started next; "I did not follow that" left the customer thinking
+  // it was lost.
+  fileNoBooking: (labelsAr, labelsEn) => both(
+    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\n` +
+    `مفيش عندك حجز مفتوح معانا دلوقتي. اضغط "احجز شحنة" عشان تبدأ واحد وهنستخدم المستند ده فيه، أو "${AGENT.ar}" لو الموضوع حاجة تانية.`,
+    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\n` +
+    `You have no booking open with us right now. Tap "Book my shipment" to start one and this paper will be used for it, or "${AGENT.en}" if it is about something else.`,
+  ),
+
+  // The same, from a customer whose booking is already confirmed.
+  fileWhichBooking: (ref, labelsAr, labelsEn) => both(
+    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\nده للحجز ${ref}، ولا لحجز جديد؟`,
+    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\nIs it for booking ${ref}, or for a new booking?`,
+  ),
+
+  filedTo: (ref) => both(
+    `✅ اتضاف للحجز ${ref}. فريق العمليات هيراجعه ويكلمك لو محتاج حاجة تانية.`,
+    `✅ Added to booking ${ref}. Our Operations Team will check it and get back to you if anything else is needed.`,
+  ),
+
   notedFromMessage: (notedAr, notedEn) => both(
     `📝 سجلنا من رسالتك: ${notedAr.join(' · ')}.`,
     `📝 Noted from your message: ${notedEn.join(' · ')}.`,

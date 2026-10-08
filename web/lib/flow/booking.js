@@ -28,7 +28,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, cancelAllDrafts, draftIsBlank,
   looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
-import { bookingDocumentState } from '../documents.js';
+import { bookingDocumentState, fileDocuments, looseDocuments } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn, answerIn } from './understand.js';
@@ -1227,14 +1227,73 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
  * flow that only knew about drafts had to say.
  */
 export function acknowledgeForSubmitted(booking, { ingested, batch = [] }) {
+  const { labelsAr, labelsEn } = paperLabels({ ingested, batch });
+  return reply(say(M.documentsForBooking(booking.booking_ref, labelsAr, labelsEn), kb.afterSubmitted()));
+}
+
+/** The papers of one arrival - a file, or a batch - and what to call them in each language. */
+function paperLabels({ ingested, batch = [] }) {
   const arrived = batch.length ? batch : [ingested?.document].filter(Boolean);
   const types = [...new Set(arrived.map((d) => d.doc_type).filter((t) => t && t !== 'other'))];
   const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
+  return {
+    ids: arrived.map((d) => d.id).filter((id) => id != null),
+    labelsAr: [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])],
+    labelsEn: [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])],
+  };
+}
 
-  const labelsAr = [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])];
-  const labelsEn = [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])];
+/**
+ * Papers for a request already with the desk: filed on it, and said so. They
+ * were said to be "received for booking X" but left on no booking - so the
+ * desk, which reads a case's papers by reference, never saw them.
+ */
+export async function papersForSubmitted(booking, { ingested, batch = [] }) {
+  const { ids } = paperLabels({ ingested, batch });
+  await fileDocuments(ids, { bookingRef: booking.booking_ref, vin: booking.vin });
+  return acknowledgeForSubmitted(booking, { ingested, batch });
+}
 
-  return reply(say(M.documentsForBooking(booking.booking_ref, labelsAr, labelsEn), kb.afterSubmitted()));
+/**
+ * Papers sent with nothing open to put them on. Kept, and said so: "I did not
+ * follow that", which is what the customer heard in the live test, sounded as
+ * if the paper was lost. With no booking at all, the way to start one - the
+ * paper then counts for it, as every loose paper from the chat does. With a
+ * confirmed booking, the question of which: theirs, or a new one.
+ */
+export function papersWithNoRequest({ ingested, batch = [] }, confirmed = null) {
+  const { ids, labelsAr, labelsEn } = paperLabels({ ingested, batch });
+  if (confirmed) {
+    return reply(
+      say(M.fileWhichBooking(confirmed.booking_ref, labelsAr, labelsEn), kb.fileToChoice(confirmed.booking_ref)),
+      { context: { unfiled_document_ids: ids } },
+    );
+  }
+  return reply(say(M.fileNoBooking(labelsAr, labelsEn), kb.mainMenu()));
+}
+
+/**
+ * "Add to that booking": the papers just sent go on the client's own booking.
+ * The reference comes back from a button, so it is checked to be this chat's.
+ */
+export async function fileToBooking(session, ref, ctx) {
+  const target = await bookingByRef(ref);
+  if (!target || String(target.chat_id) !== String(ctx.chatId)) return reply(say(M.notUnderstood(), kb.mainMenu()));
+
+  const asked = session.context?.unfiled_document_ids ?? [];
+  const ids = asked.length ? asked : (await looseDocuments(ctx.chatId)).map((d) => d.id);
+  const { filed } = await fileDocuments(ids, { bookingRef: target.booking_ref, vin: target.vin });
+  if (filed.length) {
+    audit({
+      actor_type: 'client', actor_id: ctx.chatId,
+      action: 'documents_filed_by_client',
+      entity_type: 'booking', entity_id: target.booking_ref,
+      metadata: { document_ids: filed },
+    });
+  }
+  return reply(say(M.filedTo(target.booking_ref), kb.afterSubmitted()), {
+    active_flow: null, current_state: S.MAIN_MENU, active_booking_ref: null, context: {},
+  });
 }
 
 async function askWhatItIs(session, booking, ctx, { document, remaining = [], leads = [] }) {

@@ -862,6 +862,39 @@ test('the shipments list counts each filter, whichever one is shown', async () =
   }
 });
 
+// The live test, 2026-10-08: a photo of an invoice sent with no booking open
+// was stored under unfiled/ and appeared nowhere on the desk.
+test('a paper on no booking, and one that arrived after its booking was decided, are each a row on the desk', async () => {
+  rows('booking_documents').push(
+    { id: 301, booking_ref: null, chat_id: WA, client_id: 2, channel: 'whatsapp', doc_type: 'invoice', status: 'received', file_name: 'photo-1.jpg', uploaded_at: iso(600_000) },
+    { id: 302, booking_ref: 'MKY-BKG-3', chat_id: '555', client_id: 1, channel: 'telegram', doc_type: 'acid', status: 'received', file_name: 'acid.jpg', uploaded_at: iso(30_000) },
+    // Sent while a booking is being filled in: it is that booking's, not the desk's yet.
+    { id: 303, booking_ref: null, chat_id: 'wa:201009990000', channel: 'whatsapp', doc_type: 'invoice', status: 'received', uploaded_at: iso(60_000) },
+  );
+  rows('bookings').push({ booking_ref: 'MKY-BKG-D', status: 'draft', chat_id: 'wa:201009990000', channel: 'whatsapp' });
+
+  const r = await get({ view: 'inbox', tab: 'needs_us' });
+  const loose = r.body.items.find((i) => i.id === 'document:301');
+  assert.ok(loose, 'the paper with no booking is on the desk');
+  assert.match(loose.sentence, /sent an Invoice with no booking/);
+  assert.equal(loose.link.type, 'chat');
+  assert.equal(loose.link.chat_id, WA);
+  assert.equal(loose.link.document_id, 301);
+  assert.equal(loose.status.label, 'No booking');
+
+  const late = r.body.items.find((i) => i.id === 'document:302');
+  assert.ok(late, 'the paper that came after the booking was confirmed is on the desk');
+  assert.match(late.sentence, /ACID .*after .*MKY-BKG-3 was confirmed/);
+  assert.deepEqual(late.link, { type: 'booking', ref: 'MKY-BKG-3', document_id: 302 });
+
+  assert.ok(!r.body.items.some((i) => i.id === 'document:303'), 'a booking being filled in will take it');
+
+  // Set aside, it stays aside.
+  await post({ action: 'dismiss_problem', problem_id: 'document:301' });
+  const after = await get({ view: 'inbox', tab: 'needs_us' });
+  assert.ok(!after.body.items.some((i) => i.id === 'document:301'));
+});
+
 // The live test, 2026-10-08: the customer sent an invoice for the wrong
 // chassis, then the right one, which the desk verified. "Ask for a new one" on
 // the wrong one still asked the customer for "A new Invoice" and put the

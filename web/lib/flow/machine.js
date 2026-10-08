@@ -275,16 +275,16 @@ async function dispatchInput(session, input, ctx) {
       // request goes back to the desk. The file that speaks answers for its batch.
       const answered = await answerDesk(session, input, ctx);
       if (answered) return answered;
+      const arrived = { ingested: input.document, batch: input.batch ?? [] };
       const submitted = await openBookingFor(ctx.chatId);
-      if (submitted) {
-        return {
-          handled: true,
-          ...booking.acknowledgeForSubmitted(submitted, { ingested: input.document, batch: input.batch ?? [] }),
-        };
+      // A request still with the desk: the paper is filed on it, and said so.
+      if (submitted && submitted.status !== 'confirmed') {
+        return { handled: true, ...(await booking.papersForSubmitted(submitted, arrived)) };
       }
-      // Nothing it could belong to. Say so rather than filing it against a
-      // booking the client was not thinking about.
-      return { handled: true, ...reply(say(M.notUnderstood(), kb.mainMenu())) };
+      // Nothing open - or only a booking already confirmed, which this paper
+      // may or may not be for. Kept, said so, and the next step offered;
+      // never filed against a booking the client was not thinking about.
+      return { handled: true, ...booking.papersWithNoRequest(arrived, submitted ?? null) };
     }
 
     // Nothing to write when the session already points at this request.
@@ -587,6 +587,10 @@ async function bookingCallback(session, action, arg, ctx) {
 
     case 'doctype':
       return booking.handleDocumentClassified(session, arg, ctx);
+
+    // "Add to that booking", for papers sent with nothing open.
+    case 'fileto':
+      return booking.fileToBooking(session, arg, ctx);
 
     case 'confirm':
       return booking.handleConfirm(session, ctx);

@@ -251,6 +251,19 @@ export function afterSubmitted() {
   );
 }
 
+/**
+ * A paper sent with no request open, by a client with a confirmed booking:
+ * is it for that booking, or for a new one? The reference rides in the
+ * payload, which the handler checks belongs to this chat before filing.
+ */
+export function fileToChoice(bookingRef) {
+  return rows(
+    button('📎', 'ضيفه للحجز ده', 'Add to that booking', `bk:fileto:${bookingRef}`),
+    button('📦', 'حجز جديد', 'A new booking', 'menu:book'),
+    homeButton(),
+  );
+}
+
 /** Sent with the "your booking is confirmed" message from Operations. */
 export function afterConfirmed() {
   return afterSubmitted();

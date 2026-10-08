@@ -1998,13 +1998,63 @@ test('regression: a paper sent for a request already with the desk is acknowledg
   assert.deepEqual(quiet.messages, []);
 });
 
-test('regression: a document with no request to belong to is not filed against one', async () => {
+// The live test, 2026-10-08: a photo of an invoice sent with no booking open
+// was read - eight seconds - and stored, and the customer was told "Sorry, I
+// did not follow that."
+test('a paper with no request to belong to is kept, said so, and a booking offered - never filed against one', async () => {
   const h = harness();
   await h.command('/start');
   const r = await h.file(h.upload('invoice'));
 
-  assert.doesNotMatch(said(r), /received/i);
-  assert.match(said(r), /did not follow/);
+  assert.doesNotMatch(said(r), /did not follow/);
+  assert.match(said(r), /Got your Invoice/);
+  assert.match(said(r), /no booking open/);
+  assert.match(said(r), /Book my shipment/);
+  assert.ok(buttons(r).includes('menu:book'), buttons(r).join(' '));
+  assert.equal(h.db._tables.booking_documents[0].booking_ref, null, 'not filed against a booking it was not sent for');
+  assert.equal(h.bookings().length, 0);
+
+  // And when they do start one, the paper they sent counts for it.
+  await h.tap('menu:book');
+  await h.text('Nile Motors');
+  await h.text(PHONE);
+  await h.text('W1T96340310484233');
+  await h.text('Mercedes-Benz');
+  await h.text('Vilnius');
+  await h.text('Alexandria');
+  const list = await h.tap('bk:mrn:existing');
+  assert.doesNotMatch(said(list), /• Invoice/, `the invoice is not asked for again: ${said(list)}`);
+});
+
+test('a paper sent after a booking was confirmed asks whether it is for that booking, and files it there on a tap', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  h.booking().status = 'confirmed';
+
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233' }));
+  assert.match(said(r), new RegExp(`booking ${ref}`));
+  assert.ok(buttons(r).includes(`bk:fileto:${ref}`), buttons(r).join(' '));
+  assert.ok(buttons(r).includes('menu:book'), 'or a new booking');
+  const acid = h.db._tables.booking_documents.find((d) => d.doc_type === 'acid');
+  assert.equal(acid.booking_ref, null, 'not filed until they say');
+
+  const filed = await h.tap(`bk:fileto:${ref}`);
+  assert.equal(acid.booking_ref, ref);
+  assert.match(said(filed), new RegExp(`Added to booking ${ref}`));
+});
+
+test('a paper for a request already with the desk is filed on it, not left loose', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const ref = h.booking().booking_ref;
+  // Sent from the menu, so the transport found nothing to file it under.
+  const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233' }));
+  assert.match(said(r), new RegExp(`for booking ${ref}`));
+  assert.equal(h.db._tables.booking_documents.find((d) => d.doc_type === 'acid').booking_ref, ref,
+    'the desk sees it on the case it was said to be added to');
 });
 
 test('regression: the same wrong chassis is reported once, not once per file', async () => {
