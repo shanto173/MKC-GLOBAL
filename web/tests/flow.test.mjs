@@ -1484,6 +1484,71 @@ test('a contact request becomes a ticket with the problem and the number', async
   assert.equal(tickets[0].department, 'Booking Operations');
 });
 
+// The live test, 2026-10-08: a customer tapped "Talk to an agent", was told
+// their request was logged and an agent would get back to them - and the desk,
+// which lists support tickets, showed nothing, because the tap made only an
+// operations task. The ticket appeared when (if) they typed their problem.
+
+test('tapping "Talk to an agent" puts a call-back on the desk at once, before the customer types a word', async () => {
+  const { requestSentence } = await import('../lib/admin/desk-inbox.js');
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+
+  const tickets = h.db._tables.support_tickets ?? [];
+  assert.equal(tickets.length, 1, 'the desk lists support tickets, so the request is one from the tap');
+  const t = tickets[0];
+  assert.equal(t.status, 'open');
+  assert.equal(t.chat_id, CHAT);
+  assert.equal(t.channel, 'telegram');
+  assert.equal(t.contact, '+201005551234');
+  assert.equal(t.department, 'Booking Operations');
+  assert.equal(t.client_id, 1);
+  assert.match(t.summary, /has not said what about yet/, 'the desk can see they have not described it yet');
+  assert.equal(requestSentence(t), 'Call back +201005551234');
+
+  // A second tap before saying anything is the same request.
+  await h.tap('menu:contact');
+  assert.equal(h.db._tables.support_tickets.length, 1);
+
+  // What they then type fills in that request, and the reply names it.
+  const done = await h.text('The vessel on my shipment is wrong.');
+  assert.equal(h.db._tables.support_tickets.length, 1, 'filled in, not a second ticket');
+  assert.match(h.db._tables.support_tickets[0].summary, /^The vessel on my shipment is wrong/);
+  assert.match(said(done), new RegExp(`Ticket ${t.ticket_ref}`));
+
+  // One request, one task - the tap's and the ticket's used to be two.
+  const callbacks = h.tasks().filter((task) => task.task_type === 'client_callback');
+  assert.equal(callbacks.length, 1);
+  assert.equal(callbacks[0].payload.ticket_ref, t.ticket_ref);
+  assert.equal(callbacks[0].payload.contact, '+201005551234', 'and it follows what the customer has since said');
+});
+
+test('after hours, the tap is on the desk at once too, and an urgent one becomes urgent', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await afterHoursTap(h, 'menu:contact');
+  assert.equal((h.db._tables.support_tickets ?? []).length, 1);
+  await afterHoursTap(h, 'ct:urgent:yes');
+  await h.text('My truck is stuck at the port and the driver has no papers.');
+  const [ticket] = h.db._tables.support_tickets;
+  assert.equal(h.db._tables.support_tickets.length, 1);
+  assert.match(ticket.summary, /^URGENT: My truck is stuck/);
+  assert.equal(ticket.priority, 'urgent', 'the desk sorts urgent first');
+});
+
+test('a request the desk already closed is not reopened by the problem typed afterwards: it is a new one', async () => {
+  const h = harness();
+  h.db._tables.clients[0].phone = '+201005551234';
+  await h.tap('menu:contact');
+  h.db._tables.support_tickets[0].status = 'resolved';
+  await h.text('One more thing about my invoice, please call me.');
+  const tickets = h.db._tables.support_tickets;
+  assert.equal(tickets.length, 2);
+  assert.equal(tickets[0].status, 'resolved');
+  assert.match(tickets[1].summary, /One more thing about my invoice/);
+});
+
 // ---------------------------------------------------------------------------
 // 28-30 - resilience
 // ---------------------------------------------------------------------------
@@ -2207,7 +2272,12 @@ test('regression: sharing a number asks for the problem instead of raising a tic
 
   const r = await h.send({ kind: 'contact', phone: '+8801818488624' });
 
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0, 'nothing raised yet');
+  // The tap's request is on the desk, still saying it has not been described,
+  // and it now carries the number - but nothing has been raised as a problem.
+  const waiting = h.db._tables.support_tickets ?? [];
+  assert.equal(waiting.length, 1);
+  assert.match(waiting[0].summary, /has not said what about yet/, 'nothing raised as a problem yet');
+  assert.equal(waiting[0].contact, '+8801818488624', 'the desk can call back on the number already');
   assert.match(said(r), /what the problem is/i);
   assert.equal(r.state, S.CONTACT_TICKET_DETAILS);
 
@@ -2226,7 +2296,7 @@ test('describing the problem first then sharing a number also works', async () =
   await h.tap('menu:contact');
 
   const asked = await h.text('The vessel on my shipment is wrong.');
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.match(h.db._tables.support_tickets[0].summary, /has not said what about yet/, 'not raised until there is a number');
   assert.match(said(asked), /phone number/i);
 
   await h.send({ kind: 'contact', phone: '+201005551234' });
@@ -2269,7 +2339,8 @@ test('a bare phone number is never mistaken for a problem description', async ()
 
   const r = await h.text('+8801818488624');
 
-  assert.equal((h.db._tables.support_tickets ?? []).length, 0);
+  assert.equal(h.db._tables.support_tickets.length, 1);
+  assert.match(h.db._tables.support_tickets[0].summary, /has not said what about yet/, 'the number is not the problem');
   assert.match(said(r), /what the problem is/i);
 });
 

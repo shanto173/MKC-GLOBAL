@@ -69,6 +69,31 @@ const DEPARTMENT_FOR = {
   other: 'Customer Care',
 };
 
+/**
+ * The desk groups requests by type (support_tickets.request_type). The same
+ * mapping migration 010 used for rows written before the column existed.
+ */
+const REQUEST_TYPE_FOR = {
+  'Booking Operations': 'booking',
+  'Tracking Desk': 'tracking',
+  'Customs Documentation': 'documents',
+  'Accounts & Payments': 'accounts',
+};
+
+/**
+ * What a call-back says before the customer has said what it is about. The
+ * desk reads it as the request's summary, and the next tap from the same chat
+ * recognises its own request by it rather than opening a second one.
+ */
+export const AWAITING_DETAILS = 'Asked to speak to an agent - has not said what about yet.';
+
+/** Statuses in which a request is still the desk's to work (public/desk/workflow.js REQUEST_OPEN). */
+const STILL_OPEN = ['open', 'assigned', 'in_progress', 'waiting_client'];
+
+function ticketRef() {
+  return `${config.refPrefix}-TKT-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
 export function contactMenu() {
   return reply(say(M.contactMenu(), kb.contactMenu()), {
     active_flow: FLOWS.CONTACT,
@@ -252,13 +277,10 @@ export async function talkToAgent(session, ctx) {
   }
 
   // A request to speak to a person is logged whether or not we could hand over
-  // a number, so the desk can call back either way.
-  await createTask({
-    taskType: 'client_callback',
-    clientId: ctx.clientId ?? null,
-    chatId: ctx.chatId,
-    channel: ctx.channel,
-    priority: 'high',
+  // a number, so the desk can call back either way - and it is on the desk from
+  // this tap, before the customer has typed anything.
+  const callback = await openCallback(ctx, {
+    held,
     payload: {
       requested_at: new Date().toISOString(),
       contact_shown: hours.open ? contact.configured : Boolean(contact.directPhone),
@@ -270,19 +292,18 @@ export async function talkToAgent(session, ctx) {
       hours.open && !contact.configured ? 'No operations phone configured - the client was not given a number.' : null,
       !hours.open && !contact.directPhone ? 'No direct phone configured - the client was not given a number.' : null,
     ].filter(Boolean).join(' ') || null,
-    // One callback request per client per hour, so tapping the button five
-    // times does not put five identical tasks on the desk.
-    idempotencyKey: `client_callback:${ctx.chatId}:${new Date().toISOString().slice(0, 13)}`,
   });
 
   logEvent('operations_contact_requested', {
     chat_id: String(ctx.chatId), configured: contact.configured, open: hours.open, phone_on_file: Boolean(held),
+    ticket_ref: callback?.ticket_ref ?? null,
   });
 
   const context = {
     ...session.context,
     department: DEPARTMENT_FOR.operations,
-    ticket: held ? { phone: held } : {},
+    // The request the problem, when it comes, is written onto.
+    ticket: { ...(held ? { phone: held } : {}), ...(callback ? { ref: callback.ticket_ref } : {}) },
     desk,
     urgent: false,
   };
@@ -300,6 +321,76 @@ export async function talkToAgent(session, ctx) {
     current_state: S.CONTACT_TICKET_DETAILS,
     context,
   });
+}
+
+/**
+ * The request a tap on "Talk to an agent" makes, on the desk at once.
+ *
+ * The desk's call-back list is support tickets. This used to write only an
+ * operations task, so a customer who had been told "I have logged your
+ * request" was invisible there until they typed their problem - and one who
+ * never typed it was never seen at all. Now the tap opens the ticket, with a
+ * summary that says it has not been described yet, and the problem fills it in
+ * when it comes (raiseTicket).
+ *
+ * One request, one task: the task is named after the ticket, the same key
+ * raiseTicket uses, so filling the request in later does not add a second.
+ * A second tap before the first was described finds its own request again.
+ *
+ * @returns {Promise<object|null>} the ticket, or null if it could not be written
+ */
+async function openCallback(ctx, { held, payload, notes }) {
+  const department = DEPARTMENT_FOR.operations;
+  const since = new Date(Date.now() - 60 * 60_000).toISOString();
+  const { data: earlier } = await db().from('support_tickets').select('*')
+    .eq('chat_id', String(ctx.chatId))
+    .eq('summary', AWAITING_DETAILS)
+    .in('status', STILL_OPEN)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let ticket = earlier ?? null;
+  if (!ticket) {
+    const { data, error } = await db().from('support_tickets').insert({
+      ticket_ref: ticketRef(),
+      channel: ctx.channel,
+      chat_id: String(ctx.chatId),
+      client_id: ctx.clientId ?? null,
+      department,
+      request_type: REQUEST_TYPE_FOR[department] ?? 'other',
+      customer: ctx.userName ?? null,
+      // The chat is a real way to reach someone when there is no number.
+      contact: held || `${ctx.channel}:${ctx.chatId}`,
+      summary: AWAITING_DETAILS,
+    }).select().single();
+    if (error) {
+      console.error('call-back ticket insert failed:', error.message);
+    } else {
+      ticket = data;
+      audit({
+        actor_type: 'client', actor_id: ctx.chatId,
+        action: 'support_ticket_created',
+        entity_type: 'support_ticket', entity_id: data.ticket_ref,
+        metadata: { department, has_phone: Boolean(held), awaiting_details: true },
+      });
+    }
+  }
+
+  await createTask({
+    taskType: 'client_callback',
+    clientId: ctx.clientId ?? null,
+    chatId: ctx.chatId,
+    channel: ctx.channel,
+    priority: 'high',
+    payload: { ...payload, ...(ticket ? { ticket_ref: ticket.ticket_ref, department } : {}) },
+    notes,
+    // Without a ticket (the insert failed) the task is all the desk has, and
+    // one per client per hour keeps five taps from making five of them.
+    idempotencyKey: ticket ? `ticket:${ticket.ticket_ref}` : `client_callback:${ctx.chatId}:${new Date().toISOString().slice(0, 13)}`,
+  });
+  return ticket;
 }
 
 /**
@@ -379,6 +470,8 @@ async function progressTicket(session, incoming, ctx) {
     problem: incoming.problem ?? held.problem ?? null,
     phone: incoming.phone ?? held.phone ?? null,
     declined: Boolean(incoming.declined || held.declined),
+    // The request the tap already put on the desk, when there was a tap.
+    ref: held.ref ?? null,
   };
 
   // A number the client gave us before - in step 1 of a booking, or on an
@@ -389,6 +482,14 @@ async function progressTicket(session, incoming, ctx) {
   }
 
   const context = { ...session.context, department, ticket };
+
+  // A number given before the problem goes onto the request the tap put on
+  // the desk, so whoever picks it up can call back even if the problem never
+  // follows. The summary still says it has not been described.
+  if (ticket.ref && incoming.phone && !ticket.problem) {
+    await db().from('support_tickets').update({ contact: incoming.phone })
+      .eq('ticket_ref', ticket.ref).eq('summary', AWAITING_DETAILS).in('status', STILL_OPEN);
+  }
 
   // The problem first: without it the desk cannot route the call, and a number
   // on its own is a message to nobody.
@@ -438,44 +539,73 @@ export async function repeatQuestion(session, ctx) {
 }
 
 async function raiseTicket(ticket, ctx, session) {
-  const ref = `${config.refPrefix}-TKT-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   const urgent = session.context?.urgent === true;
   const desk = session.context?.desk ?? null;
 
-  const row = {
-    ticket_ref: ref,
-    channel: ctx.channel,
-    chat_id: String(ctx.chatId),
+  const details = {
     department: ticket.department,
+    request_type: REQUEST_TYPE_FOR[ticket.department] ?? 'other',
     customer: ctx.userName ?? null,
     // The chat is a real way to reach someone when they will not give a number.
     contact: ticket.phone || `${ctx.channel}:${ctx.chatId}`,
-    // Marked in the summary itself, so it is the first thing the desk reads.
+    // Marked in the summary itself, so it is the first thing the desk reads -
+    // and in the priority, which is what the desk sorts by.
     summary: urgent ? `URGENT: ${ticket.problem}` : ticket.problem,
+    ...(urgent ? { priority: 'urgent' } : {}),
   };
 
-  const { data, error } = await db().from('support_tickets').insert(row).select().single();
-  if (error) {
-    console.error('ticket insert failed:', error.message);
-    return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+  // The request the tap put on the desk is filled in, not joined by a second
+  // one. Only while it is still open: one the desk has already closed - they
+  // called back before the customer typed - stays closed, and what was typed
+  // is a new request.
+  let data = null;
+  if (ticket.ref) {
+    const { data: filled } = await db().from('support_tickets').update(details)
+      .eq('ticket_ref', ticket.ref).in('status', STILL_OPEN).select().maybeSingle();
+    data = filled ?? null;
+  }
+  const fromTap = Boolean(data);
+  if (!data) {
+    const { data: inserted, error } = await db().from('support_tickets').insert({
+      ticket_ref: ticketRef(),
+      channel: ctx.channel,
+      chat_id: String(ctx.chatId),
+      client_id: ctx.clientId ?? null,
+      ...details,
+    }).select().single();
+    if (error) {
+      console.error('ticket insert failed:', error.message);
+      return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+    }
+    data = inserted;
   }
 
-  await createTask({
+  // The request's one task: made by the tap, or here when there was none. Its
+  // payload and priority follow what the customer has now said.
+  const payload = { ticket_ref: data.ticket_ref, department: ticket.department, contact: details.contact, urgent, after_hours: Boolean(desk) };
+  const task = await createTask({
     taskType: 'client_callback',
     clientId: ctx.clientId ?? null,
     chatId: ctx.chatId,
     channel: ctx.channel,
     priority: urgent ? 'high' : 'normal',
-    payload: { ticket_ref: data.ticket_ref, department: ticket.department, contact: row.contact, urgent, after_hours: Boolean(desk) },
+    payload,
     notes: urgent ? 'Marked urgent by the client, after hours.' : null,
     idempotencyKey: `ticket:${data.ticket_ref}`,
   });
+  if (task.existed && task.task?.id != null) {
+    await db().from('operations_tasks').update({
+      payload: { ...(task.task.payload ?? {}), ...payload },
+      ...(urgent ? { priority: 'high', notes: 'Marked urgent by the client, after hours.' } : {}),
+      updated_at: new Date().toISOString(),
+    }).eq('id', task.task.id);
+  }
 
   operationsNotifier().notifyClientContactRequest(data).catch(() => null);
 
   await audit({
     actor_type: 'client', actor_id: ctx.chatId,
-    action: 'support_ticket_created',
+    action: fromTap ? 'support_ticket_details_added' : 'support_ticket_created',
     entity_type: 'support_ticket', entity_id: data.ticket_ref,
     metadata: { department: ticket.department, has_phone: Boolean(ticket.phone), urgent },
   });
