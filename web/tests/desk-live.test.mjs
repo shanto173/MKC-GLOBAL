@@ -37,6 +37,23 @@ globalThis.fetch = async (url, init = {}) => {
   const q = Object.fromEntries(new URL(url, 'http://desk').searchParams);
   server.calls.push({ view: q.view, inm: init.headers?.['if-none-match'] ?? null, watch: q.watch ?? null });
   if (init.signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+  // A read that never answers, until it is aborted.
+  if (server.hang === q.view) {
+    return new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+  }
+  // Headers, then the body cut off: by the connection, or by the screen being left.
+  if (server.cutBody === q.view) {
+    return {
+      status: 200, ok: true, headers: { get: (k) => (k.toLowerCase() === 'etag' ? 'W/"cut"' : null) },
+      json: () => new Promise((_, reject) => {
+        const aborted = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        if (server.cutBy !== 'abort') reject(new SyntaxError('Unexpected end of JSON input'));
+        else if (init.signal?.aborted) aborted();
+        else init.signal?.addEventListener('abort', aborted);
+      }),
+    };
+  }
+  if (server.failOnce === q.view) { server.failOnce = null; return json(500, { error: 'boom' }); }
   if (server.delayMs && (!server.slowView || server.slowView === q.view)) await new Promise((r) => setTimeout(r, server.delayMs));
   if (server.failing) return json(500, { error: 'boom' });
   if (q.view === 'pulse') return server.supported ? json(200, { supported: true, versions: { ...server.versions } }) : json(400, { error: 'Unknown view "pulse"' });
@@ -57,6 +74,10 @@ beforeEach(() => {
   server.supported = true;
   server.delayMs = 0;
   server.slowView = null;
+  server.hang = null;
+  server.cutBody = null;
+  server.cutBy = null;
+  server.failOnce = null;
   globalThis.document.hidden = false;
   ui.session.name = 'Sara';
   ui.session.secret = 's';
@@ -233,4 +254,55 @@ test('a screen slow to load does not hold up the pulse', async () => {
   assert.equal(views('inbox'), 1, 'and the inbox asked for once, not again while it is still loading');
   await pass(10_000);
   assert.equal(inbox.loads, 1);
+});
+
+test('an answer cut off mid-way is not kept, and not handed back later as "not modified"', async () => {
+  server.cutBody = 'inbox';
+  await assert.rejects(ui.api({ view: 'inbox' }), (err) => err.status === 502 && !err.aborted);
+  server.cutBody = null;
+  const whole = await ui.api({ view: 'inbox' });
+  assert.equal(server.calls.at(-1).inm, null, 'nothing was kept to be validated');
+  assert.equal(whole.view, 'inbox');
+});
+
+test('a screen left while its answer is arriving is cancelled, and nothing is kept', async () => {
+  server.cutBody = 'inbox';
+  server.cutBy = 'abort';
+  const leaving = new AbortController();
+  const pending = ui.api({ view: 'inbox' }, { signal: leaving.signal });
+  leaving.abort();
+  await assert.rejects(pending, (err) => err.aborted === true);
+  server.cutBody = null;
+  await ui.api({ view: 'inbox' });
+  assert.equal(server.calls.at(-1).inm, null);
+});
+
+test('a read that does not answer is given up on after the time limit, and said as too slow, not offline', async () => {
+  mock.timers.reset();   // AbortSignal.timeout runs on the real clock
+  const before = ui.limits.getTimeoutMs;
+  ui.limits.getTimeoutMs = 50;
+  server.hang = 'inbox';
+  try {
+    await assert.rejects(ui.api({ view: 'inbox' }), (err) => err.status === 504 && !err.offline && !err.aborted);
+  } finally {
+    ui.limits.getTimeoutMs = before;
+    server.hang = null;
+  }
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+});
+
+test('a refresh whose read failed is tried again on the next tick, even when its screen does not say so', async () => {
+  ui.primeLive({ supported: true, versions: { ...server.versions } });
+  let loads = 0;
+  // A screen whose load swallows its errors and returns nothing, as some do.
+  ui.subscribe(['bookings'], async () => { loads += 1; await ui.api({ view: 'inbox' }).catch(() => null); });
+  ui.startLive();
+  server.versions.bookings += 1;
+  server.failOnce = 'inbox';
+  await pass(20_000);
+  assert.equal(loads, 1, 'the change was fetched, and failed');
+  await pass(20_000);
+  assert.equal(loads, 2, 'so it was fetched again, though nothing else moved');
+  await pass(40_000);
+  assert.equal(loads, 2, 'and then left alone');
 });

@@ -92,11 +92,10 @@ function renderList({ route, main, signal = null }) {
     if (data === first) return true;
     first = data;
     counts = data.counts ?? counts;
-    // Rows paged in beyond the first page are kept after it, once each.
-    const seen = new Set(data.rows.map((s) => s.shipment_id));
-    const beyond = rows.length > data.rows.length ? rows.slice(data.rows.length).filter((s) => !seen.has(s.shipment_id)) : [];
-    rows = [...data.rows, ...beyond];
-    if (!beyond.length) next = data.next ?? null;
+    // The list as it is now, from the top, as long as it was (up to 300):
+    // rows that left the filter go, and "Show more" carries on from here.
+    rows = data.rows;
+    next = data.next ?? null;
     draw();
     return true;
   }

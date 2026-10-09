@@ -120,7 +120,10 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       // The conversation beside the case moves with every message in it, far
       // more often than the case: it is refreshed on its own chat's version
       // (public/desk/live.js), and the case on the case's.
-      if (where.chatId) subscribe?.(scopesOf('chat', { channel: where.channel, chat_id: where.chatId }), () => convo?.refresh());
+      // Asked for again every two minutes even when nothing moved: whether
+      // WhatsApp's 24-hour window is still open changes with the clock alone
+      // (the server re-checks it on every send).
+      if (where.chatId) subscribe?.(scopesOf('chat', { channel: where.channel, chat_id: where.chatId }), () => convo?.refresh(), { maxAgeMs: 120_000 });
     }
     if (changed) {
       // Not while somebody is typing in the page: a redraw would take the

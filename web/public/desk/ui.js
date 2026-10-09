@@ -360,7 +360,19 @@ export const isOffline = () => offline;
  */
 const answers = new Map();
 const ANSWERS_KEPT = 40;
-const GET_TIMEOUT_MS = 30_000;
+/**
+ * How long a read may take before it is given up on. An object, not a
+ * constant, so a test can shorten it.
+ */
+export const limits = { getTimeoutMs: 30_000 };
+
+/**
+ * Reads that failed - a server error, a timeout, an answer that could not be
+ * read - counted, so the live loop can tell a screen's refresh that quietly
+ * showed nothing new from one that did not load at all (a screen's own load
+ * function may not say).
+ */
+let readFailures = 0;
 
 /** Forgets every kept answer: on signing out, they are someone else's now. */
 export function forgetAnswers() { answers.clear(); }
@@ -381,7 +393,7 @@ export async function api(params, { method = 'GET', body = null, signal = null }
   const kept = method === 'GET' ? answers.get(url) ?? null : null;
   // A read that has not answered in 30 s is not going to: it is given up on,
   // so the loop that asked can ask again. Actions are left to finish.
-  const late = method === 'GET' && typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(GET_TIMEOUT_MS) : null;
+  const late = method === 'GET' && typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(limits.getTimeoutMs) : null;
   const both = signal && late ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, late]) : signal) : (signal ?? late);
 
   let res;
@@ -399,6 +411,7 @@ export async function api(params, { method = 'GET', body = null, signal = null }
     });
   } catch (err) {
     if (signal?.aborted) throw Object.assign(new Error('Cancelled.'), { aborted: true });
+    if (method === 'GET') readFailures += 1;
     if (late?.aborted) throw Object.assign(new Error('The server took too long to answer. Try again.'), { status: 504 });
     if (err?.name === 'AbortError') throw Object.assign(new Error('Cancelled.'), { aborted: true });
     setOffline(true);
@@ -408,11 +421,25 @@ export async function api(params, { method = 'GET', body = null, signal = null }
 
   if (res.status === 304 && kept) return kept.data;
 
-  const data = await res.json().catch(() => ({ error: 'The server sent something we could not read.' }));
+  // The body can fail after the headers arrived: the screen was left, the
+  // read timed out, the connection dropped. That is not an answer - it is
+  // never kept, and never handed to a screen as one.
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    if (signal?.aborted) throw Object.assign(new Error('Cancelled.'), { aborted: true });
+    if (method === 'GET') readFailures += 1;
+    if (res.ok) throw Object.assign(new Error('The server sent something we could not read. Try again.'), { status: 502 });
+    data = { error: 'The server sent something we could not read.' };
+  }
   if (res.status === 401) {
     for (const fn of listeners.unauthorised) fn('That desk password was not accepted. Sign in again.');
   }
-  if (!res.ok) throw Object.assign(new Error(data.error || 'That did not work.'), { status: res.status, data });
+  if (!res.ok) {
+    if (method === 'GET' && res.status >= 500) readFailures += 1;
+    throw Object.assign(new Error(data?.error || 'That did not work.'), { status: res.status, data });
+  }
 
   if (method === 'GET') {
     const etag = res.headers?.get?.('etag');
@@ -521,9 +548,12 @@ function runSub(sub, versions, { queue = false } = {}) {
   if (sub.running) { if (queue) sub.again = true; return sub.running; }
   const against = versions ? { ...versions } : null;
   sub.running = (async () => {
+    const failuresBefore = readFailures;
     try {
       const ok = await sub.refresh();
-      if (ok !== false) { sub.seen = against; sub.lastRun = Date.now(); }
+      // Caught up only if it said so - or said nothing and no read failed
+      // meanwhile (another screen's failure only costs one more look).
+      if (ok !== false && readFailures === failuresBefore) { sub.seen = against; sub.lastRun = Date.now(); }
     } catch { /* a screen says its own errors */ }
   })().finally(() => {
     sub.running = null;
