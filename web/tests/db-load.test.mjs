@@ -35,6 +35,7 @@ const { invalidateSettings } = await import('../lib/settings.js');
 const { flush } = await import('../lib/background.js');
 const { default: handler } = await import('../lib/admin/console.js');
 const { customerFor, customersFor, customerKey, invalidateTeam } = await import('../lib/admin/desk-shared.js');
+const { withActivity } = await import('./helpers/activity-db.mjs');
 
 const now = Date.now();
 const iso = (msAgo) => new Date(now - msAgo).toISOString();
@@ -65,7 +66,7 @@ function seed({ n = 12, failing = 3 } = {}) {
     t.conversation_sessions.push({ id: `whatsapp:${chat}`, channel: 'whatsapp', chat_id: chat, client_id: 100 + i, current_state: 'MAIN_MENU', last_client_message_at: iso(3600_000), updated_at: iso(3600_000) });
     t.bookings.push({
       booking_ref: `MKY-BKG-${i}`, status: ['pending_review', 'under_review', 'needs_client_action'][i % 3], channel: 'whatsapp', chat_id: chat, client_id: 100 + i,
-      customer_name: i % 2 ? `Cust ${i}` : null, customer_contact: '+201000000', vin: `YV2RT40A8FB7${String(i).padStart(5, '0')}`, make: 'Volvo',
+      customer_name: `Cust ${i}`, customer_contact: '+201000000', vin: `YV2RT40A8FB7${String(i).padStart(5, '0')}`, make: 'Volvo',
       origin_port: 'Klaipeda', destination_port: 'Alexandria', mrn_choice: i % 4 === 0 ? 'mky_issue' : 'existing', priority: 'normal',
       created_at: iso(5 * 3600_000), submitted_at: iso(5 * 3600_000), status_changed_at: iso(5 * 3600_000), edit_history: [],
     });
@@ -87,8 +88,11 @@ function seed({ n = 12, failing = 3 } = {}) {
 }
 
 let db;
-function setup(options) {
+let activity = null;
+/** A fresh desk; `activity: true` gives it the migration's desk_activity and triggers. */
+function setup({ activity: withPulse = false, ...options } = {}) {
   db = createDeskDb(seed(options));
+  activity = withPulse ? withActivity(db) : null;
   setClientForTests(db);
   invalidateSettings();
   invalidateTeam();
@@ -187,4 +191,109 @@ test('the inbox carries the sidebar numbers, so the desk need not ask for them s
   const inbox = await get({ view: 'inbox' });
   const counts = await get({ view: 'counts' });
   assert.deepEqual(inbox.body.nav, counts.body);
+});
+
+// ---------------------------------------------------------------------------
+// The pulse, and answers that have not changed
+// ---------------------------------------------------------------------------
+
+test('the pulse is one read, and says which areas of the desk have moved', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const { rec, out } = await counted(() => get({ view: 'pulse' }));
+  assert.equal(out.status, 200);
+  assert.equal(out.body.supported, true);
+  assert.deepEqual(Object.keys(out.body.versions).sort(), ['bookings', 'customers', 'history', 'messages', 'outbox', 'problems', 'requests', 'shipments', 'team']);
+  assert.equal(rec.count, 1, rec.lines().join('\n'));
+
+  await post({ action: 'take', booking_ref: 'MKY-BKG-0' });
+  const after = await get({ view: 'pulse' });
+  assert.notEqual(after.body.versions.bookings, out.body.versions.bookings, 'taking a case moved the bookings');
+  assert.equal(after.body.versions.shipments, out.body.versions.shipments, 'and nothing it does not touch');
+});
+
+test('a refresh with nothing changed is one cheap read: the inbox answers 304 without being worked out', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const first = await get({ view: 'inbox' });
+  assert.equal(first.status, 200);
+  assert.match(first.headers.etag, /^W\/"v-/);
+
+  const { rec, out } = await counted(() => get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag }));
+  assert.equal(out.status, 304);
+  assert.equal(out.body, undefined, 'no body');
+  assert.equal(rec.count, 1, rec.lines().join('\n'));
+});
+
+test('a change the inbox shows is a new answer; a change it does not show is still 304', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const first = await get({ view: 'inbox' });
+
+  // A message delivered in somebody's chat: not on the inbox.
+  db._tables.chat_messages.push({ id: 9999, channel: 'whatsapp', chat_id: 'wa:201000000001', direction: 'out', author: 'bot', kind: 'text', body: 'ok', status: 'sent', created_at: new Date().toISOString() });
+  activity.bump('messages');
+  assert.equal((await get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag })).status, 304);
+
+  // A case taken: on the inbox.
+  await post({ action: 'take', booking_ref: 'MKY-BKG-0' });
+  const after = await get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag });
+  assert.equal(after.status, 200);
+  assert.notEqual(after.headers.etag, first.headers.etag);
+});
+
+test('the answer depends on who asks: another operator\'s tag is never theirs', async () => {
+  setup({ activity: true });
+  const sara = await get({ view: 'counts' }, 'Sara');
+  const ariful = await get({ view: 'counts' }, 'Ariful', { 'if-none-match': sara.headers.etag });
+  assert.equal(ariful.status, 200, '"mine" is per person');
+});
+
+test('ten operators asking for the inbox under the same versions work it out once', async () => {
+  setup({ activity: true });
+  for (const name of ['Omar', 'Mona', 'Karim', 'Laila', 'Hany', 'Dina', 'Tarek', 'Nour']) db._tables.ops_users.push({ name, role: 'ops_agent', active: true });
+  invalidateTeam();
+  await get({ view: 'me' });
+  const first = await counted(() => get({ view: 'inbox' }, 'Sara'));
+  const rest = await counted(async () => {
+    for (const name of ['Ariful', 'Omar', 'Mona', 'Karim', 'Laila', 'Hany', 'Dina', 'Tarek', 'Nour']) {
+      assert.equal((await get({ view: 'inbox' }, name)).status, 200);
+    }
+  });
+  assert.ok(first.rec.count > 5, first.rec.lines().join('\n'));
+  assert.equal(rest.rec.count, 9, `one pulse read each, the rows shared:\n${rest.rec.lines().join('\n')}`);
+});
+
+test('what depends on the clock is worked out again after five minutes, changed or not', async (t) => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const first = await get({ view: 'inbox' });
+  const start = Date.now();
+  t.mock.method(Date, 'now', () => start + 301_000);
+  const later = await get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag });
+  assert.equal(later.status, 200, '"overdue" and "done today" may have moved');
+});
+
+test('before the migration the desk still works: no pulse, a hash for an ETag, nothing shared', async () => {
+  setup();   // no desk_activity
+  await get({ view: 'me' });
+  const pulse = await get({ view: 'pulse' });
+  assert.equal(pulse.body.supported, false);
+  const first = await get({ view: 'inbox' });
+  assert.match(first.headers.etag, /^W\/"b-/);
+  const again = await counted(() => get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag }));
+  assert.equal(again.out.status, 304, 'the same answer is not sent twice');
+  assert.ok(again.rec.count > 5, 'but it was worked out: there is nothing to vouch for it');
+
+  await post({ action: 'take', booking_ref: 'MKY-BKG-0' });
+  db._tables.booking_queue.find((b) => b.booking_ref === 'MKY-BKG-0').assigned_to = 'Sara';
+  const after = await get({ view: 'inbox' }, 'Sara', { 'if-none-match': first.headers.etag });
+  assert.equal(after.status, 200, 'and a changed answer is sent');
+});
+
+test('search and previews are never answered from a tag: they are asked for, not polled', async () => {
+  setup({ activity: true });
+  const r = await get({ view: 'search', q: 'Cust 1' });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.etag, undefined);
 });

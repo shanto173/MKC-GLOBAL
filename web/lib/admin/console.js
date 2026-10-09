@@ -11,7 +11,11 @@
  *   GET  ?resource=console&view=shipments / shipment&id=
  *   GET  ?resource=console&view=search&q=…
  *   GET  ?resource=console&view=settings      (administrators)
+ *   GET  ?resource=console&view=pulse         what changed: one cheap read (lib/admin/desk-live.js)
  *   POST ?resource=console   { action, operator, version?, action_key?, … }
+ *
+ * The GET views the desk polls carry an ETag and answer 304 Not Modified when
+ * the desk already has the answer (lib/admin/desk-live.js).
  *
  * One route rather than twenty, because Vercel's Hobby plan allows twelve
  * Serverless Functions and this project is at exactly twelve.
@@ -66,6 +70,7 @@ import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-se
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
+import { pulseView, conditionalView } from './desk-live.js';
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -101,12 +106,14 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const view = String(req.query.view ?? 'inbox');
       if (view === 'me') return await me(req, res);
-      const fn = VIEWS[view];
+      const fn = view === 'pulse' ? pulseView : VIEWS[view];
       if (!fn) return res.status(400).json({ error: `Unknown view "${view}"` });
       const who = await operatorFor(req);
       if (!who.ok) return res.status(403).json({ error: who.error });
       if (view === 'settings' && !who.can('settings')) return res.status(403).json({ error: deniedReason('settings', who.role) });
-      return await fn(req, res, who);
+      // The views the desk polls answer 304 when nothing they show has
+      // changed since the version the desk already has (lib/admin/desk-live.js).
+      return await conditionalView(view, req, res, who, (out) => fn(req, out, who));
     }
     if (req.method === 'POST') return await act(req, res);
     return res.status(405).json({ error: 'Method not allowed' });

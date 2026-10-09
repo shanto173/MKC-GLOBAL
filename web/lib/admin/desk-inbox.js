@@ -27,6 +27,8 @@ import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
 import { AWAITING_DETAILS } from '../flow/contact.js';
+import { shared } from './desk-live.js';
+import { VIEW_SCOPES } from '../../public/desk/live.js';
 
 /** What each of the desk's tones means, for a screen that names its own. */
 const MEANING = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
@@ -760,6 +762,14 @@ const inFilter = (item, filter, me) => {
   return item.tags.includes(filter);
 };
 
+/**
+ * The inbox's rows, worked out once per instance for every operator asking
+ * under the same versions (lib/admin/desk-live.js). The rows are the same for
+ * everybody; tabs, filters and "mine" are cut from them per request, and
+ * nothing here changes them.
+ */
+const sharedInbox = (req) => shared('inbox', req?.deskPulse ?? null, VIEW_SCOPES.inbox, () => inboxItems());
+
 /** GET view=inbox&tab=&filter=&offset=&limit= */
 export async function inboxView(req, res, who) {
   const tab = TABS.includes(req.query.tab) ? req.query.tab : 'needs_us';
@@ -767,7 +777,7 @@ export async function inboxView(req, res, who) {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-  const all = await inboxItems();
+  const all = await sharedInbox(req);
   const counts = { tabs: {}, filters: {} };
   for (const t of TABS) counts.tabs[t] = all.filter((i) => i.tab === t).length;
   const inTab = all.filter((i) => i.tab === tab);
@@ -805,5 +815,5 @@ function navCounts(all, who) {
 
 /** GET view=counts - the numbers on the sidebar and in the tab title. */
 export async function countsView(req, res, who) {
-  return res.status(200).json(navCounts(await inboxItems(), who));
+  return res.status(200).json(navCounts(await sharedInbox(req), who));
 }
