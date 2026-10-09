@@ -49,7 +49,10 @@ export const ACTION_WORDS = { assign: 'Assign to me', retry: 'Retry sending', di
  * an MRN application: the team's, said in words rather than left blank.
  */
 export function ownerNote(item) {
-  return item?.kind === 'problem' || item?.kind === 'mrn' ? 'Anyone on the team' : null;
+  if (item?.kind === 'problem' || item?.kind === 'mrn') return 'Anyone on the team';
+  // Waiting for the customer, or done, with nobody on it: nothing to assign, but said.
+  if (!item?.assigned_to && item?.tab && item.tab !== 'needs_us') return 'Unassigned';
+  return null;
 }
 
 /**
@@ -363,13 +366,12 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
   /** Who has it - or, when nobody does and it is ours, the button that takes it. */
   function owner(item) {
     const team = ownerNote(item);
-    if (team) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-team' }, icon('users', { size: 14 }), team));
+    if (team) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-team' }, icon(team === 'Unassigned' ? 'userX' : 'users', { size: 14 }), team));
     if (item.assigned_to) {
       const mine = item.assigned_to.toLowerCase() === String(session.name).toLowerCase();
       return h('div', { class: 'row-owner', title: `${item.assigned_to} has this` },
         avatar(item.assigned_to, { size: 'sm' }), h('span', {}, mine ? 'You' : item.assigned_to));
     }
-    if (item.tab !== 'needs_us') return h('div', { class: 'row-owner' });
     if (!session.can('assign_self')) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-none' }, icon('userX', { size: 14 }), 'Unassigned'));
     const take = h('button', { class: 'btn btn-sm row-take', type: 'button', 'aria-label': `${ACTION_WORDS.assign}: ${item.sentence}` }, icon('userPlus', { size: 14 }), ACTION_WORDS.assign);
     take.addEventListener('click', () => takeIt(take, item));

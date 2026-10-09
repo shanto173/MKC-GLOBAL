@@ -182,6 +182,10 @@ test('every inbox row says who owns it, even work nobody is assigned', () => {
   assert.equal(ownerNote({ kind: 'problem' }), 'Anyone on the team');
   assert.equal(ownerNote({ kind: 'mrn' }), 'Anyone on the team');
   assert.equal(ownerNote({ kind: 'booking', assigned_to: null, tab: 'needs_us' }), null, 'a booking has its own owner, or Assign to me');
+  assert.equal(ownerNote({ kind: 'booking', assigned_to: 'Omar', tab: 'waiting' }), null);
+  // Waiting or done, nobody's: said, not left blank (there is nothing to assign then).
+  assert.equal(ownerNote({ kind: 'booking', assigned_to: null, tab: 'waiting' }), 'Unassigned');
+  assert.equal(ownerNote({ kind: 'callback', assigned_to: null, tab: 'done' }), 'Unassigned');
 });
 
 test('Dismiss issue says, before it is pressed, what it does and what it does not do', () => {
