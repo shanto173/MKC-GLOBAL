@@ -1,9 +1,9 @@
 {
-  "name": "mkc-global-chatbot",
+  "name": "mky-global-chatbot",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "MKC Global Logistics AI chatbot - Telegram + web, backed by Supabase",
+  "description": "MKY Global Forwarding AI chatbot - Telegram, WhatsApp and web, backed by Supabase",
   "engines": {
     "node": ">=20"
   },

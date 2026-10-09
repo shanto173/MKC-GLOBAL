@@ -1,5 +1,5 @@
 -- ===========================================================================
--- MKC Global Logistics chatbot - Supabase schema
+-- MKY Global Forwarding chatbot - Supabase schema
 -- Run this once in: Supabase Dashboard -> SQL Editor -> New query -> Run
 -- Safe to re-run (idempotent).
 -- ===========================================================================
@@ -24,7 +24,7 @@ create table if not exists clients (
 -- 2. Shipments  (the "live status" the bot reads from)
 -- ---------------------------------------------------------------------------
 create table if not exists shipments (
-  shipment_id       text primary key,              -- e.g. MKC-24001
+  shipment_id       text primary key,              -- e.g. MKY-24001
   acid_id           text unique,                   -- Egyptian ACID number
   bl_number         text,                          -- Bill of Lading
   container_no      text,

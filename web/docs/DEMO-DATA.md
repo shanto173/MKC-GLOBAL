@@ -6,7 +6,7 @@ a document arrives in the chat as backticks and row numbers run together — the
 bot reads that too now, but it is not what you should be sending.
 
 Bot — your MKY bot in Telegram
-The MKY Desk — https://mkc-global.vercel.app/desk/ — sign in as `Ariful`
+The operations desk — https://mkc-global.vercel.app/desk/ — sign in as `Ariful`
 Health check — https://mkc-global.vercel.app/api/health
 
 ---

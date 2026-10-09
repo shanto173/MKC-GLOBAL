@@ -1,4 +1,4 @@
-# MKC Global Logistics — AI chatbot
+# MKY Global Forwarding — AI chatbot
 
 Telegram + web chatbot for a freight forwarding company. It answers from the
 company's live database, not from the model's imagination: shipment status,

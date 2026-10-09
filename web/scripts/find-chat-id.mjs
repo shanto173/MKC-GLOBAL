@@ -1,10 +1,11 @@
 /**
  * Finds the chat_id of your staff Telegram group.
  *
- *   1. Create a Telegram group, e.g. "MKC Bookings"
- *   2. Add @MKC_Global_bot to it
+ *   1. Create a Telegram group, e.g. "MKY Bookings"
+ *   2. Add the bot to it
  *   3. Run:  npm run chatid
- *   4. When it says LISTENING, send  /start@MKC_Global_bot  in the group
+ *   4. When it says LISTENING, send  /start@<the bot's username>  in the group
+ *      (the script asks Telegram for the username and prints the exact line)
  *
  * Group ids are negative, e.g. -1002345678901. Put it in STAFF_CHAT_ID.
  *
@@ -25,6 +26,9 @@ if (!config.telegram.token) {
 }
 
 const info = (await (await fetch(API('getWebhookInfo'))).json()).result;
+// The bot's own handle, from Telegram: nothing here names a particular bot.
+const me = (await (await fetch(API('getMe'))).json()).result;
+const START = `/start@${me?.username ?? 'your_bot'}`;
 const hadWebhook = Boolean(info?.url);
 
 async function restore() {
@@ -62,7 +66,7 @@ try {
   }
 
   console.log('\n  LISTENING - now send this in your group:\n');
-  console.log('      /start@MKC_Global_bot\n');
+  console.log(`      ${START}\n`);
   console.log(`  Waiting up to ${LISTEN_SECONDS}s. Ctrl+C to stop.\n`);
 
   const chats = new Map();
@@ -93,10 +97,10 @@ try {
     console.log(`      STAFF_CHAT_ID=${group.id}\n`);
   } else if (chats.size) {
     console.log('\n  Only private chats seen - no group yet.');
-    console.log('  Make sure the bot is a MEMBER of the group, then send /start@MKC_Global_bot there.');
+    console.log(`  Make sure the bot is a MEMBER of the group, then send ${START} there.`);
   } else {
     console.log('\n  Nothing received.');
-    console.log('  Check that the bot was added to the group, and send /start@MKC_Global_bot in it.');
+    console.log(`  Check that the bot was added to the group, and send ${START} in it.`);
   }
 } finally {
   await safeRestore();

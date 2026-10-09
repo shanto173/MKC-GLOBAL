@@ -38,8 +38,22 @@ const WIDTH = RIGHT - LEFT;
 const TOP = 62;
 const BOTTOM = 748;
 
-const BOT = process.env.TELEGRAM_BOT_USERNAME || 'MKC_Global_bot';
-const SITE = (config.publicBaseUrl || 'https://mkc-global.vercel.app').replace(/^https?:\/\//, '');
+// Neither the bot's handle nor the address is written in here: both change when
+// the company moves (the site to its MKY address), and a printed guide naming the
+// old one sends customers nowhere. The handle comes from TELEGRAM_BOT_USERNAME or
+// from Telegram itself (getMe); the address from APP_BASE_URL.
+async function botUsername() {
+  if (process.env.TELEGRAM_BOT_USERNAME) return process.env.TELEGRAM_BOT_USERNAME.replace(/^@/, '');
+  if (!config.telegram.token) return null;
+  const me = await fetch(`https://api.telegram.org/bot${config.telegram.token}/getMe`).then((r) => r.json()).catch(() => null);
+  return me?.result?.username ?? null;
+}
+const BOT = await botUsername();
+if (!BOT || !config.publicBaseUrl) {
+  console.error('Set APP_BASE_URL (the address customers open) and TELEGRAM_BOT_USERNAME or TELEGRAM_BOT_TOKEN, then run again.');
+  process.exit(1);
+}
+const SITE = config.publicBaseUrl.replace(/^https?:\/\//, '');
 const COMPANY = config.companyName;
 
 // ---------------------------------------------------------------------------

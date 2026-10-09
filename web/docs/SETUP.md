@@ -26,7 +26,7 @@ OpenAI API key from [platform.openai.com](https://platform.openai.com).
 ```
 
 The important idea: **the AI never invents shipment data.** When a customer
-asks "where is MKC-24001", the AI calls a tool that runs a real SQL query
+asks "where is MKY-24001", the AI calls a tool that runs a real SQL query
 against Supabase and answers only from what comes back.
 
 ---
@@ -151,7 +151,7 @@ npm run smoke -- --chat
 ```powershell
 cd C:\Users\User\OneDrive\Documents\chatBot_mkc_global
 git add .
-git commit -m "Add MKC Global chatbot"
+git commit -m "Add MKY Global Forwarding chatbot"
 git push
 ```
 
@@ -173,7 +173,7 @@ git push
    > go to **Deployments → ⋯ → Redeploy**.
 6. Click **Deploy**. Wait ~1 minute.
 
-You now have a URL like `https://mkc-global-bot.vercel.app`.
+You now have a URL like `https://your-app.vercel.app`.
 
 ### Check it
 
@@ -216,7 +216,7 @@ You already made the bot with @BotFather: **@MKC_Global_bot**.
 
 Try:
 
-- `Where is MKC-24001?`
+- `Where is MKY-24001?`
 - `What documents do I need?`
 - `I want to book a shipment from Rotterdam to Alexandria`
 
@@ -279,7 +279,7 @@ you configure switches itself on.
 ### 7a. Email via Resend (free, 3,000/month)
 
 1. [resend.com](https://resend.com) → sign up (GitHub login works)
-2. **API Keys** → **Create API Key** → name it `mkc-bot` → copy the `re_...` value
+2. **API Keys** → **Create API Key** → name it `mky-bot` → copy the `re_...` value
 3. Add to `web/.env` **and** to Vercel → Settings → Environment Variables:
 
    ```
@@ -292,10 +292,10 @@ you configure switches itself on.
 > `OPS_EMAIL` to your own address. Customers will NOT receive their copy yet.
 
 **To email real customers**, verify a domain in Resend → **Domains** → add
-`mkcglobal.com` → add the DNS records it shows you → then set:
+`mkyglobal.com` → add the DNS records it shows you → then set:
 
 ```
-MAIL_FROM=MKC Global Logistics <bookings@mkcglobal.com>
+MAIL_FROM=MKY Global Forwarding <bookings@mkyglobal.com>
 ```
 
 Verifying a domain also keeps your mail out of spam folders, which matters more
@@ -303,7 +303,7 @@ than it sounds for booking confirmations.
 
 ### 7b. Telegram staff group
 
-1. In Telegram, create a group, e.g. **MKC Bookings**
+1. In Telegram, create a group, e.g. **MKY Bookings**
 2. Add **@MKC_Global_bot** to it
 3. Send any message in the group (`hello` is fine)
 4. Run:

@@ -118,7 +118,7 @@ export function looksFrancoArabic(text) {
 
   // A digit used as a letter, i.e. sitting inside a word between letters
   // (sha7na, bta3ty) or opening one (3ayez, 7abibi). Reference numbers such as
-  // MKC-24001 and chassis numbers do not match, because their digits are
+  // MKY-24001 and chassis numbers do not match, because their digits are
   // adjacent to other digits or separators rather than letters.
   const digitAsLetter = /[a-z][23579][a-z]/.test(s) || /\b[2357][a-z]{2,}/.test(s);
 

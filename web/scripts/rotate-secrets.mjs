@@ -24,7 +24,13 @@ import { fileURLToPath } from 'node:url';
 
 const apply = process.argv.includes('--apply');
 const token = process.env.VERCEL_TOKEN;
-const project = process.env.VERCEL_PROJECT || 'mkc-global';
+// No default: the project is being moved to its MKY name, and rotating the
+// secrets of the old one by accident would lock everybody out of the new one.
+const project = process.env.VERCEL_PROJECT || '';
+if (process.argv.includes('--apply') && token && !project) {
+  console.error('Set VERCEL_PROJECT to the Vercel project to rotate (its name or id), then run again.');
+  process.exit(1);
+}
 const teamQuery = process.env.VERCEL_TEAM_ID ? `?teamId=${process.env.VERCEL_TEAM_ID}` : '';
 
 const fresh = () => crypto.randomBytes(24).toString('base64url');
@@ -95,5 +101,5 @@ if (fs.existsSync(envPath)) {
 // Only after production has the new value, or every incoming message is
 // rejected by the webhook that no longer recognises the secret.
 console.log('\nNow wait for the deployment to finish, then run:');
-console.log('  npm run setup:webhook -- https://mkc-global.vercel.app');
+console.log(`  npm run setup:webhook -- ${(process.env.APP_BASE_URL || process.env.PUBLIC_BASE_URL || '<your deployment URL>').replace(/\/+$/, '')}`);
 console.log('\nAnd sign in to the console again with the new ADMIN_SECRET.');
