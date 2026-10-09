@@ -18,13 +18,13 @@ const LATIN_WORDS = /[A-Za-z]{3,}/g;
 const ARABIC_INDIC = /[٠-٩]/;
 
 /** Words that are fine in Latin inside an Arabic reply - they are identifiers. */
-const ALLOWED_LATIN = /^(ACID|MRN|EUR|VIN|MKC|MKY|BKG|TKT|SHP|FOB|EXW|CIF|DAP|LCL|FCL|ETA|ETD|MSC|CMA|CGM|ONE|Maersk|Hapag|Alexandria|Port|Said|Damietta|Ain|Sokhna|Suez|Rotterdam|Felixstowe|Antwerp|Hamburg|Valencia|Genoa|Savannah|Vilnius|Barcelona|Angeles|Los|New|York|Jersey|Gateway|London|Aurora|Nile|Express|Meridian|Thames|Genova|Pacific|Hamburg|Mercedes|Benz|Actros|Volvo|Scania|Nafeza|El|Dekheila|incl|Egypt|Global|Forwarding|Logistics|Booking|Operations|Accounts|Payments|Tracking|Desk|Customs|Documentation|Customer|Care|kg|cbm|LKW|UAB|SS|POD|CMR|ETD|B\/L)$/i;
+const ALLOWED_LATIN = /^(ACID|MRN|EUR|VIN|MKY|BKG|TKT|SHP|FOB|EXW|CIF|DAP|LCL|FCL|ETA|ETD|MSC|CMA|CGM|ONE|Maersk|Hapag|Alexandria|Port|Said|Damietta|Ain|Sokhna|Suez|Rotterdam|Felixstowe|Antwerp|Hamburg|Valencia|Genoa|Savannah|Vilnius|Barcelona|Angeles|Los|New|York|Jersey|Gateway|London|Aurora|Nile|Express|Meridian|Thames|Genova|Pacific|Hamburg|Mercedes|Benz|Actros|Volvo|Scania|Nafeza|El|Dekheila|incl|Egypt|Global|Forwarding|Logistics|Booking|Operations|Accounts|Payments|Tracking|Desk|Customs|Documentation|Customer|Care|kg|cbm|LKW|UAB|SS|POD|CMR|ETD|B\/L)$/i;
 
 const cases = [
   {
     name: 'Egyptian Arabic - tracking',
-    ask: 'الشحنة بتاعتي فين؟ الرقم MKC-24001',
-    expect: (r) => (/MKC-24001/.test(r) ? true : 'lost the shipment reference'),
+    ask: 'الشحنة بتاعتي فين؟ الرقم MKY-24001',
+    expect: (r) => (/MKY-24001/.test(r) ? true : 'lost the shipment reference'),
   },
   {
     name: 'Egyptian Arabic - documents question',
@@ -33,10 +33,10 @@ const cases = [
   },
   {
     name: 'Franco-Arabic - tracking',
-    ask: 'el sha7na bta3ty fen? el number MKC-24004',
+    ask: 'el sha7na bta3ty fen? el number MKY-24004',
     expect: (r) => {
       if (!ARABIC.test(r)) return 'replied in Latin script instead of Arabic';
-      if (!/MKC-24004/.test(r)) return 'lost the shipment reference';
+      if (!/MKY-24004/.test(r)) return 'lost the shipment reference';
       return true;
     },
   },
@@ -49,10 +49,10 @@ const cases = [
     // Both languages, whoever asked. These messages get forwarded to drivers,
     // brokers and customs agents who read one language or the other.
     name: 'English question still answered in both languages',
-    ask: 'Where is shipment MKC-24005?',
+    ask: 'Where is shipment MKY-24005?',
     expect: (r) => {
       if (!ARABIC.test(r)) return 'no Arabic at all - the reply is half a reply';
-      if (!/MKC-24005/.test(r)) return 'lost the shipment reference';
+      if (!/MKY-24005/.test(r)) return 'lost the shipment reference';
       return true;
     },
   },

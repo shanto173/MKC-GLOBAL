@@ -172,13 +172,19 @@ export function documentOut(d, booking, { declared = null } = {}) {
   }
 
   const [words, tone] = DOC_WORDS[d.status] ?? [String(d.status ?? ''), 'gray'];
+  // A paper MKY sent the customer from the desk and filed here: ours, not one
+  // of theirs to check. Said so, with who sent it.
+  const ours = d.doc_type === 'mky';
   return {
     id: d.id,
     doc_type: d.doc_type,
     label: DOC_LABEL[d.doc_type] ?? d.doc_type,
     status: d.status,
-    status_words: d.status === 'verified' && d.verified_by ? `Checked by ${d.verified_by}` : words,
-    tone,
+    status_words: ours ? `Sent by MKY${x.sent_by ? ` · ${x.sent_by}` : ''}`
+      : d.status === 'verified' && d.verified_by ? `Checked by ${d.verified_by}` : words,
+    tone: ours ? 'gray' : tone,
+    sent_by_mky: ours,
+    sent_by: ours ? (x.sent_by ?? d.uploaded_by ?? null) : null,
     file_name: d.file_name ?? null,
     mime_type: d.mime_type ?? null,
     size_bytes: d.size_bytes ?? null,
@@ -392,7 +398,9 @@ export async function bookingCase(req, res, who) {
     checklist,
     required_documents: required,
     required_note: required.length ? null : 'No documents are set as required in Settings, so none are asked for.',
-    other_documents: docsOut.filter((d) => !requiredSet.has(d.doc_type)),
+    other_documents: docsOut.filter((d) => !requiredSet.has(d.doc_type) && !d.sent_by_mky),
+    // Papers MKY sent the customer from the conversation and filed here.
+    mky_documents: docsOut.filter((d) => d.sent_by_mky),
     document_actions: {
       verify: button(who, 'verify_document', 'Looks right', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
       reject: button(who, 'reject_document', 'Ask for a new one', { perm: 'documents', allowed: open, why: 'This request is closed.' }),

@@ -1,4 +1,4 @@
-# MKC Global Logistics — chatbot
+# MKY Global Forwarding — chatbot
 
 > **Production bot lives in [`web/`](web/).** Telegram + web chat, backed by a
 > Supabase database, deployed on Vercel.

@@ -257,12 +257,16 @@ function distinct(titles, max) {
 export function renderWhatsApp(message, { language = currentLanguage() } = {}) {
   return withLanguage(language, () => {
     const steps = [];
-    if (message?.document?.buffer) {
+    if (message?.document?.buffer || message?.document?.link) {
+      // A photo the desk sends goes as a photo (shown in the chat); anything
+      // else as a document. A caption keeps its line breaks - it is a message.
+      const caption = String(message.document.caption ?? '').trim();
       steps.push({
-        type: 'document',
-        buffer: message.document.buffer,
+        type: message.document.asPhoto ? 'image' : 'document',
+        buffer: message.document.buffer ?? null,
+        link: message.document.link ?? null,
         fileName: message.document.fileName ?? 'document.pdf',
-        caption: fitText(message.document.caption ?? '', LIMITS.caption),
+        caption: caption.length > LIMITS.caption ? fitText(caption, LIMITS.caption) : caption,
         mimeType: message.document.mimeType ?? 'application/pdf',
       });
     }
@@ -577,24 +581,41 @@ function failedFrom(res, target, log, extra = {}) {
 /** Telegram refuses these for good; retrying is how an outbox becomes a load. */
 const TELEGRAM_PERMANENT = /bot was blocked|user is deactivated|chat not found|bot can't initiate|CHAT_WRITE_FORBIDDEN/i;
 
+/** Telegram will not take this as a photo (its sides, its weight): it goes as a file instead. */
+const PHOTO_REFUSED = /PHOTO_INVALID|IMAGE_PROCESS_FAILED|PHOTO_SAVE_FILE_INVALID|too big|wrong file/i;
+
 async function sendTelegram(target, message, opts) {
   // The outbox's tests hand in a transport that fails on demand; everything
   // else uses the real one.
   const send = opts.transport?.send ?? telegram.sendMessage;
   const sendFile = opts.transport?.sendFile ?? telegram.sendDocument;
+  const sendPhoto = opts.transport?.sendPhoto ?? telegram.sendPhoto;
   const log = { author: opts.author, staffName: opts.staffName, bookingRef: opts.bookingRef, language: opts.language };
   // Telegram message ids count up per chat, so two chats share every id; the
   // chat goes in front to make the id unique in chat_messages.
   const providerId = (sent) => (sent?.result?.message_id != null ? `${target.chatId}:${sent.result.message_id}` : null);
+  // What the desk asks to be kept on the log row of a file it sends: where the
+  // file is stored, so the conversation can show it and send it again.
+  const filePayload = (doc) => ({ file_name: doc.fileName, ...(opts.logPayload ?? {}) });
 
   try {
     if (message.document?.buffer) {
-      const { buffer, fileName, caption } = message.document;
+      const { buffer, fileName, caption, mimeType, asPhoto } = message.document;
       // sendDocument throws when Telegram refuses, so reaching the next line
       // means the file went.
-      const sent = await sendFile(target.chatId, buffer, fileName, caption);
+      let sent = null;
+      let kind = 'document';
+      if (asPhoto) {
+        try {
+          sent = await sendPhoto(target.chatId, buffer, fileName, caption, mimeType);
+          kind = 'image';
+        } catch (err) {
+          if (!PHOTO_REFUSED.test(String(err?.message))) throw err;
+        }
+      }
+      if (!sent) sent = await sendFile(target.chatId, buffer, fileName, caption, mimeType ?? 'application/pdf');
       const id = providerId(sent);
-      record(target, { ...log, kind: 'document', body: caption ?? null, payload: { file_name: fileName }, providerMessageId: id });
+      record(target, { ...log, kind, body: caption || null, payload: filePayload(message.document), providerMessageId: id });
       return { ok: true, status: 'sent', providerMessageId: id };
     }
 
@@ -618,18 +639,28 @@ async function sendTelegram(target, message, opts) {
     return { ok: true, status: 'sent', providerMessageId: id };
   } catch (err) {
     const error = err?.message ?? 'Telegram send failed';
-    record(target, { ...log, kind: message.document ? 'document' : 'text', body: message.document?.caption ?? message.text, status: 'failed', error });
+    record(target, {
+      ...log,
+      kind: message.document ? (message.document.asPhoto ? 'image' : 'document') : 'text',
+      body: message.document ? (message.document.caption || null) : message.text,
+      payload: message.document ? filePayload(message.document) : {},
+      status: 'failed',
+      error,
+    });
     return { ok: false, status: 'failed', error, permanent: TELEGRAM_PERMANENT.test(error) };
   }
 }
 
-async function sendSteps(target, steps, log) {
+async function sendSteps(target, steps, log, filePayload = {}) {
   const to = waIdOf(target.chatId);
   const ids = [];
   for (const step of steps) {
     let res;
     let entry;
-    if (step.type === 'text') {
+    if (step.type === 'image') {
+      res = await wa.sendImage(to, step);
+      entry = { kind: 'image', body: step.caption || null, payload: { file_name: step.fileName, ...filePayload } };
+    } else if (step.type === 'text') {
       res = await wa.sendText(to, step.body);
       entry = { kind: 'text', body: step.body };
     } else if (step.type === 'buttons') {
@@ -640,7 +671,7 @@ async function sendSteps(target, steps, log) {
       entry = { kind: 'list', body: step.body, payload: { button: step.button, rows: step.sections.flatMap((s) => s.rows) } };
     } else if (step.type === 'document') {
       res = await wa.sendDocument(to, step);
-      entry = { kind: 'document', body: step.caption || null, payload: { file_name: step.fileName } };
+      entry = { kind: 'document', body: step.caption || null, payload: { file_name: step.fileName, ...filePayload } };
     } else {
       continue;
     }
@@ -685,7 +716,7 @@ async function sendWhatsApp(target, message, opts) {
 
   if (!open) return viaTemplate(target, message, opts, log);
 
-  const sent = await sendSteps(target, renderWhatsApp(message, { language: opts.language }), log);
+  const sent = await sendSteps(target, renderWhatsApp(message, { language: opts.language }), log, opts.logPayload ?? {});
   // Our clock said open; Meta says closed. Meta decides.
   if (!sent.ok && sent.code === wa.WINDOW_CLOSED && !sent.providerMessageIds?.length) {
     return viaTemplate(target, message, opts, log);

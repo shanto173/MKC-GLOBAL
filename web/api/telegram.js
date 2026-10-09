@@ -58,6 +58,7 @@ import {
 } from '../lib/documents.js';
 import { sendToChat, phrase } from '../lib/channels.js';
 import { logInbound } from '../lib/chatlog.js';
+import { keepChatMedia } from '../lib/chat-files.js';
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
 import { audit, logEvent } from '../lib/audit.js';
@@ -173,9 +174,13 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
     };
     const target = targetOf(ctx);
 
-    defer(logInbound({
+    const logged = logInbound({
       channel: 'telegram', chatId, clientId: ctx.clientId, language, ...describe(update, chatId),
-    }));
+    });
+    defer(logged);
+    // A voice note, a video or a sticker: kept for the desk to play, once its
+    // log row is there to say where.
+    if (message && !callbackQuery && keptFile(message)) defer(logged.then(() => keepTelegramMedia(message, ctx)));
 
     if (client?.is_blocked) {
       await sendToChat(target, { text: M.blocked() });
@@ -203,9 +208,24 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
     }
 
     if (input.kind === 'rejected') {
+      // A paper the bot will not take (its type, its size) is still what the
+      // customer sent: kept for the desk to open, up to what a bot may fetch.
+      if (input.file) {
+        defer(logged.then(() => keepTelegramMedia(message, ctx, { f: { file_id: input.file.fileId, file_size: input.file.size }, mime: input.file.mimeType, name: input.file.fileName })));
+      }
       await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
       return answer(res, { ok: true });
+    }
+
+    // A voice note, a video, a sticker, a location: nothing the bot can act
+    // on. Said so, with the menu - before, it said nothing at all, and the
+    // customer waited for an answer that was never coming. The desk has the
+    // file itself (above).
+    if (input.kind === 'unsupported') {
+      await sendToChat(target, { text: unsupportedWords(), inline: kb.mainMenu() });
+      await finishUpdate(update.update_id, 'processed');
+      return answer(res, { ok: true, unsupported: true });
     }
 
     if (input.kind === 'ignore') {
@@ -241,17 +261,93 @@ const targetOf = (ctx) => ({ channel: 'telegram', chatId: ctx.chatId, clientId: 
  * What the chat log records of an update. Telegram's message ids count up per
  * chat, so the chat id goes in front to make them unique across chats.
  */
-function describe(update, chatId) {
+export function describe(update, chatId) {
   const cq = update.callback_query;
   if (cq) return { kind: 'choice', body: cq.data ?? null, payload: { id: cq.data ?? null } };
   const m = update.message ?? {};
   const providerMessageId = m.message_id != null ? `${chatId}:${m.message_id}` : null;
-  if (m.contact) return { kind: 'contact', body: m.contact.phone_number ?? null, providerMessageId };
-  if (m.document) {
-    return { kind: 'document', body: m.caption ?? null, payload: { file_name: m.document.file_name ?? null }, providerMessageId };
+  // A file carries Telegram's ids for it, so the desk finds its stored copy -
+  // file_unique_id is the same however often the same file is sent.
+  const file = (f, extra = {}) => ({
+    file_id: f.file_id ?? null, file_unique_id: f.file_unique_id ?? null, size: f.file_size ?? null,
+    mime_type: f.mime_type ?? null, ...extra,
+  });
+  if (m.contact) {
+    const name = [m.contact.first_name, m.contact.last_name].filter(Boolean).join(' ') || null;
+    return {
+      kind: 'contact', body: m.contact.phone_number ?? null, providerMessageId,
+      payload: { contacts: [{ name, phones: [m.contact.phone_number].filter(Boolean) }] },
+    };
   }
-  if (m.photo) return { kind: 'image', body: m.caption ?? null, providerMessageId };
+  if (m.document) {
+    return { kind: 'document', body: m.caption ?? null, payload: { file_name: m.document.file_name ?? null, ...file(m.document) }, providerMessageId };
+  }
+  if (m.photo) {
+    const p = m.photo[m.photo.length - 1] ?? {};
+    return {
+      kind: 'image', body: m.caption ?? null, providerMessageId,
+      payload: { file_name: `photo-${p.file_unique_id ?? m.message_id}.jpg`, ...file(p, { mime_type: 'image/jpeg', width: p.width ?? null, height: p.height ?? null }) },
+    };
+  }
+  if (m.voice) return { kind: 'audio', body: m.caption ?? null, providerMessageId, payload: file(m.voice, { voice: true, duration: m.voice.duration ?? null }) };
+  if (m.audio) {
+    return { kind: 'audio', body: m.caption ?? null, providerMessageId, payload: file(m.audio, { file_name: m.audio.file_name ?? null, duration: m.audio.duration ?? null }) };
+  }
+  const video = m.video ?? m.video_note ?? m.animation;
+  if (video) {
+    return {
+      kind: 'video', body: m.caption ?? null, providerMessageId,
+      payload: file(video, { file_name: video.file_name ?? null, duration: video.duration ?? null, width: video.width ?? video.length ?? null, height: video.height ?? video.length ?? null, mime_type: video.mime_type ?? 'video/mp4' }),
+    };
+  }
+  if (m.sticker) {
+    const animated = Boolean(m.sticker.is_animated || m.sticker.is_video);
+    return {
+      kind: 'sticker', body: m.sticker.emoji ?? null, providerMessageId,
+      payload: file(m.sticker, { emoji: m.sticker.emoji ?? null, animated, mime_type: animated ? null : 'image/webp',
+        ...(animated ? { not_stored: 'not_kept' } : {}) }),
+    };
+  }
+  if (m.location) {
+    const v = m.venue ?? {};
+    return {
+      kind: 'location', body: v.title ?? null, providerMessageId,
+      payload: { latitude: m.location.latitude ?? null, longitude: m.location.longitude ?? null, name: v.title ?? null, address: v.address ?? null },
+    };
+  }
   return { kind: 'text', body: m.text ?? m.caption ?? null, providerMessageId };
+}
+
+/** Telegram files the bot does not read but keeps for the desk (lib/chat-files.js). */
+function keptFile(m) {
+  if (m?.voice) return { f: m.voice, mime: m.voice.mime_type ?? 'audio/ogg', name: `voice-${m.message_id}.ogg` };
+  if (m?.audio) return { f: m.audio, mime: m.audio.mime_type ?? 'audio/mpeg', name: m.audio.file_name ?? `audio-${m.message_id}.mp3` };
+  const video = m?.video ?? m?.video_note ?? m?.animation;
+  if (video) return { f: video, mime: video.mime_type ?? 'video/mp4', name: video.file_name ?? `video-${m.message_id}.mp4` };
+  if (m?.sticker && !m.sticker.is_animated && !m.sticker.is_video) return { f: m.sticker, mime: 'image/webp', name: `sticker-${m.message_id}.webp` };
+  return null;
+}
+
+/** Stores one such file and notes where on its log row. A bot may download at most 20 MB. */
+function keepTelegramMedia(message, ctx, kept = keptFile(message)) {
+  if (!kept?.f?.file_id) return Promise.resolve(null);
+  return keepChatMedia({
+    channel: 'telegram',
+    chatId: String(ctx.chatId),
+    clientId: ctx.clientId ?? null,
+    providerMessageId: `${ctx.chatId}:${message.message_id}`,
+    mimeType: kept.mime,
+    fileName: kept.name,
+    size: kept.f.file_size ?? 0,
+    fetchBytes: async () => {
+      try {
+        const { buffer } = await downloadFile(kept.f.file_id);
+        return { ok: true, buffer };
+      } catch (err) {
+        return { ok: false, error: err?.message };
+      }
+    },
+  });
 }
 
 /**
@@ -329,6 +425,12 @@ async function failed(err, update, chatId, correlationId) {
 
 const COMMANDS = new Set(['/start', '/menu', '/help', '/cancel', '/reset', '/book', '/track', '/language']);
 
+/** The same words WhatsApp's transport uses for what the bot cannot read. */
+const unsupportedWords = () => phrase(
+  'أقدر أقرا الرسايل المكتوبة وملفات PDF والصور بس. اكتبلي اللي محتاجه، أو اختار من القائمة.',
+  'I can read text, PDFs and photos. Please type what you need, or choose from the menu.',
+);
+
 async function readInput(update, ctx) {
   const callbackQuery = update.callback_query;
   if (callbackQuery) {
@@ -349,6 +451,8 @@ async function readInput(update, ctx) {
 
   const file = fileFrom(message);
   if (file) return recordIncomingFile(file, message, ctx);
+
+  if (keptFile(message) || message.location || message.sticker) return { kind: 'unsupported' };
 
   const text = (message.text ?? message.caption ?? '').trim();
   if (!text) return { kind: 'ignore' };
@@ -413,6 +517,7 @@ async function recordIncomingFile(file, message, ctx) {
   if (!check.ok) {
     return {
       kind: 'rejected',
+      file,
       text: check.reason === 'size'
         ? M.documentTooBig(Math.floor(Number(cfg.max_upload_bytes) / 1048576))
         : M.documentRejectedType(check.mime || 'unknown', cfg.allowed_file_types),

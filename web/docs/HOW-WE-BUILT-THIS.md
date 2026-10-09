@@ -1,9 +1,9 @@
-# How we built the MKC Global chatbot
+# How we built the MKY Global Forwarding chatbot
 
 A plain-English explanation of what we made, how it works, and why we made each
 choice. No programming knowledge needed.
 
-Written for anyone at MKC Global who needs to understand the system.
+Written for anyone at MKY Global Forwarding who needs to understand the system.
 
 ---
 
@@ -48,7 +48,7 @@ prepaid credit for the AI and will last a very long time.
 
 ## 3. What happens when a customer sends a message
 
-Say a customer types: **"Where is MKC-24001?"**
+Say a customer types: **"Where is MKY-24001?"**
 
 ```
 1. Customer types in Telegram
@@ -57,7 +57,7 @@ Say a customer types: **"Where is MKC-24001?"**
         |
 3. Our code asks the AI: "What does this person want?"
         |
-4. AI replies: "They want shipment MKC-24001. Look it up."
+4. AI replies: "They want shipment MKY-24001. Look it up."
         |
 5. Our code runs a real database search in Supabase
         |
@@ -125,7 +125,7 @@ Then it reads the summary back and waits for the customer to say yes.
 
 When they confirm:
 
-1. A booking is saved in the database with a reference like `MKC-BKG-260902-AC3N`
+1. A booking is saved in the database with a reference like `MKY-BKG-260902-AC3N`
    and status `pending_review`
 2. A **PDF confirmation** is created
 3. The **customer** gets an email with the PDF
@@ -243,7 +243,7 @@ still safe. We never lose a customer's booking because of an email problem.
 2. **Designed the database** — 8 tables: shipments, tracking events, bookings,
    support tickets, clients, company documents, chat history, and a small table
    that stops the same message being answered twice
-3. **Created the demo PDF and Excel** — realistic MKC data so we could test
+3. **Created the demo PDF and Excel** — realistic MKY data so we could test
    properly before touching real customer records
 4. **Built the AI part** — the loop where the AI asks for information, we fetch
    it, and it writes the answer

@@ -25,6 +25,8 @@ import { channelOf } from '../channels.js';
 import { customerFor, isMissingTable, HISTORY_PENDING, actionKeyOf, ago } from './desk-shared.js';
 import { failureWords, DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 import { statusWords, statusTone, requestStatusWords, REQUEST_OPEN } from '../ops/workflow.js';
+import { filesOf, placeOf, contactsOf } from './desk-media.js';
+import { OUTBOUND_LIMITS, OUTBOUND_ACCEPT, DESK_UPLOAD_MAX_BYTES, MAX_FILES_PER_SEND, CAPTION_MAX } from '../chat-files.js';
 
 export const MAX_TEXT = 4096;
 const CHANNELS = ['telegram', 'whatsapp'];
@@ -154,7 +156,7 @@ const numeric = (v) => {
 };
 
 /** What the earlier attempt with this action key came to. */
-async function earlierAttempt(key) {
+export async function earlierAttempt(key) {
   const { data: row } = await db().from('notification_outbox')
     .select('status, last_error, payload').eq('idempotency_key', key).maybeSingle();
   if (!row) return { ok: true, status: 'queued', duplicate: true };
@@ -251,7 +253,7 @@ export async function sendToCustomer({
 }
 
 /** HTTP status for a send outcome: refusals by rule are 409, a missing channel 503. */
-const httpFor = (r) => (r.ok ? 200
+export const httpFor = (r) => (r.ok ? 200
   : ['needs_template', 'opted_out'].includes(r.status) ? 409
     : ['not_connected'].includes(r.status) ? 503
       : ['empty', 'too_long', 'no_chat'].includes(r.status) ? 400 : 502);
@@ -261,7 +263,7 @@ const httpFor = (r) => (r.ok ? 200
 // ---------------------------------------------------------------------------
 
 /** Which chat a send is for: given directly, or the chat a booking/request came from. */
-async function targetOf(body) {
+export async function targetOf(body) {
   if (body.booking_ref) {
     const { data: b } = await db().from('bookings')
       .select('booking_ref, channel, chat_id, client_id, customer_name, customer_contact')
@@ -390,8 +392,13 @@ export async function retryMessage(req, res, who) {
   if (m.direction !== 'out' || m.status !== 'failed') {
     return res.status(409).json({ error: 'Only a message of ours that failed can be sent again.' });
   }
+  // A file the desk sent is kept; it goes again from where it is stored.
+  if (resendableFile(m)) {
+    const { resendFile } = await import('./desk-files.js');
+    return resendFile(req, res, who, m, () => markRetried(who, id));
+  }
   if (m.kind && !['text', 'template'].includes(m.kind)) {
-    return res.status(400).json({ error: 'Only text can be sent again from here. Send the file again from its booking.' });
+    return res.status(400).json({ error: 'Only text and files sent from the desk can be sent again from here.' });
   }
 
   let outcome;
@@ -511,7 +518,11 @@ export function displayBody(m) {
   return { kind: 'tap', body: title ? `Tapped “${title}”` : 'Tapped a button', tap_title: title };
 }
 
-const messageOut = (m, retried) => ({
+/** A file the desk sent, kept, that can be sent again as it was. */
+export const resendableFile = (m) => m.direction === 'out' && m.author === 'staff' && ['document', 'image'].includes(m.kind)
+  && Boolean(m.payload?.storage_path && m.payload?.outbound);
+
+const messageOut = (m, retried, files = new Map()) => ({
   id: m.id,
   direction: m.direction,
   author: m.author,
@@ -520,6 +531,10 @@ const messageOut = (m, retried) => ({
   // A file's own name, so the desk can show it as a file - the body of a
   // file message is only its caption, often empty.
   file_name: m.payload?.file_name ?? null,
+  // What there is to show of a file, and how to fetch it (lib/admin/desk-media.js).
+  file: files.get(m.id) ?? null,
+  location: placeOf(m),
+  contacts: contactsOf(m),
   language: m.language ?? null,
   booking_ref: m.booking_ref ?? null,
   status: m.status,
@@ -527,9 +542,41 @@ const messageOut = (m, retried) => ({
   error_words: m.status === 'failed' ? failureWords(m.error, { template: m.payload?.template ?? null }) : null,
   at: m.created_at,
   retried: retried.has(`message:${m.id}`),
-  retryable: m.direction === 'out' && m.status === 'failed' && ['text', 'template', null, undefined].includes(m.kind)
+  retryable: m.direction === 'out' && m.status === 'failed'
+    && (['text', 'template', null, undefined].includes(m.kind) || resendableFile(m))
     && !retried.has(`message:${m.id}`),
 });
+
+/** What a file message says in the chat list, where there is room for one line. */
+function previewOf(m, body) {
+  if (body || !m) return body;
+  const name = m.payload?.file_name;
+  switch (m.kind) {
+    case 'image': return 'Photo';
+    case 'document': return name ? `File: ${name}` : 'File';
+    case 'audio': return m.payload?.voice ? 'Voice note' : 'Audio';
+    case 'video': return 'Video';
+    case 'sticker': return 'Sticker';
+    case 'location': return 'Location';
+    case 'contact': return 'Contact card';
+    default: return body;
+  }
+}
+
+/** What the composer may attach on this channel - the server checks again on every file. */
+function attachFor(channel, composer) {
+  const limits = OUTBOUND_LIMITS[channel];
+  if (!limits || composer.mode !== 'text') return null;
+  return {
+    accept: OUTBOUND_ACCEPT,
+    image_max: Math.min(limits.image, DESK_UPLOAD_MAX_BYTES),
+    document_max: Math.min(limits.document, DESK_UPLOAD_MAX_BYTES),
+    // A photo too big to go as a photo goes as a file on Telegram; WhatsApp has no such way.
+    big_photo_as_file: channel === 'telegram',
+    max_files: MAX_FILES_PER_SEND,
+    caption_max: CAPTION_MAX,
+  };
+}
 
 /** Which failed messages have been sent again or set aside already. */
 async function handledProblems(ids) {
@@ -581,7 +628,10 @@ export async function conversationFor({ channel, chatId, before = null, limit = 
   if (error && !isMissingTable(error)) console.error('chat_messages read failed:', error.message);
   const rows = (data ?? []).slice(0, limit);
   const failedIds = rows.filter((m) => m.status === 'failed').map((m) => `message:${m.id}`);
-  const retried = await handledProblems(failedIds);
+  const [retried, files] = await Promise.all([
+    handledProblems(failedIds),
+    filesOf(channel, chatId, rows).catch((err) => { console.error('chat files failed:', err?.message); return new Map(); }),
+  ]);
 
   return {
     channel,
@@ -591,7 +641,8 @@ export async function conversationFor({ channel, chatId, before = null, limit = 
     customer,
     window: win,
     composer,
-    messages: rows.reverse().map((m) => messageOut(m, retried)),
+    attach: attachFor(channel, composer),
+    messages: rows.reverse().map((m) => messageOut(m, retried, files)),
     has_more: (data ?? []).length > limit,
     saved_replies: await savedReplies(),
   };
@@ -662,7 +713,7 @@ export async function chatsView(req, res) {
     const cl = clientById.get(c.client_id) ?? null;
     const profile = cl?.whatsapp_name || cl?.display_name || null;
     const phone = cl?.phone || (cl?.whatsapp_id ? `+${cl.whatsapp_id}` : c.channel === 'whatsapp' ? `+${c.chat_id.replace(/^wa:/, '')}` : null);
-    const body = c.last ? displayBody(c.last).body : '';
+    const body = c.last ? previewOf(c.last, displayBody(c.last).body) : '';
     return {
       key: `${c.channel}|${c.chat_id}`,
       channel: c.channel,

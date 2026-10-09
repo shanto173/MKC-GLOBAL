@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MKC Global Logistics — Assistant</title>
+<title>MKY Global Forwarding — Assistant</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png" />
 <style>
   :root {
     --bg: #f5f7fa;
@@ -41,11 +43,12 @@
     padding: 18px 20px;
   }
   header .wrap { max-width: 900px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  /* The company's badge, dark with gold and blue, in a rounded tile. */
   .logo {
-    width: 38px; height: 38px; border-radius: 9px; flex: none;
-    background: rgba(255,255,255,.16);
-    display: grid; place-items: center; font-weight: 700; letter-spacing: .5px;
+    width: 52px; height: 41px; border-radius: 9px; flex: none; overflow: hidden;
+    background: #15161b; box-shadow: 0 0 0 1px rgba(255,255,255,.22);
   }
+  .logo img { display: block; width: 100%; height: 100%; object-fit: cover; }
   header h1 { font-size: 17px; margin: 0; font-weight: 650; }
   header p { margin: 2px 0 0; font-size: 12.5px; opacity: .8; }
 
@@ -122,9 +125,9 @@
 
 <header>
   <div class="wrap">
-    <div class="logo">MKC</div>
+    <div class="logo"><img src="/brand/mky-logo.png" alt="" width="52" height="41" /></div>
     <div>
-      <h1>MKC Global Logistics</h1>
+      <h1>MKY Global Forwarding</h1>
       <p>Shipment tracking, bookings and customs support</p>
     </div>
   </div>
@@ -136,7 +139,7 @@
   <div class="chat">
     <div id="log" aria-live="polite"></div>
     <div class="chips" id="chips">
-      <button data-q="Where is my shipment MKC-24001?">Track MKC-24001</button>
+      <button data-q="Where is my shipment MKY-24001?">Track MKY-24001</button>
       <button data-q="What documents do I need for an import booking?">Documents needed</button>
       <button data-q="I want to make a new booking.">New booking</button>
       <button data-q="How long does it take from Rotterdam to Alexandria?">Transit times</button>
@@ -147,7 +150,9 @@
     </form>
   </div>
   <footer>
-    Also available on Telegram: <a href="https://t.me/MKC_Global_bot">@MKC_Global_bot</a> ·
+    <!-- The bot's Telegram username is its real handle (set with @BotFather), so
+         the link keeps it; the words say where it goes. -->
+    Also available on <a href="https://t.me/MKC_Global_bot">Telegram</a> ·
     <a href="#" id="reset">clear conversation</a>
   </footer>
 </main>
@@ -158,9 +163,14 @@
   const input = document.getElementById('input');
   const send = document.getElementById('send');
 
-  const KEY = 'mkc-session-id';
-  let sessionId = localStorage.getItem(KEY);
-  if (!sessionId) {
+  // The key was 'mkc-session-id' before the rename; a returning visitor keeps
+  // their conversation instead of starting a new one.
+  const KEY = 'mky-session-id';
+  let sessionId = localStorage.getItem(KEY) || localStorage.getItem('mkc-session-id');
+  if (sessionId) {
+    localStorage.setItem(KEY, sessionId);
+    localStorage.removeItem('mkc-session-id');
+  } else {
     sessionId = (crypto.randomUUID?.() ?? String(Date.now() + Math.random())).slice(0, 36);
     localStorage.setItem(KEY, sessionId);
   }
@@ -176,7 +186,6 @@
       const data = await res.json();
       if (data.company) {
         document.querySelector('header h1').textContent = data.company;
-        document.querySelector('header .logo').textContent = data.company.split(' ')[0];
       }
       if (!data.items?.length) { strip.hidden = true; strip.innerHTML = ''; return; }
 
@@ -294,7 +303,7 @@
 
   function greet() {
     add(
-      'Hello, welcome to MKC Global Logistics.\n\nI can track a shipment, take a new booking request, or answer questions about documents, ports and customs. What do you need?',
+      'Hello, welcome to MKY Global Forwarding.\n\nI can track a shipment, take a new booking request, or answer questions about documents, ports and customs. What do you need?',
       'bot',
     );
   }

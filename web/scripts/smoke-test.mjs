@@ -2,7 +2,7 @@
  * Talks to the agent from your terminal - no Telegram, no deploy needed.
  *
  *   npm run smoke                      run the standard question set
- *   npm run smoke -- "where is MKC-24001?"   ask one question
+ *   npm run smoke -- "where is MKY-24001?"   ask one question
  *   npm run smoke -- --chat            interactive REPL
  */
 
@@ -16,9 +16,9 @@ const ctx = { channel: 'web', chatId: `smoke-${Date.now()}`, userName: 'Tester' 
 
 const DEFAULT_QUESTIONS = [
   'hi',
-  'Where is my shipment MKC-24001?',
+  'Where is my shipment MKY-24001?',
   'What documents do I need for an import booking?',
-  'What is the ACID number and why was MKC-24006 put on hold?',
+  'What is the ACID number and why was MKY-24006 put on hold?',
   'How long does it take from Rotterdam to Alexandria?',
   'I want to book a shipment of 2 pallets of olive oil from Barcelona to Port Said, 900 kg, ready next Monday. I am Sara Aziz, sara@example.com.',
 ];

@@ -59,6 +59,7 @@ import { defer, flush } from '../lib/background.js';
 import { sendToChat, stampClientMessage, phrase, whatsappChatId } from '../lib/channels.js';
 import { logInbound, markDelivery, isSchemaMissing } from '../lib/chatlog.js';
 import { markRead, mediaInfo, downloadMedia } from '../lib/whatsapp.js';
+import { keepChatMedia, keepable } from '../lib/chat-files.js';
 
 /** More than this many messages from one chat in a minute is a flood. */
 const FLOOD_LIMIT = 20;
@@ -352,10 +353,15 @@ async function turn(message, ctx, client, background) {
   // assistant as a fresh chat.
   // Blue ticks and "typing…" - in place of Telegram's sendChatAction.
   defer(markRead(message.id, { typing: true }));
-  defer(logInbound({
+  const logged = logInbound({
     channel: 'whatsapp', chatId, clientId: ctx.clientId, language: ctx.language,
     providerMessageId: message.id, ...describe(message),
-  }));
+  });
+  defer(logged);
+  // A voice note, a video or a sticker: the bot does not read it, but the desk
+  // must be able to hear and see what the customer sent. Kept once its log row
+  // is there to say where.
+  if (KEPT_TYPES.has(message.type)) defer(logged.then(() => keepWhatsAppMedia(message, ctx)));
 
   try {
     // This chat's claims of the last two minutes, read once for both the
@@ -419,6 +425,9 @@ async function turn(message, ctx, client, background) {
     }
 
     if (input.kind === 'rejected') {
+      // A paper of a type or a size the bot will not read is still what the
+      // customer sent: kept for the desk to open, as a voice note is.
+      if (message.type === 'document' || message.type === 'image') defer(logged.then(() => keepWhatsAppMedia(message, ctx)));
       await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
       await finishClaim(message.id, 'processed');
       return;
@@ -1016,7 +1025,40 @@ async function floodCheck(chatId, claims = null) {
   return count === FLOOD_LIMIT + 1 ? 'warn' : 'drop';
 }
 
-/** What the chat log records of an inbound message. */
+/** Media the bot does not read but keeps for the desk (lib/chat-files.js). */
+const KEPT_TYPES = new Set(['audio', 'video', 'sticker']);
+
+/**
+ * Stores a file the customer sent that the bot does not keep itself, and
+ * notes where on its log row. Asks Meta for the size first, so a 40 MB video
+ * costs one small call, not a download.
+ */
+async function keepWhatsAppMedia(message, ctx) {
+  const media = message[message.type] ?? {};
+  if (!media.id) return null;
+  // A file the desk would not keep is not even asked about.
+  const info = keepable(media.mime_type, media.filename) ? await mediaInfo(media.id) : { ok: false };
+  const mimeType = media.mime_type ?? (info.ok ? info.mimeType : null);
+  return keepChatMedia({
+    channel: 'whatsapp',
+    chatId: ctx.chatId,
+    clientId: ctx.clientId ?? null,
+    providerMessageId: message.id,
+    mimeType,
+    fileName: media.filename ?? `${message.type}-${String(media.id).slice(-12)}.${extensionOf(mimeType)}`,
+    size: info.ok ? info.size : 0,
+    fetchBytes: () => downloadMedia(media.id, { url: info.ok ? info.url : null }),
+  });
+}
+
+const extensionOf = (mime) => EXTENSIONS[String(mime ?? '').split(';')[0].trim()]
+  ?? ({ 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr', 'video/mp4': 'mp4', 'video/3gpp': '3gp' }[String(mime ?? '').split(';')[0].trim()] ?? 'bin');
+
+/**
+ * What the chat log records of an inbound message. A file carries what the
+ * desk needs to find it again: Meta's media id and the hash of its bytes (the
+ * same paper sent twice has the same hash, so it still finds its stored copy).
+ */
 function describe(message) {
   switch (message.type) {
     case 'text':
@@ -1028,16 +1070,39 @@ function describe(message) {
     case 'button':
       return { kind: 'choice', body: message.button?.text ?? null, payload: { id: message.button?.payload ?? null } };
     case 'document':
-    case 'image': {
+    case 'image':
+    case 'audio':
+    case 'video':
+    case 'sticker': {
       const media = message[message.type] ?? {};
       return {
         kind: message.type,
         body: media.caption ?? null,
-        payload: { file_name: media.filename ?? null, mime_type: media.mime_type ?? null, media_id: media.id ?? null },
+        payload: {
+          file_name: media.filename ?? null,
+          mime_type: media.mime_type ?? null,
+          media_id: media.id ?? null,
+          sha256: media.sha256 ?? null,
+          ...(message.type === 'audio' ? { voice: media.voice === true } : {}),
+          ...(message.type === 'sticker' ? { animated: media.animated === true } : {}),
+        },
       };
     }
-    case 'contacts':
-      return { kind: 'contact', body: message.contacts?.[0]?.name?.formatted_name ?? null };
+    case 'location': {
+      const l = message.location ?? {};
+      return {
+        kind: 'location',
+        body: l.name ?? null,
+        payload: { latitude: l.latitude ?? null, longitude: l.longitude ?? null, name: l.name ?? null, address: l.address ?? null, url: l.url ?? null },
+      };
+    }
+    case 'contacts': {
+      const cards = (message.contacts ?? []).map((c) => ({
+        name: c?.name?.formatted_name ?? null,
+        phones: (c?.phones ?? []).map((p) => (p?.wa_id ? `+${p.wa_id}` : p?.phone)).filter(Boolean),
+      }));
+      return { kind: 'contact', body: cards[0]?.name ?? null, payload: { contacts: cards } };
+    }
     default:
       return { kind: String(message.type ?? 'unknown'), body: null };
   }

@@ -84,7 +84,7 @@ test('TEST 16 - confirming a booking opens the shipment and queues one confirmat
   assert.match(post.sent[0].text, /Your booking is confirmed/);
   assert.match(post.sent[0].text, new RegExp(BOOKING.booking_ref));
   assert.match(post.sent[0].text, new RegExp(shipment.shipment_id));
-  assert.match(post.sent[0].text, /Thank you for choosing MKY Forwarding/);
+  assert.match(post.sent[0].text, /Thank you for choosing MKY Global Forwarding/);
 
   // The shipment exists and can be tracked.
   assert.equal(db._tables.shipments.length, 1);

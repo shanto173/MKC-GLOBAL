@@ -468,6 +468,8 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
   const seenIds = new Set();
   const data = [];
   for (const doc of [...(attachedRes.data ?? []), ...(looseRes.data ?? [])]) {
+    // A paper MKY sent the customer and filed here is ours, not one of theirs.
+    if (doc.doc_type === 'mky') continue;
     // A loose document from this chat counts; one already filed against a
     // DIFFERENT request does not - it belongs to that request, not this one.
     if (doc.booking_ref && bookingRef && doc.booking_ref !== bookingRef) continue;

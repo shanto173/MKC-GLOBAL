@@ -86,27 +86,36 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
   }
 
   if (open) {
-    const bookingsEl = h('div', { class: 'chat-bookings' });
     const convoEl = h('div', { class: 'chat-convo' });
     add(pane,
       h('a', { class: 'back back-mobile', href: '#/chats' }, icon('back', { size: 16 }), 'All chats'),
-      bookingsEl, convoEl);
-    // Their bookings, so a question about "my truck" is one click from its case.
-    const drawBookings = (d) => {
-      clear(bookingsEl);
+      convoEl);
+    // Their bookings and open requests, as small chips on the header line, so
+    // a question about "my truck" is one click from its case. Two are shown;
+    // the rest are behind "+N".
+    const links = (d) => {
       const requests = (d.requests ?? []).filter((r) => r.open);
-      if (!d.bookings?.length && !requests.length) return;
-      add(bookingsEl, h('span', { class: 'chat-bookings-title' }, 'Their bookings and requests'),
-        h('div', { class: 'chat-bookings-list' },
-          d.bookings.map((b) => h('a', { class: 'pill', href: linkFor({ type: 'booking', ref: b.booking_ref }) },
-            h('span', { class: 'mono' }, b.booking_ref), badge(b.status_words, b.tone, { small: true }))),
-          requests.map((r) => h('a', { class: 'pill', href: linkFor({ type: 'request', ref: r.ticket_ref }) },
-            icon('phone', { size: 13 }), h('span', { class: 'mono' }, r.ticket_ref), badge(r.status_words, 'blue', { small: true })))));
+      const chips = [
+        ...(d.bookings ?? []).map((b) => h('a', {
+          class: 'pill pill-sm', href: linkFor({ type: 'booking', ref: b.booking_ref }), title: `${b.booking_ref} — ${b.status_words}`,
+        }, h('span', { class: 'mono' }, b.booking_ref), badge(b.status_words, b.tone, { small: true }))),
+        ...requests.map((r) => h('a', {
+          class: 'pill pill-sm', href: linkFor({ type: 'request', ref: r.ticket_ref }), title: `${r.ticket_ref} — ${r.status_words}`,
+        }, icon('phone', { size: 12 }), h('span', { class: 'mono' }, r.ticket_ref), badge(r.status_words, 'blue', { small: true }))),
+      ];
+      if (chips.length <= 2) return chips;
+      return [...chips.slice(0, 2), h('details', { class: 'menu menu-right' },
+        h('summary', { class: 'pill pill-sm pill-more', 'aria-label': `${chips.length - 2} more bookings and requests` }, `+${chips.length - 2}`),
+        h('div', { class: 'menu-list chip-menu', role: 'menu' }, chips.slice(2)))];
     };
     convo = mountConversation(convoEl, {
       channel, chatId, target: { channel, chat_id: chatId }, draftKey: `chat:${channel}:${chatId}`,
       onSent: () => loadList({ quiet: true }),
-      onLoad: drawBookings,
+      headExtra: links,
+      // A file sent from here can also be filed on one of their live bookings.
+      fileOn: (d) => (d.bookings ?? []).filter((b) => !['cancelled', 'rejected', 'expired'].includes(b.status))
+        .map((b) => ({ booking_ref: b.booking_ref, label: `${b.booking_ref} · ${b.status_words}` })),
+      openPaper: (id) => openPaper(id),
     });
     // A paper they sent with no booking open: the inbox row opens this chat
     // on that paper, in the same viewer a case uses.
@@ -147,6 +156,7 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
       await convo?.refresh();
     },
     dispose() {
+      convo?.dispose();
       document.querySelectorAll('dialog[open]').forEach((d) => d.close());
     },
   };

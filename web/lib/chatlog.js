@@ -119,6 +119,40 @@ export function logOutbound(m) {
 }
 
 /**
+ * Adds to the payload of one logged message, found by the provider's id: where
+ * a voice note was stored, or why it was not. The row is written in the
+ * background, so it is looked for a few times before giving up.
+ *
+ * @returns {Promise<{ok: boolean, missing?: boolean}>}
+ */
+export async function patchChatMessage(channel, providerMessageId, patch, { attempts = 4 } = {}) {
+  if (!providerMessageId || tablePresent === false) return { ok: false };
+  try {
+    for (let i = 0; i < attempts; i++) {
+      const { data, error } = await db().from('chat_messages').select('id, payload')
+        .eq('channel', channel).eq('provider_message_id', String(providerMessageId)).maybeSingle();
+      if (error) {
+        if (isSchemaMissing(error)) tablePresent = false;
+        else console.error('chat log read failed:', error.message);
+        return { ok: false };
+      }
+      if (data) {
+        const { error: writeError } = await db().from('chat_messages')
+          .update({ payload: { ...(data.payload ?? {}), ...patch }, updated_at: new Date().toISOString() })
+          .eq('id', data.id);
+        if (writeError) console.error('chat log patch failed:', writeError.message);
+        return { ok: !writeError };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+    }
+    return { ok: false, missing: true };
+  } catch (err) {
+    console.error('chat log patch threw:', err?.message);
+    return { ok: false };
+  }
+}
+
+/**
  * Where each delivery status may come from. WhatsApp's receipts can arrive
  * out of order - "delivered" after "read" is common - so a status only ever
  * moves forward: a late "delivered" must not turn a read message unread.

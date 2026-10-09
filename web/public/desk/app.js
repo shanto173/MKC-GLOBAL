@@ -1,5 +1,6 @@
 /**
- * The MKY Desk - start-up, sign-in, navigation, and keeping the screen true.
+ * The MKY Global Forwarding operations desk - start-up, sign-in, navigation,
+ * and keeping the screen true.
  *
  * Plain ES modules, no framework and no build step: the files in this folder
  * are what the browser runs. Each screen is a function that draws into <main>
@@ -17,7 +18,7 @@
  */
 
 import {
-  h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
+  h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill, BRAND, pageTitle, brandLogo,
   subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES,
 } from './ui.js';
 import { RHYTHM } from './live.js';
@@ -160,7 +161,7 @@ document.addEventListener('keydown', (e) => {
   for (const m of document.querySelectorAll('details.menu[open]')) { m.open = false; m.querySelector('summary')?.focus(); }
 });
 
-/** "(3) MKY Desk": the browser tab says when something is waiting, from any screen. */
+/** "(3) MKY Global Forwarding": the browser tab says when something is waiting, from any screen. */
 async function refreshCounts() {
   let fresh;
   try {
@@ -181,7 +182,7 @@ function setCounts(fresh) {
   if (!fresh) return;
   const same = fresh.needs_us === counts.needs_us && fresh.problems === counts.problems && fresh.mine === counts.mine;
   counts = { needs_us: fresh.needs_us ?? 0, problems: fresh.problems ?? 0, mine: fresh.mine ?? 0 };
-  document.title = counts.needs_us ? `(${counts.needs_us}) MKY Desk` : 'MKY Desk';
+  document.title = pageTitle(counts.needs_us);
   if (same) return;
   const route = parseRoute();
   drawNav(route.page, route.query);
@@ -208,7 +209,8 @@ function showNotConfigured(setting) {
   $('#app').hidden = true;
   $('#signin').hidden = false;
   fill($('#signin'), h('div', { class: 'signin-card' },
-    h('div', { class: 'signin-brand', 'aria-hidden': 'true' }, 'M'),
+    brandLogo('lg'),
+    h('p', { class: 'signin-eyebrow' }, `${BRAND.name} · ${BRAND.product}`),
     h('h1', {}, 'The desk is not set up yet'),
     h('p', {}, 'The server is missing the setting ', h('code', {}, setting), '.'),
     h('p', { class: 'field-hint' }, 'Whoever deployed the desk adds it under Project settings → Environment variables, then redeploys.')));
@@ -276,7 +278,7 @@ function signOut() {
   stopLive();
   countsSub = null;
   forgetAnswers();
-  document.title = 'MKY Desk';
+  document.title = pageTitle();
   showSignIn('');
   $('#secret').value = '';
 }
