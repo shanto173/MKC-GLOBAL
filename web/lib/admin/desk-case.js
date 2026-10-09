@@ -485,8 +485,8 @@ export async function requestCase(req, res, who) {
   let detail = null;
   const secondary = [];
   if (open && !t.assigned_to) {
-    primary = button(who, 'take', 'Take this call-back', { perm: 'assign_self', kind: 'primary' });
-    title = 'Nobody has this yet — take it';
+    primary = button(who, 'take', 'Assign to me', { perm: 'assign_self', kind: 'primary' });
+    title = 'Unassigned — assign it to yourself';
     detail = phone ? `Then call ${phone}.` : 'Then reply in the chat.';
   } else if (open && t.status !== 'waiting_client') {
     title = phone ? `Call ${phone}` : 'Reply in the chat';
