@@ -123,16 +123,25 @@ export async function sendTyping(chatId) {
 }
 
 /** Upload a file (multipart, so it cannot go through the JSON helper above). */
-export async function sendDocument(chatId, buffer, filename, caption) {
-  if (notTelegram(chatId)) throw new Error(`sendDocument: ${REFUSED.description}`);
+export async function sendDocument(chatId, buffer, filename, caption, mimeType = 'application/pdf') {
+  return upload('sendDocument', 'document', chatId, buffer, filename, caption, mimeType);
+}
+
+/** A photo, shown in the chat rather than as a file. At most 10 MB. */
+export async function sendPhoto(chatId, buffer, filename, caption, mimeType = 'image/jpeg') {
+  return upload('sendPhoto', 'photo', chatId, buffer, filename, caption, mimeType);
+}
+
+async function upload(method, field, chatId, buffer, filename, caption, mimeType) {
+  if (notTelegram(chatId)) throw new Error(`${method}: ${REFUSED.description}`);
   const form = new FormData();
   form.append('chat_id', String(chatId));
-  form.append('document', new Blob([buffer], { type: 'application/pdf' }), filename);
+  form.append(field, new Blob([buffer], { type: mimeType || 'application/octet-stream' }), filename);
   if (caption) form.append('caption', caption.slice(0, 1024));
 
-  const res = await fetch(API('sendDocument'), { method: 'POST', body: form });
+  const res = await fetch(API(method), { method: 'POST', body: form });
   const data = await res.json().catch(() => ({}));
-  if (!data.ok) throw new Error(`sendDocument: ${JSON.stringify(data).slice(0, 300)}`);
+  if (!data.ok) throw new Error(`${method}: ${JSON.stringify(data).slice(0, 300)}`);
   return data;
 }
 

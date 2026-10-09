@@ -19,7 +19,7 @@ export const BUCKET = 'booking-docs';
  * client sent is ever used as a path component unedited, and a uuid in front of
  * it means two files called scan.pdf cannot collide or overwrite each other.
  */
-function segment(value, fallback) {
+export function segment(value, fallback) {
   const safe = String(value ?? '').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '').slice(0, 80);
   return safe || fallback;
 }
@@ -73,19 +73,48 @@ export function validateUpload({ mimeType, size }, { allowedTypes, maxBytes }) {
 }
 
 /** A time-limited link, for putting a document in front of an operator. */
-export async function signedUrl(path, seconds = 60 * 60 * 24 * 7) {
-  const { data, error } = await db().storage.from(BUCKET).createSignedUrl(path, seconds);
+export async function signedUrl(path, seconds = 60 * 60 * 24 * 7, { bucket = BUCKET, quiet = false } = {}) {
+  const { data, error } = await db().storage.from(bucket || BUCKET).createSignedUrl(path, seconds);
   if (error) {
-    console.error('signed url failed:', error.message);
+    if (!quiet) console.error('signed url failed:', error.message);
     return null;
   }
   return data.signedUrl;
 }
 
-export async function downloadDocument(path) {
-  const { data, error } = await db().storage.from(BUCKET).download(path);
+/**
+ * A one-off address the desk's browser uploads one file to, straight into the
+ * private bucket - so a file never passes through the API (whose requests stop
+ * at 4.5 MB) and the service key never leaves the server. Valid for two hours
+ * and for this one path only; `upsert` lets a retried upload replace a
+ * half-finished one at the same path.
+ */
+export async function signedUploadUrl(path) {
+  const { data, error } = await db().storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
   if (error) {
-    console.error('document download failed:', error.message);
+    console.error('signed upload url failed:', error.message);
+    return null;
+  }
+  return { url: data.signedUrl, token: data.token ?? null, path: data.path ?? path };
+}
+
+/** Stores bytes at a path chosen by the caller (chat media, thumbnails). */
+export async function storeAt(path, buffer, mimeType, { upsert = false } = {}) {
+  const { error } = await db().storage.from(BUCKET).upload(path, buffer, {
+    contentType: mimeType || 'application/octet-stream',
+    upsert,
+  });
+  if (error) {
+    console.error('storage upload failed:', error.message);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, path, bucket: BUCKET };
+}
+
+export async function downloadDocument(path, { bucket = BUCKET, quiet = false } = {}) {
+  const { data, error } = await db().storage.from(bucket || BUCKET).download(path);
+  if (error) {
+    if (!quiet) console.error('document download failed:', error.message);
     return null;
   }
   return Buffer.from(await data.arrayBuffer());

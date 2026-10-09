@@ -146,6 +146,9 @@ export const DOC_LABEL = {
   acid: 'ACID',
   eur1: 'EUR.1',
   other: 'Document',
+  // A paper MKY sent the customer from the desk and filed on the booking:
+  // never one of the customer's required papers, never checked.
+  mky: 'MKY document',
 };
 
 /** Reasons a document may be sent back. Free text is allowed as "other". */

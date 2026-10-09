@@ -160,15 +160,28 @@ export function uploadMedia(buffer, { mimeType = 'application/pdf', fileName = '
   return graph(`${config.whatsapp.phoneNumberId}/media`, { form });
 }
 
-/** A file: uploaded first, then sent by its media id, with an optional caption. */
-export async function sendDocument(to, { buffer, fileName = 'document.pdf', caption = '', mimeType = 'application/pdf' }) {
+/**
+ * A file: uploaded first, then sent by its media id, with an optional caption.
+ * With `link` instead of bytes, Meta fetches the file itself from that HTTPS
+ * address - for a file too big to upload within one request comfortably.
+ */
+export async function sendDocument(to, { buffer = null, link = null, fileName = 'document.pdf', caption = '', mimeType = 'application/pdf' }) {
+  const extra = caption ? { caption: String(caption).slice(0, 1024) } : {};
+  if (link) return message(to, 'document', { link, filename: fileName, ...extra });
   const uploaded = await uploadMedia(buffer, { mimeType, fileName });
   if (!uploaded.ok || !uploaded.id) return { ...uploaded, ok: false, error: uploaded.error ?? 'upload returned no media id' };
   return message(to, 'document', {
     id: uploaded.id,
     filename: fileName,
-    ...(caption ? { caption: String(caption).slice(0, 1024) } : {}),
+    ...extra,
   });
+}
+
+/** A photo (JPEG or PNG, at most 5 MB): uploaded, then sent by its media id, with an optional caption. */
+export async function sendImage(to, { buffer, fileName = 'photo.jpg', caption = '', mimeType = 'image/jpeg' }) {
+  const uploaded = await uploadMedia(buffer, { mimeType, fileName });
+  if (!uploaded.ok || !uploaded.id) return { ...uploaded, ok: false, error: uploaded.error ?? 'upload returned no media id' };
+  return message(to, 'image', { id: uploaded.id, ...(caption ? { caption: String(caption).slice(0, 1024) } : {}) });
 }
 
 /**

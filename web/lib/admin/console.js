@@ -63,6 +63,8 @@ import {
   sendToCustomer, savedReplies,
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
+import { chatFilesView } from './desk-media.js';
+import { chatUpload, sendFiles } from './desk-files.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
@@ -81,6 +83,7 @@ const VIEWS = {
   preview: previewView,
   chats: chatsView,
   chat: chatView,
+  chat_files: chatFilesView,
   shipments: shipmentList,
   shipment: shipmentDetail,
   search,
@@ -176,6 +179,7 @@ const NEEDS = {
   request_info: 'client', verify_document: 'documents', reject_document: 'documents', mark_document_read_values: 'documents',
   internal_note: 'notes',
   message_client: 'chat', send_message: 'chat', send_reopen_template: 'chat', request_reply: 'chat',
+  chat_upload: 'chat', send_files: 'chat',
   retry_message: 'problems', retry_outbox: 'problems', dismiss_problem: 'problems',
   create_booking: 'booking', confirm: 'booking', reject: 'booking', cancel: 'booking', edit_details: 'booking',
   issue_mrn: 'mrn', mrn_need_info: 'mrn', mrn_review: 'mrn', mrn_reject: 'mrn',
@@ -225,6 +229,8 @@ async function act(req, res) {
     case 'message_client':
     case 'send_message': return sendMessage(req, res, who);
     case 'send_reopen_template': return sendReopenTemplate(req, res, who);
+    case 'chat_upload': return chatUpload(req, res, who);
+    case 'send_files': return sendFiles(req, res, who);
     case 'retry_message': return retryMessage(req, res, who);
     case 'retry_outbox': return retryOutbox(req, res, who);
     case 'dismiss_problem': return dismissProblem(req, res, who);

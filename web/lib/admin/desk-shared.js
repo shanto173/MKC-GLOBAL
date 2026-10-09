@@ -463,6 +463,8 @@ export function describeActivity(row) {
     client_information_requested: 'asked the customer for more information',
     client_responded: `answered what we asked${m.said ? `: “${String(m.said).slice(0, 80)}”` : (m.documents ?? []).length ? ' with a file' : ''}`,
     client_message_sent: 'messaged the customer',
+    client_file_sent: `sent the customer ${Number(m.files) > 1 ? `${m.files} files` : `${m.names?.[0] ? `“${m.names[0]}”` : 'a file'}`}`,
+    mky_document_filed: `filed ${m.file_name ? `“${m.file_name}”` : 'a file'} on the booking as an MKY document`,
     whatsapp_reopen_sent: 'sent the “please reply” template',
     booking_reference_recorded: `recorded booking reference ${m.reference ?? ''}`.trim(),
     booking_confirmed: 'confirmed the booking',
