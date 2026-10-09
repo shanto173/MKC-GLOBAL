@@ -84,7 +84,7 @@ function paperOut(d, docs) {
 async function papersFor(channel, chatId, rows) {
   const inbound = rows.filter((m) => m.direction === 'in' && (m.kind === 'document' || m.kind === 'image'));
   const ids = [...new Set(rows.map((m) => Number(m.payload?.document_id)).filter(Number.isFinite))];
-  if (!inbound.length && !ids.length) return { find: () => null, docs: [] };
+  if (!inbound.length && !ids.length) return { find: () => null, docs: [], partial: false };
   const [chatQ, idQ] = await Promise.all([
     inbound.length
       ? db().from('booking_documents').select('*').eq('chat_id', String(chatId)).order('uploaded_at', { ascending: false }).limit(300)
@@ -92,6 +92,10 @@ async function papersFor(channel, chatId, rows) {
     ids.length ? db().from('booking_documents').select('*').in('id', ids) : { data: [] },
   ]);
   if (chatQ.error) console.error('chat papers read failed:', chatQ.error.message);
+  if (idQ.error) console.error('sent papers read failed:', idQ.error.message);
+  // Drawn without them ("not kept"), but said: such an answer is never kept
+  // under the conversation's version (lib/admin/desk-live.js deskNoTag).
+  const partial = Boolean(chatQ.error || idQ.error);
   const docs = [...(chatQ.data ?? [])];
   for (const d of idQ.data ?? []) if (!docs.some((x) => x.id === d.id)) docs.push(d);
 
@@ -124,19 +128,21 @@ async function papersFor(channel, chatId, rows) {
     const name = p.file_name;
     return name ? nearest(candidates.filter((d) => d.file_name === name && within(d, m.created_at, 15 * 60_000)), m.created_at) : null;
   }
-  return { find, docs };
+  return { find, docs, partial };
 }
 
 /**
  * What the desk draws for each file message: its kind, name, size, whether a
  * copy is kept (and the reference to fetch it by) or why not, and the paper
- * it became. Keyed by message id.
+ * it became. Keyed by message id; `partial` is set on the map when the papers
+ * could not be read.
  */
 export async function filesOf(channel, chatId, rows) {
   const out = new Map();
   const fileRows = rows.filter((m) => FILE_KINDS.has(m.kind));
   if (!fileRows.length) return out;
-  const { find, docs } = await papersFor(channel, chatId, fileRows);
+  const { find, docs, partial } = await papersFor(channel, chatId, fileRows);
+  if (partial) out.partial = true;
   for (const m of fileRows) {
     const p = m.payload ?? {};
     const d = find(m);
@@ -224,8 +230,14 @@ async function thumbLink(path, bucket) {
  *
  * Any signed-in member of the team may look, read-only included: seeing what
  * a customer sent is reading the conversation.
+ *
+ * Never kept: the links die in ten minutes, so this view has no scopes
+ * (public/desk/live.js), no ETag and is never answered "not modified", and
+ * it says no-store to anything between here and the browser. The browser
+ * keeps each link only until its expires_at (conversation.js link()).
  */
 export async function chatFilesView(req, res) {
+  res.setHeader?.('Cache-Control', 'no-store');
   const refs = [...new Set(String(req.query.refs ?? '').split(',').map((r) => r.trim()).filter((r) => /^(doc|msg):\d{1,12}$/.test(r)))].slice(0, 40);
   if (!refs.length) return res.status(400).json({ error: 'refs is required' });
   const variant = req.query.variant === 'full' ? 'full' : 'thumb';

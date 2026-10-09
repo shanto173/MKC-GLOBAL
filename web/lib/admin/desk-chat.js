@@ -581,9 +581,11 @@ function attachFor(channel, composer) {
 /** Which failed messages have been sent again or set aside already. */
 async function handledProblems(ids) {
   if (!ids.length) return new Set();
-  const { data } = await db().from('audit_logs').select('entity_id, action')
+  const { data, error } = await db().from('audit_logs').select('entity_id, action')
     .in('entity_id', ids).in('action', ['message_retried', 'problem_dismissed']);
-  return new Set((data ?? []).map((r) => r.entity_id));
+  const out = new Set((data ?? []).map((r) => r.entity_id));
+  if (error) out.partial = true;
+  return out;
 }
 
 /**
@@ -598,6 +600,9 @@ export async function chatView(req, res) {
   const limit = Math.min(Number(req.query.limit) || 60, 200);
 
   const conv = await conversationFor({ channel, chatId, before, limit, name: req.query.name ?? null });
+  // Shown as far as it could be read, but never kept under the chat's
+  // version: the next tick asks again (lib/admin/desk-live.js).
+  if (conv.partial) req.deskNoTag = true;
 
   const [{ data: bookings }, { data: tickets }] = await Promise.all([
     db().from('bookings').select('booking_ref, status, vin, make, model, origin_port, destination_port, created_at')
@@ -630,13 +635,21 @@ export async function conversationFor({ channel, chatId, before = null, limit = 
   const failedIds = rows.filter((m) => m.status === 'failed').map((m) => `message:${m.id}`);
   const [retried, files] = await Promise.all([
     handledProblems(failedIds),
-    filesOf(channel, chatId, rows).catch((err) => { console.error('chat files failed:', err?.message); return new Map(); }),
+    filesOf(channel, chatId, rows).catch((err) => {
+      console.error('chat files failed:', err?.message);
+      return Object.assign(new Map(), { partial: true });
+    }),
   ]);
+  // A read that failed - the messages, the papers behind their files, which
+  // failures were already dealt with - makes the answer partial: drawn, but
+  // never answered "not modified" from, so it is asked for again.
+  const partial = Boolean((error && !isMissingTable(error)) || files.partial || retried.partial);
 
   return {
     channel,
     chat_id: String(chatId),
     available,
+    ...(partial ? { partial: true } : {}),
     notice: available ? null : (isMissingTable(error) ? HISTORY_PENDING : 'We could not load this conversation. Try again.'),
     customer,
     window: win,

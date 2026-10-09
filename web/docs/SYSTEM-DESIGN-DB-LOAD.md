@@ -5,13 +5,18 @@ with ten people at the desk and 500 customer messages a day, and what was
 changed so it stays small. Every number here was measured; where a number is a
 projection, the model it comes from is written next to it.
 
-Branch `db-load`. Two migrations to apply after the code is deployed
-(either order, either before or after the code):
+Branch `db-load`, merged with `brand-chat` (files in conversations) on
+`release-2026-10-09`. The migrations this work adds, to apply after the code
+is deployed (the desk works with or without them):
 
 | Migration | What it does |
 |---|---|
 | `supabase/migrations/20261009120000_desk_activity.sql` | The change signal: a `desk_activity` table and a trigger on 14 tables that moves a version when something the desk shows is written. |
 | `supabase/migrations/20261009121000_hot_path_indexes.sql` | 16 indexes, each for one read the desk or the bot makes often. |
+| `supabase/migrations/20261009123000_desk_activity_chat_files.sql` | After `20261009120000`: a paper (`booking_documents`) also moves its conversation's version, because a conversation now shows the paper each file became (section 9). |
+
+(`20261009122000_chat_files_bucket.sql`, brand-chat's, widens the storage
+bucket's types and size; it is independent of these.)
 
 No new environment variables. The ETag reads `VERCEL_DEPLOYMENT_ID` (or
 `VERCEL_GIT_COMMIT_SHA`), which Vercel sets itself.
@@ -175,9 +180,10 @@ the lists. The rest are **records**, one row each, made the first time the
 record is written: `booking:<ref>`, `request:<ref>`, `mrn:<ref>`,
 `shipment:<id>`, `chat:<channel>:<chat id>`, for the pages that show one.
 A trigger on 14 tables moves the right ones on every insert, update and delete:
-a paper moves its booking and the bookings area; a message moves its chat and
-the messages area; the session row (the bot's step, the WhatsApp window) moves
-its chat only. Writes nobody can see move nothing: a draft being typed into, a
+a paper moves its booking, the bookings area and the chat it came in (an MKY
+document, filed with no chat, its booking's chat - `20261009123000`); a
+message moves its chat and the messages area; the session row (the bot's
+step, the WhatsApp window) moves its chat only. Writes nobody can see move nothing: a draft being typed into, a
 delivery receipt on a notification already sent, a WhatsApp name refreshed
 unchanged, an operator's `last_seen`.
 
@@ -444,7 +450,10 @@ busy minute, and the desk total to ~19.
 | Someone switched off or a role changed, on another instance | 30 s | the team cache (the desk secret is still the gate) |
 | A bump skipped (its row busy for 250 ms) | until the next change, or 5 min | never at the expense of the write |
 | A client changed that is tied to its chat only through the session (no WhatsApp id or Telegram chat id on the row) - blocked, opted out | 5 min on its conversation | a client row moves the chats its ids name; the composer's refusal is re-checked on the server when sending |
-| The Chats list (chats.js), when only a session changed | 20 s at most | it names no scopes, so it follows every area, at most every 20 s, as before |
+| The Chats list (chats.js), after a message, a booking or a customer moved | 20 s, or one tick after that | it follows `scopesOf('chats')`, and 'messages' moves with every message anywhere, so it keeps the old 20-second minimum gap; the operator's own send redraws it at once |
+| The Chats list, when only a session changed (no message with it) | 5 min | a session moves its chat's version, not an area the list follows |
+| A file in the open conversation, and the paper it became (read by the bot, checked, set aside, removed) | one tick | the conversation follows its chat's version, which its messages and (since `20261009123000`) its papers move |
+| A conversation whose papers, messages or dealt-with failures could not be read | one tick | shown, marked partial: no ETag, asked for again |
 | Before the migration | 20 s, as before | |
 
 Nothing is cached past a write it depends on: versions are transactional, an
@@ -554,23 +563,25 @@ No exceptions and no console errors.
 
 ---
 
-## 9. For the conversation and chats screens
+## 9. The conversation and chats screens (with brand-chat's files)
 
-`public/desk/ui.js` now owns refreshing. The conversation and chats code
-(`chats.js`, `conversation.js`, `viewer.js`) was not changed here; what it can
-use:
+`public/desk/ui.js` owns refreshing. On `release-2026-10-09` the Chats screen
+and the conversation component use it the same way the case page does:
 
 ```js
-// A screen returns what to refresh and what it shows; app.js subscribes it,
-// ends the subscription and aborts its requests when the screen is left.
+// chats.js - app.js subscribes the list, ends both subscriptions and aborts
+// every read when the screen is left.
 export function renderChats({ route, main, subscribe, signal }) {
   …
-  // The open conversation on its own chat's version, not every message's:
-  const sub = subscribe(scopesOf('chat', { channel, chat_id: chatId }), () => convo.refresh());
+  convo = mountConversation(convoEl, { channel, chatId, …, signal });
+  // The open conversation on its own chat's version, not every message's;
+  // every two minutes regardless, for the WhatsApp window.
+  subscribe(scopesOf('chat', { channel, chat_id: chatId }), () => convo.refresh(), { maxAgeMs: 120_000 });
   …
   return {
     refresh: () => loadList({ quiet: true }),
     scopes: scopesOf('chats'),       // the list, on its areas
+    minGapMs: RHYTHM.fallbackMs,     // 'messages' moves with every message anywhere: not more often than before
     dispose() { … },
   };
 }
@@ -582,22 +593,40 @@ scopesOf(view, params)                                  // the scopes the server
 poke(ms)                                                // ask again soon (api() does it after a POST)
 ```
 
-* `refresh` may return `false` for "did not load" (it is retried next tick).
-* A screen that returns `{ refresh }` with no `scopes` - `chats.js` today - is
-  refreshed when anything moves, at most every 20 seconds: never more often
-  than before.
-* `ctx.subscribe` and `ctx.signal` are on the context every screen receives.
-* The case page already subscribes its conversation pane to the chat's version
-  (`case.js`).
+* `refresh` returns `false` for "did not load whole" (a failed read, or an
+  answer the server marked `partial`); it is retried next tick.
+* A screen may return `minGapMs` with its `scopes`; app.js passes it on. One
+  that returns no `scopes` is refreshed when anything moves, at most every 20
+  seconds.
+* The conversation's files: the chat view reads the papers its file messages
+  became (`lib/admin/desk-media.js`) on every load, so those papers move the
+  chat's version (`20261009123000_desk_activity_chat_files.sql`): a photo the
+  bot filed, a paper checked or set aside at the desk, an MKY document filed
+  from the conversation (by its booking's chat, since it has none of its own).
+  Where an inbound voice note or video was kept is a patch to its
+  `chat_messages` row, and a file the desk sends is a `chat_messages` row:
+  both already move the chat. While nothing in the chat moves, an open
+  conversation answers 304 after the one pulse read, without reading the
+  messages or the papers.
+* What is never kept: `chat_files` (ten-minute links) and `document_url`
+  (fifteen) have no scopes, so no ETag and never a 304; they and every other
+  unpolled view, and every POST (a `chat_upload` answer carries a one-off
+  signed upload address), say `Cache-Control: no-store`. The browser's `api()`
+  keeps only answers that came with an ETag, and fetches with
+  `cache: 'no-store'`; the conversation keeps each link until its
+  `expires_at`, and fetches a fresh one when an image fails to load.
+* A conversation whose messages, papers or dealt-with failures could not be
+  read is drawn, marked `partial`, given no ETag and asked for again on the
+  next tick - the same rule as the inbox.
 
 ---
 
 ## 10. Deploying
 
 1. Deploy the branch. It works with or without the migrations.
-2. Apply `20261009121000_hot_path_indexes.sql` and
-   `20261009120000_desk_activity.sql` (`supabase db push`, or by hand). Order
-   does not matter.
+2. Apply `20261009120000_desk_activity.sql`, `20261009121000_hot_path_indexes.sql`
+   and `20261009123000_desk_activity_chat_files.sql` (`supabase db push`, or by
+   hand, in that order: the last replaces a function the first makes).
 3. Check (read-only):
    `select scope, version from desk_activity where scope not like '%:%';` -
    nine rows; and `GET ?resource=console&view=pulse` answers

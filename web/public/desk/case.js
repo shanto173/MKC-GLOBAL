@@ -123,6 +123,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
         onSent: () => load({ quiet: true, own: true }),
         // A paper on this case opens in this case's viewer; any other on its own.
         openPaper: (id) => (data?.documents?.some((d) => d.id === id) ? openDoc(id) : openPaperAlone(id)),
+        signal,
       });
       // The conversation beside the case moves with every message in it, far
       // more often than the case: it is refreshed on its own chat's version

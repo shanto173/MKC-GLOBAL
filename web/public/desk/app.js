@@ -4,7 +4,7 @@
  *
  * Plain ES modules, no framework and no build step: the files in this folder
  * are what the browser runs. Each screen is a function that draws into <main>
- * and returns { refresh, scopes?, dispose }; this file decides which one is
+ * and returns { refresh, scopes?, minGapMs?, dispose }; this file decides which one is
  * showing, and subscribes its refresh to the areas of the desk it shows
  * (ui.js subscribe): it is fetched again when one of them changes - asked
  * about every 15 seconds, at once when the window comes back - so what a
@@ -13,8 +13,8 @@
  *
  * A screen that names no scopes is refreshed when anything changes. Each
  * screen is given a `signal` that aborts its requests when it is left, and
- * `subscribe` for parts of it with their own scopes (the case page's
- * conversation); both end with the screen.
+ * `subscribe` for parts of it with their own scopes (the conversation on a
+ * case page and on Chats); both end with the screen.
  */
 
 import {
@@ -36,7 +36,7 @@ const NAV = [
   { key: 'settings', label: 'Settings', icon: 'settings', href: '#/settings', needs: 'settings' },
 ];
 
-let screen = null;         // the screen showing: { refresh?, scopes?, dispose?, providesCounts? }
+let screen = null;         // the screen showing: { refresh?, scopes?, minGapMs?, dispose?, providesCounts? }
 let counts = { needs_us: 0, problems: 0, mine: 0 };
 let leaving = null;        // aborts the showing screen's requests, ends its subscriptions
 let countsSub = null;
@@ -85,10 +85,11 @@ function render() {
   screen = page(ctx) ?? null;
   // The screen's own refresh, on the areas it shows. One that does not say
   // is refreshed when anything moves - but never more often than the old
-  // 20-second timer did.
+  // 20-second timer did. A screen whose areas move with every message (the
+  // Chats list) may ask for the same gap itself (minGapMs).
   const shown = screen;
   if (shown?.refresh) {
-    ctx.subscribe(shown.scopes ?? null, () => shown.refresh(), shown.scopes ? {} : { minGapMs: RHYTHM.fallbackMs });
+    ctx.subscribe(shown.scopes ?? null, () => shown.refresh(), shown.scopes ? { minGapMs: shown.minGapMs ?? 0 } : { minGapMs: RHYTHM.fallbackMs });
   }
   // A new screen is a new place: move focus there so a keyboard or screen
   // reader user starts at its top, not wherever the old screen left them.

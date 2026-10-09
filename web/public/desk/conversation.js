@@ -104,9 +104,18 @@ const typeWords = (f) => {
  *   headExtra  more chips for the header line (the Chats page puts the customer's bookings there)
  *   fileOn     the bookings a sent file may also be filed on, as an MKY document
  *   openPaper  opens a paper the bot read in the document viewer
+ *   signal     the screen's: its reads are given up when the screen is left
+ *
+ * Refreshing is the screen's: it subscribes refresh() to the chat's own
+ * version (scopesOf('chat', { channel, chat_id }) - its messages, its
+ * session, its customer, its bookings and the papers its files became), so a
+ * file arriving or a paper checked shows within one pulse tick, and an open
+ * conversation where nothing happened costs no read beyond the pulse.
+ * refresh() resolves false when the conversation did not load whole, so the
+ * live loop asks again on the next tick.
  */
 export function mountConversation(container, {
-  channel, chatId, target, draftKey, onSent = null, onLoad = null, headExtra = null, fileOn = null, openPaper = null,
+  channel, chatId, target, draftKey, onSent = null, onLoad = null, headExtra = null, fileOn = null, openPaper = null, signal = null,
 }) {
   let data = null;
   let signature = null;   // null, not '': an empty conversation must still be drawn once
@@ -133,10 +142,12 @@ export function mountConversation(container, {
 
   async function load({ quiet = false } = {}) {
     try {
-      data = await api({ view: 'chat', channel, chat_id: chatId });
+      // A 304 hands back the very answer drawn last time: nothing below redraws.
+      data = await api({ view: 'chat', channel, chat_id: chatId }, { signal });
     } catch (err) {
+      if (err.aborted) return false;
       if (!quiet) fill(transcript, errorState(err.message ? err : 'We could not load the conversation.', () => load()));
-      return;
+      return false;
     }
     if (older.length) {
       const have = new Set(data.messages.map((m) => m.id));
@@ -158,6 +169,8 @@ export function mountConversation(container, {
     seen.mark(channel, chatId, lastIn?.at);
     const mode = `${data.composer.mode}|${data.composer.reason ?? ''}|${session.can('chat')}`;
     if (mode !== composerMode) { composerMode = mode; drawComposer(); }
+    // Part of it could not be read (the server said so): drawn, and asked for again.
+    return !data.partial;
   }
 
   // Whether the newest message is in view. While it is, the transcript stays
@@ -257,7 +270,8 @@ export function mountConversation(container, {
         const chunk = keys.slice(i, i + 40);
         let r;
         try {
-          r = await api({ view: 'chat_files', refs: chunk.map((k) => k.slice(variant.length + 1)).join(','), variant });
+          // Never kept by api(): the server gives these no ETag (they expire), only expires_at.
+          r = await api({ view: 'chat_files', refs: chunk.map((k) => k.slice(variant.length + 1)).join(','), variant }, { signal });
         } catch (err) {
           for (const k of chunk) for (const [, reject] of batch.get(k)) reject(err);
           continue;
@@ -467,13 +481,13 @@ export function mountConversation(container, {
     const firstId = data.messages[0].id;
     const before = transcript.scrollHeight - transcript.scrollTop;
     try {
-      const r = await api({ view: 'chat', channel, chat_id: chatId, before: firstId, limit: 60 });
+      const r = await api({ view: 'chat', channel, chat_id: chatId, before: firstId, limit: 60 }, { signal });
       const have = new Set(data.messages.map((m) => m.id));
       older = [...r.messages.filter((m) => !have.has(m.id)), ...older];
       data.messages = [...r.messages.filter((m) => !have.has(m.id)), ...data.messages];
       data.has_more = r.has_more;
     } catch (err) {
-      toastError(err);
+      if (!err.aborted) toastError(err);
     } finally {
       loadingOlder = false;
       signature = null;   // drawn afresh, keeping the reader's place

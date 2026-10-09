@@ -33,6 +33,7 @@ const { invalidateSettings } = await import('../lib/settings.js');
 const { invalidateTeam } = await import('../lib/admin/desk-shared.js');
 const { default: handler } = await import('../lib/admin/console.js');
 const ui = await import('../public/desk/ui.js');
+const { RHYTHM } = await import('../public/desk/live.js');
 
 // -- the network: fetch calls the API handler in-process ------------------------
 globalThis.fetch = async (url, init = {}) => {
@@ -182,4 +183,52 @@ test('a case page open while colleagues work on other bookings: a minute of smal
   activity.bump('booking:MKY-BKG-1');
   await pass(20_000);
   assert.equal(page.loads, 2, 'and once when it moves itself');
+});
+
+/**
+ * The Chats screen as chats.js and app.js run it: the list on scopesOf('chats')
+ * no more often than every 20 seconds, the open conversation on its own chat's
+ * version (and every two minutes, for the WhatsApp window).
+ */
+async function openChats(chat) {
+  ui.primeLive(await ui.api({ view: 'pulse' }));
+  const screen = { list: 0, convo: 0, data: null };
+  const loadList = async () => { screen.list += 1; await ui.api({ view: 'chats', limit: 50 }); return true; };
+  const loadConvo = async () => { screen.convo += 1; screen.data = await ui.api({ view: 'chat', ...chat }); return !screen.data.partial; };
+  await loadList();
+  await loadConvo();
+  ui.subscribe(ui.scopesOf('chats'), loadList, { minGapMs: RHYTHM.fallbackMs });
+  ui.subscribe(ui.scopesOf('chat', chat), loadConvo, { maxAgeMs: 120_000 });
+  ui.startLive();
+  return screen;
+}
+
+test('Chats: an open conversation costs only the pulse while nothing happens, and a file in it shows within a tick', async () => {
+  const chat = { channel: 'whatsapp', chat_id: 'wa:201000001' };
+  const screen = await openChats(chat);
+  const rec = countCalls(db);
+  await pass(60_000);
+  assert.equal(screen.convo, 1, 'not fetched while nothing moved');
+  assert.equal(screen.list, 1);
+  assert.ok(rec.calls.every((c) => c.table === 'desk_activity' || c.table === 'ops_users'), `nothing but the pulse:\n${rec.lines().join('\n')}`);
+  assert.ok(rec.count <= 6, `${rec.count} calls in a quiet minute`);
+
+  // A photo comes in: the message is logged, then the bot files the paper it made of it.
+  const at = new Date().toISOString();
+  await db.from('chat_messages').insert({ channel: 'whatsapp', chat_id: chat.chat_id, direction: 'in', author: 'client', kind: 'image', body: 'The truck', status: 'received', payload: { media_id: 'img-77', mime_type: 'image/jpeg' }, created_at: at });
+  await pass(17_500);
+  assert.equal(screen.convo, 2, 'the message, within a tick');
+  await db.from('booking_documents').insert({ booking_ref: 'MKY-BKG-1', chat_id: chat.chat_id, channel: 'whatsapp', doc_type: 'other', status: 'received', file_name: 'photo-img-77.jpg', mime_type: 'image/jpeg', storage_path: 'x/MKY-BKG-1/photo.jpg', whatsapp_media_id: 'img-77', uploaded_at: at });
+  await pass(17_500);
+  assert.equal(screen.convo, 3, 'and the paper it became, within the next');
+  const photo = screen.data.messages.find((m) => m.kind === 'image');
+  assert.match(photo.file.ref, /^doc:\d+$/, 'now linked to its stored copy');
+
+  // Somebody else's chat moves: the open conversation is not fetched again.
+  await db.from('chat_messages').insert({ channel: 'whatsapp', chat_id: 'wa:201000002', direction: 'in', author: 'client', kind: 'text', body: 'hello', status: 'received', created_at: new Date().toISOString() });
+  await db.from('booking_documents').insert({ booking_ref: 'MKY-BKG-2', chat_id: 'wa:201000002', channel: 'whatsapp', doc_type: 'invoice', status: 'received', file_name: 'inv.pdf', uploaded_at: new Date().toISOString() });
+  const listBefore = screen.list;
+  await pass(35_000);
+  assert.equal(screen.convo, 3, 'another chat\'s message and paper fetch nothing here');
+  assert.equal(screen.list, listBefore + 1, 'the list is fetched once, for its last line');
 });

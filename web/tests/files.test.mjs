@@ -591,3 +591,174 @@ test('a read-only member of the team sends nothing; a long caption and too many 
   assert.equal(many.status, 400);
   assert.equal(net.wa().length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Files and the desk's change signal (desk_activity, lib/admin/desk-live.js)
+//
+// An open conversation is fetched again only when its chat's version moves,
+// and answers 304 - one pulse read, no papers read - while it does not. So
+// every write that changes what a conversation shows of its files must move
+// that version: the message, where its file was kept, the paper the bot made
+// of it, the paper checked at the desk, a file the desk sent and the MKY
+// document filed from it. And nothing that hands out a signed link or an
+// upload address may ever be kept.
+// ---------------------------------------------------------------------------
+
+const { withActivity } = await import('./helpers/activity-db.mjs');
+const { countCalls } = await import('./helpers/count-db.mjs');
+const { scopesOf, chatKey } = await import('../public/desk/live.js');
+const { resetLiveForTests } = await import('../lib/admin/desk-live.js');
+
+/** call(), with the headers the desk sends and gets. */
+async function callH({ method = 'GET', query = {}, body, operator = 'Ariful', headers = {} }) {
+  const req = {
+    method,
+    query: { resource: 'console', ...(method === 'GET' ? { operator } : {}), ...query },
+    headers: { 'x-admin-secret': 'desk-secret', ...headers },
+    body: method === 'POST' ? { operator, ...body } : undefined,
+  };
+  let status = 200;
+  let payload;
+  const sent = {};
+  const res = {
+    status(c) { status = c; return this; },
+    json(p) { payload = p; return this; },
+    setHeader(k, v) { sent[String(k).toLowerCase()] = v; return this; },
+    send(p) { payload = p; return this; },
+    end() { return this; },
+  };
+  await consoleApi(req, res);
+  await flush();
+  return { status, body: payload, headers: sent };
+}
+
+/** The desk_activity triggers on this test's database; a key's version, as the pulse reads it. */
+function live() {
+  resetLiveForTests();
+  const activity = withActivity(db);
+  return { activity, version: (key) => activity.versions()[key] ?? 0 };
+}
+
+const WA_KEY = chatKey('whatsapp', WA);
+const chatQ = { view: 'chat', channel: 'whatsapp', chat_id: WA };
+
+test('a photo and a paper from the customer move their conversation; with nothing new it is one read and no papers', async () => {
+  const { version } = live();
+  const first = await callH({ query: chatQ });
+  assert.equal(first.status, 200);
+  assert.ok(first.headers.etag, 'tagged with the chat\'s version');
+
+  const rec = countCalls(db);
+  const same = await callH({ query: chatQ, headers: { 'if-none-match': first.headers.etag } });
+  assert.equal(same.status, 304, 'nothing happened in the chat');
+  assert.deepEqual(rec.calls.map((c) => c.table), ['desk_activity'], `one pulse read, nothing else:\n${rec.lines().join('\n')}`);
+
+  net.media.set('img-1', { url: 'https://media.test/img-1', mime_type: 'image/jpeg', file_size: JPEG.length, sha256: 'p1' });
+  net.files.set('https://media.test/img-1', JPEG);
+  net.media.set('pdf-1', { url: 'https://media.test/pdf-1', mime_type: 'application/pdf', file_size: PDF.length, sha256: 'd1' });
+  net.files.set('https://media.test/pdf-1', PDF);
+  const was = version(WA_KEY);
+  await webhook(inbound([
+    { id: 'wamid.photo1', type: 'image', image: { id: 'img-1', mime_type: 'image/jpeg', sha256: 'p1', caption: 'The truck' } },
+    { id: 'wamid.pdf1', type: 'document', document: { id: 'pdf-1', filename: 'invoice.pdf', mime_type: 'application/pdf', sha256: 'd1' } },
+  ]));
+  assert.ok(version(WA_KEY) > was, 'their conversation moved');
+  const papers = rows('booking_documents').filter((d) => d.chat_id === WA);
+  assert.equal(papers.length, 2, 'the bot kept both as papers');
+
+  const after = await callH({ query: chatQ, headers: { 'if-none-match': first.headers.etag } });
+  assert.equal(after.status, 200, 'an open conversation is fetched again on the next tick');
+  const files = after.body.messages.filter((m) => m.direction === 'in' && m.file).map((m) => m.file);
+  assert.deepEqual(files.map((f) => f.kind).sort(), ['image', 'pdf']);
+  assert.ok(files.every((f) => /^doc:\d+$/.test(f.ref)), 'each linked to the paper it became');
+  assert.ok(!JSON.stringify(after.body).includes('storage.test/'), 'what is kept under the ETag names files, never a signed link');
+
+  // A colleague checks the paper: the chip beside the message says so.
+  const pdf = papers.find((d) => d.file_name === 'invoice.pdf');
+  const before = version(WA_KEY);
+  await db.from('booking_documents').update({ status: 'verified', verified_by: 'Sara', verified_at: new Date().toISOString() }).eq('id', pdf.id);
+  assert.ok(version(WA_KEY) > before, 'a paper checked moves the conversation it came in');
+  const checked = await callH({ query: chatQ, headers: { 'if-none-match': after.headers.etag } });
+  assert.equal(checked.status, 200);
+  const chip = checked.body.messages.find((m) => m.file?.ref === `doc:${pdf.id}`).file.paper;
+  assert.equal(chip.status_words, 'Checked by Sara');
+});
+
+test('a file the desk sends, and the MKY document filed from it, move the conversation and the case', async () => {
+  const { version } = live();
+  const quote = await uploaded({ booking_ref: 'MKY-BKG-F1' }, 'MKY-quote.pdf', PDF, 'application/pdf');
+  const chatWas = version(WA_KEY);
+  const caseWas = version('booking:MKY-BKG-F1');
+  const r = await act({ action: 'send_files', booking_ref: 'MKY-BKG-F1', files: [quote], caption: 'Our quote', file_on_booking: true, action_key: 'live-q1' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(version(WA_KEY) > chatWas, 'the conversation shows the file');
+  assert.ok(version('booking:MKY-BKG-F1') > caseWas, 'the case lists it under "Sent by MKY"');
+
+  // Filed with no chat on purpose; taking it off the case still changes the conversation's chip.
+  const doc = rows('booking_documents').find((d) => d.doc_type === 'mky');
+  assert.equal(doc.chat_id, null);
+  const tagged = await callH({ query: chatQ });
+  const before = version(WA_KEY);
+  await db.from('booking_documents').update({ deleted_at: new Date().toISOString() }).eq('id', doc.id);
+  assert.ok(version(WA_KEY) > before, 'an MKY document moves its booking\'s conversation');
+  const now = await callH({ query: chatQ, headers: { 'if-none-match': tagged.headers.etag } });
+  assert.equal(now.status, 200);
+  assert.equal(now.body.messages.find((m) => m.direction === 'out' && m.file?.paper).file.paper.status_words, 'Removed from the case');
+});
+
+test('signed links and upload addresses are never kept: no ETag, never 304, no-store', async () => {
+  live();
+  assert.equal(scopesOf('chat_files', { refs: 'doc:1' }), null, 'not a view the desk polls');
+  assert.equal(scopesOf('document_url', { id: 1 }), null);
+
+  const upload = await callH({ method: 'POST', body: { action: 'chat_upload', channel: 'whatsapp', chat_id: WA, file_name: 'q.pdf', mime_type: 'application/pdf', size: PDF.length, action_key: 'nostore-1' } });
+  assert.equal(upload.status, 200);
+  assert.equal(upload.headers['cache-control'], 'no-store', 'an upload address');
+  assert.equal(upload.headers.etag, undefined);
+  storage.put(upload.body.upload_url, PDF, 'application/pdf');
+  const sent = await callH({ method: 'POST', body: { action: 'send_files', channel: 'whatsapp', chat_id: WA, files: [{ path: upload.body.path, file_name: 'q.pdf', mime_type: 'application/pdf' }], action_key: 'nostore-2' } });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal(sent.headers['cache-control'], 'no-store');
+
+  const msg = rows('chat_messages').find((m) => m.direction === 'out' && m.payload?.storage_path);
+  for (const headers of [{}, { 'if-none-match': '*' }, { 'if-none-match': 'W/"anything"' }]) {
+    const links = await callH({ query: { view: 'chat_files', refs: `msg:${msg.id}`, variant: 'full' }, headers });
+    assert.equal(links.status, 200, 'always worked out afresh');
+    assert.equal(links.headers.etag, undefined);
+    assert.equal(links.headers['cache-control'], 'no-store');
+    assert.match(links.body.files[`msg:${msg.id}`].url, /expires=600$/, 'ten minutes');
+  }
+  db._tables.booking_documents.push({ id: 900, booking_ref: 'MKY-BKG-F1', chat_id: WA, doc_type: 'invoice', status: 'received', storage_path: '7/MKY-BKG-F1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf' });
+  storage.objects.set('7/MKY-BKG-F1/x.pdf', { buffer: PDF, mime: 'application/pdf' });
+  const docUrl = await callH({ query: { view: 'document_url', id: 900 }, headers: { 'if-none-match': '*' } });
+  assert.equal(docUrl.status, 200);
+  assert.equal(docUrl.headers.etag, undefined);
+  assert.equal(docUrl.headers['cache-control'], 'no-store');
+});
+
+test('a conversation whose papers could not be read is shown, but never kept under its version', async () => {
+  live();
+  db._tables.chat_messages.push({ id: 801, channel: 'whatsapp', chat_id: WA, client_id: 7, direction: 'in', author: 'client', kind: 'document', body: null, status: 'received', created_at: iso(60_000), payload: { file_name: 'eori.pdf', media_id: 'm-801' } });
+  db._tables.booking_documents.push({ id: 801, booking_ref: 'MKY-BKG-F1', chat_id: WA, channel: 'whatsapp', doc_type: 'other', status: 'received', file_name: 'eori.pdf', mime_type: 'application/pdf', storage_path: '7/MKY-BKG-F1/eori.pdf', whatsapp_media_id: 'm-801', uploaded_at: iso(60_000) });
+  const from = db.from.bind(db);
+  let failNext = true;
+  db.from = (name) => {
+    const q = from(name);
+    if (name === 'booking_documents' && failNext) {
+      failNext = false;
+      q.run = async () => ({ data: null, error: { message: 'connection reset' } });
+    }
+    return q;
+  };
+  const broken = await callH({ query: chatQ });
+  assert.equal(broken.status, 200);
+  assert.equal(broken.body.partial, true);
+  assert.equal(broken.headers.etag, undefined, 'nothing to vouch for it');
+  assert.equal(broken.headers['cache-control'], 'no-store');
+  assert.equal(broken.body.messages.find((m) => m.id === 801).file.ref, null, 'drawn without the paper');
+
+  const whole = await callH({ query: chatQ });
+  assert.equal(whole.body.partial, undefined);
+  assert.ok(whole.headers.etag);
+  assert.equal(whole.body.messages.find((m) => m.id === 801).file.ref, 'doc:801', 'and whole on the next ask');
+});

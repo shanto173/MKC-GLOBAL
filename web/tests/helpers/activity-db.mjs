@@ -1,7 +1,8 @@
 /**
  * The desk_activity triggers, in the fake database.
  *
- * supabase/migrations/20261009120000_desk_activity.sql moves a version
+ * supabase/migrations/20261009120000_desk_activity.sql (and its amendment
+ * 20261009123000_desk_activity_chat_files.sql) moves a version
  * whenever a row it stands for is written - an area of the desk, or one
  * record (booking:<ref>, chat:<channel>:<chat id>, …). The fake has no
  * triggers, so this does the same after each write the fake runs - by the
@@ -30,8 +31,17 @@ export function keysFor(table, r, tables = {}) {
   switch (table) {
     case 'bookings':
       return ['bookings', key('booking', r.booking_ref), chatKey(r.channel, r.chat_id)];
-    case 'booking_documents':
-      return ['bookings', key('booking', r.booking_ref)];
+    case 'booking_documents': {
+      // The conversation shows each paper beside its message
+      // (20261009123000_desk_activity_chat_files.sql); an MKY document, filed
+      // with no chat, moves its booking's conversation.
+      let chat = chatKey(r.channel, r.chat_id);
+      if (!chat && r.doc_type === 'mky' && r.booking_ref) {
+        const b = (tables.bookings ?? []).find((x) => x.booking_ref === r.booking_ref);
+        chat = b ? chatKey(b.channel, b.chat_id) : null;
+      }
+      return ['bookings', key('booking', r.booking_ref), chat];
+    }
     case 'mrn_requests':
       return ['bookings', key('mrn', r.request_ref), key('booking', r.booking_ref)];
     case 'support_tickets':

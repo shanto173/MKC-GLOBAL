@@ -157,7 +157,14 @@ function notModified(res, etag) {
  */
 export async function conditionalView(view, req, res, who, run) {
   const scopes = scopesOf(view, req.query);
-  if (!scopes) return run(res);
+  // Not polled, so nothing vouches for it: no ETag, never "not modified",
+  // and never kept by anything between here and the browser - search
+  // results, previews, and the signed links of document_url and chat_files,
+  // which expire in minutes.
+  if (!scopes) {
+    res.setHeader?.('Cache-Control', 'no-store');
+    return run(res);
+  }
   const pulse = await readPulse(scopes);
   req.deskPulse = pulse;
   const asked = req.headers?.['if-none-match'] ?? null;

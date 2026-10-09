@@ -8,6 +8,7 @@
  *   GET  ?resource=console&view=document_url&id=…
  *   GET  ?resource=console&view=preview&kind=…   the exact customer message, before sending
  *   GET  ?resource=console&view=chats / chat&channel=&chat_id=
+ *   GET  ?resource=console&view=chat_files&refs=doc:12,msg:34   ten-minute links to a conversation's files
  *   GET  ?resource=console&view=shipments / shipment&id=
  *   GET  ?resource=console&view=search&q=…
  *   GET  ?resource=console&view=settings      (administrators)
@@ -15,7 +16,8 @@
  *   POST ?resource=console   { action, operator, version?, action_key?, … }
  *
  * The GET views the desk polls carry an ETag and answer 304 Not Modified when
- * the desk already has the answer (lib/admin/desk-live.js).
+ * the desk already has the answer (lib/admin/desk-live.js). The others -
+ * search, previews, signed links - and every POST say no-store.
  *
  * One route rather than twenty, because Vercel's Hobby plan allows twelve
  * Serverless Functions and this project is at exactly twelve.
@@ -119,7 +121,12 @@ export default async function handler(req, res) {
       // changed since the version the desk already has (lib/admin/desk-live.js).
       return await conditionalView(view, req, res, who, (out) => fn(req, out, who));
     }
-    if (req.method === 'POST') return await act(req, res);
+    // An action's answer is never kept anywhere: it may carry a one-off
+    // signed upload address (chat_upload) or say what one press did.
+    if (req.method === 'POST') {
+      res.setHeader?.('Cache-Control', 'no-store');
+      return await act(req, res);
+    }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     // A server with no database settings is a setup problem, not a crash:

@@ -6,16 +6,31 @@
  * "Unread" is per browser: a chat is unread while its newest customer message
  * is newer than the last one this desk showed you. Nothing is stored about who
  * read what, because nothing would use it except this dot.
+ *
+ * Kept true by the pulse (ui.js subscribe), in two parts that move at very
+ * different rates:
+ *   - the list, on the areas it shows (scopesOf('chats'): messages, problems,
+ *     bookings, customers). 'messages' moves with every message in every
+ *     chat, so it is fetched at most every 20 seconds, as it was before the
+ *     pulse, and at once after the operator's own send;
+ *   - the open conversation, on its own chat's version (scopesOf('chat',
+ *     { channel, chat_id })): fetched within a tick of anything in that chat -
+ *     a message, a file, the paper a file became - and not at all while
+ *     nothing in it changes. Like the conversation beside a case, it is also
+ *     asked for every two minutes, because WhatsApp's window closes with the
+ *     clock alone.
+ * Leaving the screen aborts its reads and ends both subscriptions (app.js).
  */
 
 import {
-  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill, toast, toastError,
+  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill, toast, toastError, scopesOf,
 } from './ui.js';
+import { RHYTHM } from './live.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
 import { openViewer } from './viewer.js';
 
-export function renderChats({ route, main, refreshCounts = () => {} }) {
+export function renderChats({ route, main, refreshCounts = () => {}, signal = null, subscribe = null }) {
   const [channel, chatId] = route.parts;
   const open = Boolean(channel && chatId);
   let q = route.query.q ?? '';
@@ -35,14 +50,22 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
       listEl),
     pane));
 
+  let listDrawn = null;   // the answer last drawn: a 304 hands the same one back
+  /** @returns {Promise<boolean>} whether the list loaded */
   async function loadList({ quiet = false } = {}) {
     let data;
     try {
-      data = await api({ view: 'chats', q, limit });
+      data = await api({ view: 'chats', q, limit }, { signal });
     } catch (err) {
+      if (err.aborted) return false;
       if (!quiet) fill(listEl, errorState(err, () => loadList()));
-      return;
+      return false;
     }
+    // Nothing moved since it was drawn - except, perhaps, what this desk has
+    // seen (the unread dots), which only the open conversation changes.
+    const seenNow = data.chats.map((c) => seen.get(c.channel, c.chat_id) ?? '').join('|');
+    if (data === listDrawn?.data && seenNow === listDrawn.seen) return true;
+    listDrawn = { data, seen: seenNow };
     notice.hidden = !data.notice;
     notice.textContent = data.notice ?? '';
     const chats = data.chats.map((c) => ({ ...c, unread: Boolean(c.last_in_at && (!seen.get(c.channel, c.chat_id) || c.last_in_at > seen.get(c.channel, c.chat_id))) }));
@@ -54,7 +77,7 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
       add(listEl, emptyState(q ? 'No chat matches that.' : 'No conversations yet.',
         q ? 'Try a phone number without spaces, or a booking reference.' : 'Chats appear here when customers write to the bot.', null,
         { icon: q ? 'search' : 'chats' }));
-      return;
+      return true;
     }
     add(listEl, h('ul', { class: 'chat-rows' }, chats.map((c) => h('li', {}, chatRow(c)))));
     if (data.has_more) {
@@ -62,6 +85,7 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
         class: 'btn btn-sm', type: 'button', onclick: () => { limit += 50; loadList(); },
       }, `Show more (${data.total - data.chats.length} more)`)));
     }
+    return true;
   }
 
   function chatRow(c) {
@@ -110,13 +134,19 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
     };
     convo = mountConversation(convoEl, {
       channel, chatId, target: { channel, chat_id: chatId }, draftKey: `chat:${channel}:${chatId}`,
+      // The conversation reloads itself after a send; the list's last line follows at once.
       onSent: () => loadList({ quiet: true }),
       headExtra: links,
       // A file sent from here can also be filed on one of their live bookings.
       fileOn: (d) => (d.bookings ?? []).filter((b) => !['cancelled', 'rejected', 'expired'].includes(b.status))
         .map((b) => ({ booking_ref: b.booking_ref, label: `${b.booking_ref} · ${b.status_words}` })),
       openPaper: (id) => openPaper(id),
+      signal,
     });
+    // The open conversation on its own chat's version, not on every message
+    // anywhere (public/desk/live.js) - and every two minutes regardless, for
+    // the WhatsApp window, which closes with the clock alone.
+    subscribe?.(scopesOf('chat', { channel, chat_id: chatId }), () => convo.refresh(), { maxAgeMs: 120_000 });
     // A paper they sent with no booking open: the inbox row opens this chat
     // on that paper, in the same viewer a case uses.
     if (route.query.doc) openPaper(Number(route.query.doc));
@@ -151,10 +181,11 @@ export function renderChats({ route, main, refreshCounts = () => {} }) {
   loadList();
 
   return {
-    async refresh() {
-      await loadList({ quiet: true });
-      await convo?.refresh();
-    },
+    // The list, on its areas; app.js subscribes it. The conversation has its own subscription above.
+    refresh: () => loadList({ quiet: true }),
+    scopes: scopesOf('chats'),
+    // 'messages' moves with every message in every chat: no more often than the old 20-second timer.
+    minGapMs: RHYTHM.fallbackMs,
     dispose() {
       convo?.dispose();
       document.querySelectorAll('dialog[open]').forEach((d) => d.close());
