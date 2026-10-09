@@ -19,6 +19,66 @@ const toRegex = (pattern) => new RegExp(
   'i',
 );
 
+/**
+ * PostgREST's logic trees, as `or()` receives them: `a.eq.1,b.in.(x,y),and(c.gte.2,d.is.null)`.
+ * Split at the top level only - a comma inside parentheses or quotes is part
+ * of a value or of a nested group.
+ */
+function splitTop(text) {
+  const parts = [];
+  let depth = 0;
+  let quoted = false;
+  let current = '';
+  for (const ch of text) {
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch === '(') depth++;
+    else if (!quoted && ch === ')') depth--;
+    if (!quoted && depth === 0 && ch === ',') { parts.push(current); current = ''; continue; }
+    current += ch;
+  }
+  if (current) parts.push(current);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+const unquote = (v) => (v.length >= 2 && v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v);
+
+/** One condition of a logic tree, as a predicate over a row. */
+function condition(part, note) {
+  const group = /^(and|or)\((.*)\)$/s.exec(part);
+  if (group) {
+    const inner = splitTop(group[2]).map((p) => condition(p, note));
+    return group[1] === 'and' ? (r) => inner.every((c) => c(r)) : (r) => inner.some((c) => c(r));
+  }
+  const first = part.indexOf('.');
+  const col = part.slice(0, first);
+  let rest = part.slice(first + 1);
+  let negate = false;
+  if (rest.startsWith('not.')) { negate = true; rest = rest.slice(4); }
+  const dot = rest.indexOf('.');
+  const op = rest.slice(0, dot);
+  const raw = rest.slice(dot + 1);
+  const value = unquote(raw);
+  note([col]);
+  let test;
+  switch (op) {
+    case 'eq': test = (r) => String(r[col] ?? ' ') === value; break;
+    case 'neq': test = (r) => String(r[col] ?? '') !== value; break;
+    case 'gt': test = (r) => r[col] != null && r[col] > value; break;
+    case 'gte': test = (r) => r[col] != null && r[col] >= value; break;
+    case 'lt': test = (r) => r[col] != null && r[col] < value; break;
+    case 'lte': test = (r) => r[col] != null && r[col] <= value; break;
+    case 'ilike': { const re = toRegex(value); test = (r) => re.test(String(r[col] ?? '')); break; }
+    case 'is': test = value === 'null' ? (r) => r[col] == null : (r) => String(r[col]) === value; break;
+    case 'in': {
+      const set = new Set(splitTop(raw.replace(/^\(|\)$/g, '')).map(unquote));
+      test = (r) => r[col] != null && set.has(String(r[col]));
+      break;
+    }
+    default: throw new Error(`fake-db: or(${op}) is not implemented`);
+  }
+  return negate ? (r) => !test(r) : test;
+}
+
 const missingTable = (name) => ({
   data: null, count: null,
   error: { code: '42P01', message: `relation "public.${name}" does not exist` },
@@ -71,14 +131,7 @@ export function createDeskDb(seed = {}, { missingTables = [], missingColumns = {
       return q;
     };
     q.or = (expression) => {
-      const clauses = String(expression).split(',').map((part) => {
-        const [col, op, ...rest] = part.split('.');
-        const value = rest.join('.');
-        note([col]);
-        if (op === 'eq') return (r) => String(r[col] ?? ' ') === value;
-        if (op === 'ilike') { const re = toRegex(value); return (r) => re.test(String(r[col] ?? '')); }
-        throw new Error(`fake-db: or(${op}) is not implemented`);
-      });
+      const clauses = splitTop(String(expression)).map((part) => condition(part, note));
       q.filters.push((r) => clauses.some((c) => c(r)));
       return q;
     };

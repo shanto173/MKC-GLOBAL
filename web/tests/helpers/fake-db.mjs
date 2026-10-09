@@ -217,6 +217,10 @@ export function createFakeDb(seed = {}) {
       return this;
     }
     not(col, operator, value) {
+      if (operator === 'is' && value === null) {
+        this.filters.push((r) => r[col] !== null && r[col] !== undefined);
+        return this;
+      }
       if (operator !== 'in') throw new Error(`fake-db: not(${operator}) is not implemented`);
       const set = new Set(parseList(value));
       this.filters.push((r) => !set.has(String(r[col])));

@@ -168,3 +168,23 @@ test('several customers are looked up in at most four reads, and each answer is 
   }
 });
 
+
+test('the inbox costs the same number of reads however many chats have a failed message', async () => {
+  setup({ n: 12, failing: 2 });
+  await get({ view: 'me' });   // the team, read once, as on a warm instance
+  const few = await counted(() => get({ view: 'inbox' }));
+  setup({ n: 12, failing: 12 });
+  await get({ view: 'me' });
+  const many = await counted(() => get({ view: 'inbox' }));
+
+  assert.equal(few.out.status, 200);
+  assert.ok(many.out.body.counts.filters.problems > few.out.body.counts.filters.problems);
+  assert.equal(many.rec.count, few.rec.count, `\n${few.rec.lines().join('\n')}\n---\n${many.rec.lines().join('\n')}`);
+  assert.ok(many.rec.count <= 15, many.rec.lines().join('\n'));
+});
+
+test('the inbox carries the sidebar numbers, so the desk need not ask for them separately', async () => {
+  const inbox = await get({ view: 'inbox' });
+  const counts = await get({ view: 'counts' });
+  assert.deepEqual(inbox.body.nav, counts.body);
+});
