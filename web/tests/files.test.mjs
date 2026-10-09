@@ -109,7 +109,10 @@ function fakeNet() {
       return json(200, { ok: true, result: { message_id: n.id++ } });
     }
     if (n.files.has(String(input))) return new Response(n.files.get(String(input)), { status: 200 });
-    if (url.host === 'api.openai.com') return json(200, { choices: [{ message: { content: '{"doc_type":"other"}' } }] });
+    if (url.host === 'api.openai.com') {
+      if (n.aiDown) throw new TypeError('fetch failed');   // the reader's model unreachable
+      return json(200, { choices: [{ message: { content: '{"doc_type":"other"}' } }] });
+    }
     return json(404, { error: 'not mocked' });
   };
   return n;
@@ -376,6 +379,23 @@ test('every file message finds its stored copy: by media id, by hash after a re-
   assert.match(links.body.files['doc:31'].url, /u-invoice\.pdf/);
   assert.equal(links.body.files['doc:32'].error, 'The file is missing from storage.');
   assert.ok(links.body.expires_at);
+});
+
+test('a photo the reader could not read is still kept, and the desk shows it', async () => {
+  net.aiDown = true;
+  net.media.set('img-down', { url: 'https://media.test/img-down', mime_type: 'image/jpeg', file_size: JPEG.length, sha256: 'pd' });
+  net.files.set('https://media.test/img-down', JPEG);
+  await webhook(inbound([{ id: 'wamid.photo-down', type: 'image', image: { id: 'img-down', mime_type: 'image/jpeg', sha256: 'pd' } }]));
+
+  const doc = rows('booking_documents').find((d) => d.whatsapp_media_id === 'img-down');
+  assert.ok(doc, 'the paper row is there');
+  assert.equal(doc.extracted.pending, false, 'no longer "still reading"');
+  assert.ok(doc.storage_path, 'and it says where the bytes are');
+  assert.equal(storage.objects.get(doc.storage_path).buffer.length, JPEG.length);
+  const chat = await view({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  const m = chat.body.messages.find((x) => x.kind === 'image' && x.direction === 'in');
+  assert.equal(m.file.ref, `doc:${doc.id}`, 'the operator can open it');
+  assert.equal(m.file.stored, true);
 });
 
 test('a big photo is shown through a smaller copy, made once and kept', async () => {

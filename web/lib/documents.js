@@ -167,7 +167,8 @@ export async function completeDocument(documentId, {
       ? await extractDocument(read.text, { fileName })
       : { ok: false, needs_ocr: true, doc_type: 'other', message: read.error };
   } catch (err) {
-    await abandonDocument(documentId, err?.message);
+    // Stored but not read: keep where the bytes are, so the desk can show them.
+    await abandonDocument(documentId, err?.message, stored);
     throw err;
   }
 
@@ -251,12 +252,20 @@ export async function mrnFromPaper(document, bookingRef) {
   return { recorded: Boolean(data?.length), mrn };
 }
 
-/** A file whose reading failed part-way is no longer "still reading". */
-export async function abandonDocument(documentId, reason = null) {
+/**
+ * A file whose reading failed part-way is no longer "still reading". When its
+ * bytes were already stored, the row says where (`stored`): the desk shows a
+ * photo the reader choked on - a vision model that was down, say - instead of
+ * "not kept", and the operator can still open it.
+ */
+export async function abandonDocument(documentId, reason = null, stored = null) {
   if (!documentId) return;
   await db()
     .from('booking_documents')
-    .update({ extracted: { pending: false, ok: false, doc_type: 'other', message: reason ?? 'reading failed' } })
+    .update({
+      extracted: { pending: false, ok: false, doc_type: 'other', message: reason ?? 'reading failed' },
+      ...(stored?.path ? { storage_path: stored.path, storage_bucket: stored.bucket ?? null } : {}),
+    })
     .eq('id', documentId);
 }
 
