@@ -466,6 +466,19 @@ test('a photo and a paper go to WhatsApp as a photo and a document, Arabic name 
   assert.ok(rows('audit_logs').some((a) => a.action === 'client_file_sent' && Number(a.metadata.files) === 2));
 });
 
+test('a paper too big to push through one request is given to WhatsApp as a link it fetches', async () => {
+  const big = Buffer.concat([PDF, Buffer.alloc(17 * MB, 0x20)]);
+  const paper = await uploaded({ channel: 'whatsapp', chat_id: WA }, 'scan.pdf', big, 'application/pdf');
+  const r = await act({ action: 'send_files', channel: 'whatsapp', chat_id: WA, files: [paper], caption: 'The scan', action_key: 'big-link-1' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const [sent] = net.wa();
+  assert.equal(sent.type, 'document');
+  assert.match(sent.document.link, /^https:\/\/storage\.test\/sign\/.+expires=3600$/, 'a signed link that lasts an hour');
+  assert.equal(sent.document.filename, 'scan.pdf');
+  assert.equal(sent.document.caption, 'The scan');
+  assert.equal(net.waUploads().length, 0, 'not uploaded to Meta');
+});
+
 test('Send pressed twice sends each file once', async () => {
   const paper = await uploaded({ channel: 'whatsapp', chat_id: WA }, 'quote.pdf', PDF, 'application/pdf');
   const body = { action: 'send_files', channel: 'whatsapp', chat_id: WA, files: [paper], caption: 'Quote', action_key: 'same-key' };
