@@ -224,6 +224,33 @@ test('after saving a shipment update the desk says whether the customer was noti
 });
 
 // ---------------------------------------------------------------------------
+// Settings (section 10): the brief's five groups, who changed what, and
+// nothing typed is lost by walking away
+// ---------------------------------------------------------------------------
+
+test('Settings has the five groups the brief names, and each says who last changed it', async () => {
+  const s = await import('../public/desk/settings.js');
+  assert.deepEqual(s.SECTIONS.map(([, label]) => label),
+    ['Team and access', 'Office hours and contact numbers', 'Required documents', 'WhatsApp messaging', 'Saved replies', 'Glossary']);
+  const changed = { a: { by: 'Sara', at: '2026-10-08T10:00:00Z' }, b: { by: 'Omar', at: '2026-10-09T09:00:00Z' }, c: null };
+  assert.deepEqual(s.lastChange(changed, ['a', 'b', 'c']), { by: 'Omar', at: '2026-10-09T09:00:00Z' });
+  assert.equal(s.lastChange(changed, ['c']), null);
+  assert.equal(s.lastChange({}, ['x']), null);
+  // Every group that saves settings knows its keys.
+  assert.deepEqual(Object.keys(s.SECTION_KEYS), ['hours', 'docs', 'whatsapp', 'replies']);
+});
+
+test('unsaved edits are protected when leaving: the desk asks first, naming what would be lost', () => {
+  assert.equal(ui.unsavedWords([]), null);
+  assert.equal(ui.unsavedWords(['Saved replies']), 'You have unsaved changes in Saved replies. Leave without saving them?');
+  assert.equal(ui.unsavedWords(['Team and access', 'Saved replies']),
+    'You have unsaved changes in Team and access and Saved replies. Leave without saving them?');
+  assert.match(src('app.js'), /unsaved\?\.\(\)/, 'the router asks the screen before leaving it');
+  assert.match(src('app.js'), /beforeunload/, 'and the browser asks before the tab closes');
+  assert.match(src('settings.js'), /unsaved:/, 'Settings says what is unsaved');
+});
+
+// ---------------------------------------------------------------------------
 // The words of the trade (section 5): one place, shown where they appear
 // ---------------------------------------------------------------------------
 

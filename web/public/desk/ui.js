@@ -84,6 +84,17 @@ export const brandLogo = (size = '') => h('span', { class: `brand-logo${size ? `
   h('img', { src: BRAND.logo, alt: '', width: size === 'lg' ? 120 : size === 'sm' ? 40 : 48, height: size === 'lg' ? 94 : size === 'sm' ? 32 : 38 }));
 
 /**
+ * What leaving now would lose, as the question the desk asks before it goes
+ * (app.js asks the showing screen's unsaved(); Settings answers).
+ * @param {string[]} sections the names of the parts with unsaved changes
+ */
+export function unsavedWords(sections) {
+  if (!sections?.length) return null;
+  const names = sections.length === 1 ? sections[0] : `${sections.slice(0, -1).join(', ')} and ${sections.at(-1)}`;
+  return `You have unsaved changes in ${names}. Leave without saving them?`;
+}
+
+/**
  * What each of the four destinations is for, under its title - the owner's
  * words (docs/DESK-REDESIGN-PROMPT.md, section 3). Read together they tell
  * the Inbox (work to do) from Chats (talking to customers).

@@ -6,6 +6,12 @@
  * Each card saves on its own, so changing the opening hours never resubmits a
  * template someone else is editing. The server checks every value and sends
  * back a sentence per field; those sentences appear beside the field.
+ *
+ * Nothing typed is lost by walking away: a card with unsaved changes says so
+ * beside its Save button, saving one card leaves the others' edits where they
+ * are, and leaving the page asks first (unsaved(), asked by app.js). Each card
+ * says who last changed it, and saves against the versions it was drawn from,
+ * so a colleague's change in the meantime is refused, not overwritten.
  */
 
 import {
@@ -13,7 +19,32 @@ import {
 } from './ui.js';
 import { infoDot, glossaryList } from './glossary.js';
 
-const SECTIONS = [['team', 'Team', 'users'], ['hours', 'Hours and phone', 'hours'], ['docs', 'Documents', 'file'], ['whatsapp', 'WhatsApp', 'whatsapp'], ['replies', 'Saved replies', 'reply'], ['glossary', 'Glossary', 'note']];
+/** The groups, in the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 10): id, title, icon. */
+export const SECTIONS = [
+  ['team', 'Team and access', 'users'],
+  ['hours', 'Office hours and contact numbers', 'hours'],
+  ['docs', 'Required documents', 'file'],
+  ['whatsapp', 'WhatsApp messaging', 'whatsapp'],
+  ['replies', 'Saved replies', 'reply'],
+  ['glossary', 'Glossary', 'note'],
+];
+/** The settings each group saves, for "last changed by". (The team is people, not settings.) */
+export const SECTION_KEYS = {
+  hours: ['support_hours_start', 'support_hours_end', 'support_timezone', 'human_support_hours', 'direct_phone', 'operations_phone'],
+  docs: ['required_booking_documents', 'required_booking_documents_mky_mrn', 'acid_required'],
+  whatsapp: ['whatsapp_templates', 'whatsapp_window_hours'],
+  replies: ['saved_replies'],
+};
+/** The newest change among these settings: { by, at }, or null when none is recorded. */
+export function lastChange(changed, keys) {
+  let newest = null;
+  for (const k of keys) {
+    const c = changed?.[k];
+    if (c?.at && (!newest || new Date(c.at) > new Date(newest.at))) newest = c;
+  }
+  return newest;
+}
+const titleOf = (id) => SECTIONS.find(([k]) => k === id)?.[1] ?? id;
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
@@ -36,6 +67,26 @@ export function renderSettings({ main }) {
 
   let data = null;
   let spy = null;
+  let body = null;
+  const dirty = new Set();     // the cards with changes not saved yet
+  const markers = {};          // card id -> its "Unsaved changes" tag
+
+  /** A card's edits since it was drawn: said beside its Save button, and asked about on leaving. */
+  function watch(id, el) {
+    const mark = () => touched(id);
+    el.addEventListener('input', mark);
+    el.addEventListener('change', mark);
+  }
+  function touched(id) {
+    if (dirty.has(id)) return;
+    dirty.add(id);
+    if (markers[id]) markers[id].hidden = false;
+  }
+  const unsavedTag = (id) => {
+    markers[id] = h('span', { class: 'unsaved-tag', role: 'status', hidden: !dirty.has(id) }, icon('pencil', { size: 13 }), 'Unsaved changes');
+    return markers[id];
+  };
+
   async function load() {
     try {
       data = await api({ view: 'settings' });
@@ -51,7 +102,11 @@ export function renderSettings({ main }) {
           icon(ic, { size: 16 }), label);
         return links[id];
       }));
-    const body = h('div', { class: 'settings-body' }, teamCard(), hoursCard(), docsCard(), whatsappCard(), repliesCard(), glossaryCard());
+    // A card with unsaved edits stays exactly as it is: saving one card
+    // never wipes what somebody is typing in another.
+    const make = { team: teamCard, hours: hoursCard, docs: docsCard, whatsapp: whatsappCard, replies: repliesCard, glossary: glossaryCard };
+    const drawn = body ? Object.fromEntries([...body.children].map((c) => [c.id.replace(/^set-/, ''), c])) : {};
+    body = h('div', { class: 'settings-body' }, SECTIONS.map(([id]) => (dirty.has(id) && drawn[id] ? drawn[id] : make[id]())));
     fill(root, nav, body);
     spy?.disconnect();
     if ('IntersectionObserver' in window) {
@@ -65,15 +120,20 @@ export function renderSettings({ main }) {
     }
   }
 
-  /** Saves some settings, shows each field's error beside it, and reloads. */
-  async function save(card, changes, button) {
+  /**
+   * Saves one card's settings against the versions the card was drawn from -
+   * a colleague's change since is refused, not overwritten - shows each
+   * field's error beside it, and reloads.
+   */
+  async function save(id, card, changes, button, drawnVersions) {
     for (const el of card.querySelectorAll('.field-error')) { el.hidden = true; el.textContent = ''; }
-    const versions = Object.fromEntries(Object.keys(changes).map((k) => [k, data.versions[k]]));
+    const versions = Object.fromEntries(Object.keys(changes).map((k) => [k, drawnVersions[k]]));
     button.disabled = true;
     const before = button.textContent;
     button.textContent = 'Saving…';
     try {
       const r = await post({ action: 'settings_write', changes, versions });
+      dirty.delete(id);
       // Saved, but worth a second look: the server points out a value that
       // looks like a placeholder without refusing it. The page reloads with
       // the same warnings beside their fields.
@@ -82,7 +142,7 @@ export function renderSettings({ main }) {
         const one = warned.length === 1;
         toast(`Saved — but the ${warned.map((k) => FIELD_WORDS[k]).join(' and the ')} still ${one ? 'looks' : 'look'} like the setup’s example number. See the note under ${one ? 'it' : 'them'}.`, 'warn');
       } else {
-        toast('Saved. The bot uses it within a minute.');
+        toast(`${titleOf(id)} saved. The bot uses it within a minute.`);
       }
       await load();
     } catch (err) {
@@ -94,7 +154,9 @@ export function renderSettings({ main }) {
         card.querySelector('.field-error:not([hidden])')?.scrollIntoView({ block: 'center' });
       } else {
         toastError(err);
-        if (err.data?.stale) await load();
+        // Changed by a colleague meanwhile: the card shows the latest (the
+        // toast says so), so its edits are no longer what would be saved.
+        if (err.data?.stale) { dirty.delete(id); await load(); }
       }
     } finally {
       if (button.isConnected) { button.disabled = false; button.textContent = before; }
@@ -102,22 +164,37 @@ export function renderSettings({ main }) {
   }
 
   const errorSlot = (key) => h('p', { class: 'field-error', 'data-error-for': key, role: 'alert', hidden: true });
-  const changedBy = (key) => {
-    const c = data.changed[key];
-    return c ? h('span', { class: 'muted small' }, `Last changed by ${c.by} ${ago(c.at)}`) : null;
+  /** "Last changed by Sara 2 h ago", for a whole card. */
+  const changedBy = (id) => {
+    const c = lastChange(data.changed, SECTION_KEYS[id] ?? []);
+    return h('span', { class: 'muted small changed-by' }, c ? `Last changed by ${c.by} ${ago(c.at)}` : 'Not changed on the desk yet');
   };
+  /** The row under a card: its Save button, whether it has unsaved changes, and who changed it last. */
+  const actions = (id, ...buttons) => h('div', { class: 'form-actions' }, ...buttons, unsavedTag(id), SECTION_KEYS[id] ? changedBy(id) : null);
   const card = (id, title, sub, ...children) => h('section', { class: 'card', id: `set-${id}`, 'aria-labelledby': `set-${id}-t` },
     h('div', { class: 'card-head' }, h('h2', { id: `set-${id}-t` }, icon(SECTIONS.find(([k]) => k === id)?.[2] ?? 'settings', { size: 17 }), title), sub ? h('p', { class: 'card-sub' }, sub) : null),
     ...children);
 
   // -- team -------------------------------------------------------------------
   function teamCard() {
+    // Unsaved here: a row whose role or sign-in was changed, or a name typed to add.
+    const rowsChanged = new Set();
+    const name = h('input', { class: 'input', id: 'new-name', placeholder: 'Name as they will type it', autocomplete: 'off' });
+    const recheck = () => {
+      if (rowsChanged.size || name.value.trim()) touched('team');
+      else { dirty.delete('team'); if (markers.team) markers.team.hidden = true; }
+    };
+    name.addEventListener('input', recheck);
     const rows = data.users.map((u) => {
       const role = h('select', { class: 'input input-small', 'aria-label': `Role for ${u.name}` },
         data.roles.map((r) => h('option', { value: r.role, selected: r.role === u.role }, r.words)));
       const active = h('input', { type: 'checkbox', checked: u.active, 'aria-label': `${u.name} can sign in` });
       const saveBtn = h('button', { class: 'btn btn-sm btn-primary', type: 'button', hidden: true }, 'Save');
-      const changed = () => { saveBtn.hidden = role.value === u.role && active.checked === u.active; };
+      const changed = () => {
+        saveBtn.hidden = role.value === u.role && active.checked === u.active;
+        if (saveBtn.hidden) rowsChanged.delete(u.name); else rowsChanged.add(u.name);
+        recheck();
+      };
       role.addEventListener('change', changed);
       active.addEventListener('change', changed);
       saveBtn.addEventListener('click', async () => {
@@ -125,6 +202,7 @@ export function renderSettings({ main }) {
         try {
           await post({ action: 'user_save', name: u.name, role: role.value, active: active.checked, version: u.version });
           toast(`${u.name} updated.`);
+          dirty.delete('team');
           await load();
         } catch (err) {
           toastError(err);
@@ -139,7 +217,6 @@ export function renderSettings({ main }) {
         h('td', {}, saveBtn));
     });
 
-    const name = h('input', { class: 'input', id: 'new-name', placeholder: 'Name as they will type it', autocomplete: 'off' });
     const role = h('select', { class: 'input', id: 'new-role' }, data.roles.map((r) => h('option', { value: r.role, selected: r.role === 'ops_agent' }, r.words)));
     const add = h('form', { class: 'inline-form' },
       h('div', { class: 'field' }, h('label', { class: 'label', for: 'new-name' }, 'Add a person'), name),
@@ -151,17 +228,21 @@ export function renderSettings({ main }) {
       try {
         await post({ action: 'user_save', name: name.value.trim(), role: role.value, active: true });
         toast(`${name.value.trim()} can now sign in with the desk password.`);
+        dirty.delete('team');
         await load();
       } catch (err) {
         toastError(err);
       }
     });
 
-    return card('team', 'Team', 'Who can sign in, and what they may do. Agents work cases; supervisors also hand out work and set priority; administrators also change settings.',
+    return card('team', titleOf('team'), 'Who can sign in, and what each role can do. The server enforces these; this list says what they mean. Everyone signs in with their name and the desk password.',
+      // What each role can do, from the server (lib/admin/desk-shared.js ROLE_CAN, beside what it enforces).
+      h('dl', { class: 'roles' }, data.roles.map((r) => [h('dt', {}, r.words), h('dd', {}, r.can ?? '')])),
       h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain team-table' },
         h('thead', {}, h('tr', {}, ['Name', 'Role', 'Can sign in', 'Last seen', ''].map((c) => h('th', { scope: 'col' }, c)))),
         h('tbody', {}, rows))),
-      add);
+      add,
+      h('div', { class: 'form-actions' }, unsavedTag('team')));
   }
 
   // -- hours and phone ----------------------------------------------------------
@@ -173,25 +254,27 @@ export function renderSettings({ main }) {
     const sentence = h('input', { class: 'input', id: 's-sentence', value: v.human_support_hours ?? '', placeholder: 'Sunday to Thursday, 9:00–19:00 Cairo time' });
     const direct = h('input', { class: 'input', id: 's-direct', value: v.direct_phone ?? '', inputmode: 'tel', placeholder: 'With the country code, +20…' });
     const desk = h('input', { class: 'input', id: 's-desk', value: v.operations_phone ?? '', inputmode: 'tel', placeholder: 'With the country code, +20…' });
-    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save hours and phone');
-    const c = card('hours', 'Office hours and phone numbers', 'When a person answers, and the numbers the bot gives out.');
+    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save office hours and numbers');
+    const drawnVersions = data.versions;
+    const c = card('hours', titleOf('hours'), 'When a person answers, and the numbers the bot gives out. Outside these hours, a customer who asks for a person is asked whether it is urgent; if it is, the bot gives them the direct line.');
     const form = h('form', {},
       h('datalist', { id: 'tz-list' }, TIMEZONES.map((t) => h('option', { value: t }))),
       h('div', { class: 'form-grid' },
-        fieldWith('Opens at', start, 's-start', 'support_hours_start', changedBy('support_hours_start')),
+        fieldWith('Opens at', start, 's-start', 'support_hours_start'),
         fieldWith('Closes at', end, 's-end', 'support_hours_end'),
         fieldWith('Timezone', tz, 's-tz', 'support_timezone'),
-        fieldWith('Opening hours, as the customer reads them', sentence, 's-sentence', 'human_support_hours')),
+        fieldWith('Opening hours, as the customer reads them', sentence, 's-sentence', 'human_support_hours', h('span', { class: 'muted small' }, 'Example: Sunday to Thursday, 9:00–19:00 Cairo time.'))),
       h('div', { class: 'form-grid' },
         fieldWith('Direct line (urgent, after hours)', direct, 's-direct', 'direct_phone', h('span', { class: 'muted small' }, 'Leave empty and the bot gives no number after hours.')),
         fieldWith('Desk number', desk, 's-desk', 'operations_phone', h('span', { class: 'muted small' }, 'Given to customers who ask for a person, and printed on their booking PDF. Leave empty and the bot gives no number.'))),
-      h('div', { class: 'form-actions' }, button));
+      actions('hours', button));
+    watch('hours', form);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      save(c, {
+      save('hours', c, {
         support_hours_start: Number(start.value), support_hours_end: Number(end.value), support_timezone: tz.value.trim(),
         human_support_hours: sentence.value, direct_phone: direct.value, operations_phone: desk.value,
-      }, button);
+      }, button, drawnVersions);
     });
     add(c, form);
     return c;
@@ -209,23 +292,25 @@ export function renderSettings({ main }) {
         errorSlot(key));
     };
     const acid = h('input', { type: 'checkbox', id: 's-acid', checked: v.acid_required === true });
-    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save documents');
-    const c = card('docs', 'Documents a booking needs', 'The bot asks for these, and the case page checks them. Nothing is required that is not ticked here.');
+    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save required documents');
+    const drawnVersions = data.versions;
+    const c = card('docs', titleOf('docs'), 'What the bot asks every customer for, and what the case page checks before a booking can be confirmed. Nothing is required that is not ticked. The two lists differ by who provides the MRN: a customer with their own MRN sends the MRN document; when MKY gets the MRN for them, it is not asked for.');
     const form = h('form', {},
       h('div', { class: 'form-grid' },
         list('required_booking_documents', 'When the customer has their own MRN', true),
         list('required_booking_documents_mky_mrn', 'When MKY gets the MRN for them', false)),
       h('span', { class: 'check-row' }, h('label', { class: 'check', for: 's-acid' }, acid, h('span', {}, 'An ACID certificate is required at booking time')), infoDot('acid')),
       errorSlot('acid_required'),
-      h('div', { class: 'form-actions' }, button));
+      actions('docs', button));
+    watch('docs', form);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const picked = (k) => [...form.querySelectorAll(`input[name="${k}"]:checked`)].map((i) => i.value);
-      save(c, {
+      save('docs', c, {
         required_booking_documents: picked('required_booking_documents'),
         required_booking_documents_mky_mrn: picked('required_booking_documents_mky_mrn'),
         acid_required: acid.checked,
-      }, button);
+      }, button, drawnVersions);
     });
     add(c, form);
     return c;
@@ -245,16 +330,18 @@ export function renderSettings({ main }) {
         h('td', { class: 'muted small' }, (t.params ?? []).length ? (t.params ?? []).join(', ') : '—'));
     });
     const hours = h('input', { class: 'input input-small input-narrow', id: 's-window', type: 'number', min: '1', max: '24', value: v.whatsapp_window_hours ?? 24 });
-    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save WhatsApp settings');
-    const c = card('whatsapp', 'WhatsApp templates',
-      'After 24 hours without a message from the customer, WhatsApp only delivers approved templates. Names must match WhatsApp Manager exactly; the same name is used in English and Arabic.');
+    const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save WhatsApp messaging');
+    const drawnVersions = data.versions;
+    const c = card('whatsapp', titleOf('whatsapp'),
+      'After 24 hours without a message from the customer, WhatsApp delivers only approved templates. Templates are written and approved in WhatsApp Manager, not here: this page only names which approved template the bot uses for each message. Names must match WhatsApp Manager exactly; the same name is used in English and Arabic.');
     const form = h('form', {},
       h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain template-table' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Message'), h('th', { scope: 'col' }, 'Template name'), h('th', { scope: 'col' }, 'Filled with'))),
         h('tbody', {}, rows))),
       errorSlot('whatsapp_templates'),
-      fieldWith('Hours the window stays open', hours, 's-window', 'whatsapp_window_hours'),
-      h('div', { class: 'form-actions' }, button, changedBy('whatsapp_templates')));
+      fieldWith('Hours the window stays open', hours, 's-window', 'whatsapp_window_hours', h('span', { class: 'muted small' }, 'WhatsApp’s own limit is 24 hours. A smaller number makes the desk switch to templates sooner; nothing here can make the window longer.')),
+      actions('whatsapp', button));
+    watch('whatsapp', form);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const next = {};
@@ -262,7 +349,7 @@ export function renderSettings({ main }) {
         const name = inputs[event].value.trim();
         if (name) next[event] = { ...(templates[event] ?? {}), name };
       }
-      save(c, { whatsapp_templates: next, whatsapp_window_hours: Number(hours.value) }, button);
+      save('whatsapp', c, { whatsapp_templates: next, whatsapp_window_hours: Number(hours.value) }, button, drawnVersions);
     });
     add(c, form);
     return c;
@@ -273,7 +360,8 @@ export function renderSettings({ main }) {
     let list = (data.values.saved_replies ?? []).map((r) => ({ ...r }));
     const holder = h('div', { class: 'replies' });
     const button = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save replies');
-    const c = card('replies', 'Saved replies', 'Ready-made answers in the composer. Each is inserted in the customer’s language.');
+    const drawnVersions = data.versions;
+    const c = card('replies', titleOf('replies'), 'Ready-made answers in the composer. Each is inserted in the customer’s language, and can be changed before it is sent. Example: “Documents received” — “Thank you, we have your documents and are checking them.”');
 
     const paint = () => {
       fill(holder, ...list.map((r, i) => {
@@ -287,7 +375,7 @@ export function renderSettings({ main }) {
         ar.addEventListener('input', () => { r.ar = ar.value; });
         return h('div', { class: 'reply-edit' },
           h('div', { class: 'reply-edit-head' }, title,
-            h('button', { class: 'btn btn-ghost btn-sm btn-danger-ghost', type: 'button', onclick: () => { list.splice(i, 1); paint(); } }, 'Remove')),
+            h('button', { class: 'btn btn-ghost btn-sm btn-danger-ghost', type: 'button', onclick: () => { list.splice(i, 1); paint(); touched('replies'); } }, 'Remove')),
           h('div', { class: 'form-grid' },
             h('div', { class: 'field' }, h('span', { class: 'label' }, 'English'), en),
             h('div', { class: 'field' }, h('span', { class: 'label' }, 'Arabic'), ar)));
@@ -296,12 +384,13 @@ export function renderSettings({ main }) {
     paint();
     const form = h('form', {}, holder, errorSlot('saved_replies'),
       h('div', { class: 'form-actions' },
-        h('button', { class: 'btn', type: 'button', onclick: () => { list.push({ title: '', en: '', ar: '' }); paint(); holder.lastChild?.querySelector('input')?.focus(); } }, icon('plus', { size: 14 }), 'Add a reply'),
-        button, changedBy('saved_replies')));
+        h('button', { class: 'btn', type: 'button', onclick: () => { list.push({ title: '', en: '', ar: '' }); paint(); touched('replies'); holder.lastChild?.querySelector('input')?.focus(); } }, icon('plus', { size: 14 }), 'Add a reply'),
+        button, unsavedTag('replies'), changedBy('replies')));
+    watch('replies', form);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       list = list.filter((r) => r.title.trim() || r.en.trim() || r.ar.trim());
-      save(c, { saved_replies: list }, button);
+      save('replies', c, { saved_replies: list }, button, drawnVersions);
     });
     add(c, form);
     return c;
@@ -328,5 +417,9 @@ export function renderSettings({ main }) {
   }
 
   load();
-  return { dispose() { spy?.disconnect(); } };
+  return {
+    dispose() { spy?.disconnect(); },
+    // Asked by app.js before leaving: the cards with changes not saved yet.
+    unsaved: () => SECTIONS.filter(([id]) => dirty.has(id)).map(([, label]) => label),
+  };
 }

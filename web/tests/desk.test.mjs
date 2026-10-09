@@ -254,6 +254,20 @@ test('settings are for administrators only', async () => {
   assert.equal(admin.status, 200);
 });
 
+test('Settings shows what each role can do, in words that follow what the server allows', async () => {
+  const { PERMISSIONS } = await import('../lib/admin/desk-shared.js');
+  const { roles } = (await get({ view: 'settings' }, 'Ariful')).body;
+  assert.deepEqual(roles.map((r) => r.role).sort(), ['admin', 'ops_agent', 'ops_supervisor', 'read_only']);
+  const can = Object.fromEntries(roles.map((r) => [r.role, r.can]));
+  for (const r of roles) assert.ok(r.can?.length > 20, `${r.role} says what it can do`);
+  assert.match(can.read_only, /Cannot change anything/);
+  // Each claim matches a permission the role has - and only that role and up.
+  for (const [role, perms] of Object.entries(PERMISSIONS)) {
+    assert.equal(/someone else/.test(can[role]) || /supervisor can do/.test(can[role]), perms.has('assign_others'), `${role}: giving work to others`);
+    assert.equal(/settings/.test(can[role]), perms.has('settings'), `${role}: settings`);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The inbox
 // ---------------------------------------------------------------------------

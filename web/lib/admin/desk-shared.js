@@ -42,6 +42,18 @@ export const ROLE_WORDS = {
 };
 
 /**
+ * What each role can do, in plain words for the Settings page - beside
+ * PERMISSIONS, which is what the server enforces, so the two are changed
+ * together (tests/desk.test.mjs holds them to each other).
+ */
+export const ROLE_CAN = {
+  read_only: 'Can open every screen, conversation and document. Cannot change anything or write to customers.',
+  ops_agent: 'Assigns work to themselves, replies to customers, verifies documents, records booking and MRN steps, writes internal notes, and retries or dismisses issues.',
+  ops_supervisor: 'Everything an agent can do, and also gives work to someone else and changes priority.',
+  admin: 'Everything a supervisor can do, and also changes these settings and the team.',
+};
+
+/**
  * Why a role cannot do something, in the words the button shows. "Your role
  * cannot do that" makes people ask somebody; naming who can tells them whom.
  */

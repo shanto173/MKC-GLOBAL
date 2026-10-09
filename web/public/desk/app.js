@@ -19,7 +19,7 @@
 
 import {
   h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill, BRAND, pageTitle, brandLogo,
-  subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES,
+  subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES, unsavedWords,
 } from './ui.js';
 import { RHYTHM } from './live.js';
 import { renderInbox } from './inbox.js';
@@ -62,7 +62,20 @@ function leave() {
   screen = null;
 }
 
+/** The address of the screen showing: where a refused leave returns to. */
+let shownHash = '';
+
+/**
+ * Whether the showing screen may be left: a screen with unsaved edits
+ * (Settings) names them through unsaved(), and the person is asked first.
+ */
+function mayLeave() {
+  const words = unsavedWords(screen?.unsaved?.() ?? []);
+  return !words || window.confirm(words);
+}
+
 function render() {
+  shownHash = location.hash;
   const route = parseRoute();
   leave();
   const main = $('#main');
@@ -143,7 +156,7 @@ function drawNav(active, query = {}) {
       // The words of the trade, for every role (Settings is administrators' only).
       h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; openGlossary(); } },
         h('span', { class: 'menu-item-title' }, icon('note', { size: 15 }), 'Glossary')),
-      h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; signOut(); } },
+      h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; if (mayLeave()) signOut(); } },
         h('span', { class: 'menu-item-title' }, icon('logout', { size: 15 }), 'Sign out'))));
   fill($('#me'), menu);
 }
@@ -334,7 +347,17 @@ on('unauthorised', (message) => { if (!$('#app').hidden) { signOut(); showSignIn
 // Coming back online, getting focus and the tab being shown again are
 // handled by the live loop in ui.js (startLive).
 window.addEventListener('offline', () => { $('#offline').hidden = false; });
-window.addEventListener('hashchange', () => { if (!$('#app').hidden) render(); });
+window.addEventListener('hashchange', () => {
+  if ($('#app').hidden) return;
+  // Unsaved edits: asked first. Staying puts the address back without
+  // drawing the screen again, so nothing typed is lost.
+  if (!mayLeave()) { history.replaceState(null, '', shownHash || '#/inbox'); return; }
+  render();
+});
+// Closing the tab or reloading with unsaved edits: the browser's own question.
+window.addEventListener('beforeunload', (e) => {
+  if (screen?.unsaved?.()?.length) { e.preventDefault(); e.returnValue = ''; }
+});
 
 if (session.secret && session.name) {
   signIn({ quiet: true });

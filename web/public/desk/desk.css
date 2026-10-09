@@ -1483,3 +1483,12 @@ a.result:hover .result-title { color: var(--brand-700); }
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
   .skeleton-line, .sk { animation: none; }
 }
+
+/* -- Settings: unsaved edits, who changed it, what each role can do -------------------------- */
+.unsaved-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--sp-2); border-radius: var(--r-full); background: var(--amber-bg); color: var(--amber-text); font-size: var(--text-sm); font-weight: var(--w-semibold); }
+.unsaved-tag[hidden] { display: none; }
+.changed-by { margin-left: auto; }
+.roles { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--sp-4); margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.roles dt { font-weight: var(--w-semibold); }
+.roles dd { margin: 0; color: var(--ink-2); }
+@media (max-width: 760px) { .roles, .glossary { grid-template-columns: minmax(0, 1fr); } .roles dd, .glossary dd { margin-bottom: var(--sp-2); } .changed-by { margin-left: 0; } }

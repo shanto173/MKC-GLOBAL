@@ -14,7 +14,7 @@
 import { db } from '../supabase.js';
 import { settings, writeSetting, invalidateSettings } from '../settings.js';
 import { audit } from '../audit.js';
-import { fingerprint, userVersion, ROLE_WORDS, refuseStale, invalidateTeam } from './desk-shared.js';
+import { fingerprint, userVersion, ROLE_WORDS, ROLE_CAN, refuseStale, invalidateTeam } from './desk-shared.js';
 import { DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 
 const DOC_TYPES = ['invoice', 'brief', 'mrn', 'acid', 'eur1'];
@@ -180,7 +180,7 @@ export async function settingsView(req, res) {
     template_events: TEMPLATE_EVENTS.map((e) => ({ event: e, words: TEMPLATE_WORDS[e] })),
     document_types: DOC_TYPES,
     users: (users ?? []).map(userOut),
-    roles: ROLES.map((r) => ({ role: r, words: ROLE_WORDS[r] })),
+    roles: ROLES.map((r) => ({ role: r, words: ROLE_WORDS[r], can: ROLE_CAN[r] })),
   });
 }
 
