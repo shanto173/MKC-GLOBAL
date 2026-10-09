@@ -399,6 +399,16 @@ test('the case names its buttons as the brief does: Review documents, Assign to 
 // when a booking has none - and every request has its MKY-BKG-… from the bot -
 // so verified papers lead straight to Confirm. "Record shipping reference" is
 // the button's name for the day that step is reached.
+// Found by the brief's task walk-through ("handle a call-back"): an
+// unassigned call-back still said "Take this call-back".
+test('an unassigned call-back says Assign to me, like every other case', async () => {
+  const r = await get({ view: 'case', type: 'request', ref: 'MKY-T-1' });
+  assert.equal(r.body.next_step.primary.action, 'take');
+  assert.equal(r.body.next_step.primary.label, 'Assign to me');
+  assert.equal(r.body.next_step.title, 'Unassigned — assign it to yourself');
+  assert.match(r.body.next_step.detail, /^Then call \+20 100 000 0001\.$/);
+});
+
 test('once the papers are verified, the next step is Confirm booking, and each paper says who verified it', async () => {
   setup({
     bookings: [{ ...seed().bookings[0], mrn_number: '26DE000000000001A1' }],

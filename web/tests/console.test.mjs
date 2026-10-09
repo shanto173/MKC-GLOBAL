@@ -149,6 +149,19 @@ test('once asked, the same gap is the client\'s turn, not ours', () => {
   assert.equal(n.owner, 'client', 'the desk must not be shown as late for this');
 });
 
+// Found by the brief's task walk-through ("request missing information and
+// see the waiting state"): asked for a clearer copy of a paper already in,
+// the case said "Customer's turn" while the inbox listed the booking under
+// Needs attention as "Confirm the booking". Asked is asked, whatever for.
+test('asked for something that is not a missing document, it is still the client\'s turn until they answer', () => {
+  const n = nextAction({ ...BASE, status: 'needs_client_action' }, ALL_DOCS);
+  assert.equal(n.code, 'WAIT_CLIENT');
+  assert.equal(n.owner, 'client');
+  assert.equal(n.action, 'send_reminder');
+  // Answered (the status moves back), it is ours again.
+  assert.equal(nextAction({ ...BASE, status: 'under_review' }, ALL_DOCS).owner, 'ops');
+});
+
 test('MKY-issued MRN becomes the next action once the papers are in', () => {
   const n = nextAction({ ...BASE, mrn_choice: 'mky_issue' }, MKY_DOCS(['invoice', 'brief'], ['invoice', 'brief']));
   assert.equal(n.code, 'PROCESS_MRN');

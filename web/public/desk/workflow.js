@@ -292,6 +292,20 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
     };
   }
 
+  // Asked for something else - a clearer copy of a paper already in, a
+  // detail - and not answered yet: still theirs. The status says so (the case
+  // header reads it), and the inbox must not list it as ours to confirm. An
+  // answer moves the status back, and the turn with it.
+  if (status === 'needs_client_action') {
+    return {
+      code: 'WAIT_CLIENT',
+      label: 'Waiting for the customer',
+      owner: 'client',
+      detail: 'The customer was asked for something and has not answered yet.',
+      action: 'send_reminder',
+    };
+  }
+
   // The papers are checked BEFORE the MRN is applied for, because the customs
   // application is built from them: discovering an unreadable invoice after
   // lodging the declaration is the expensive order to do this in.

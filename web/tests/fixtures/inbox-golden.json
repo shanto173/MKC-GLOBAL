@@ -3002,9 +3002,9 @@
    "tags": [
     "bookings"
    ],
-   "tab": "needs_us",
-   "tone": "blue",
-   "sentence": "Confirm the booking",
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer",
    "who": "Booked 51",
    "detail": "Volvo FH · YV2RT40A8FB700051 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-51",
