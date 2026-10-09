@@ -60,6 +60,13 @@
   /* internal notes: unmistakably not a message to a customer */
   --note-bg: #fff8e1; --note-line: #ecd48c; --note-ink: #5b4200;
 
+  /* the conversation, as chat apps taught everybody: theirs white on the left,
+     ours - the bot, the team and notifications alike - light green on the right */
+  --bubble-theirs: #ffffff;
+  --bubble-ours: #dcf2d4;
+  --bubble-ours-line: #c3e3b8;
+  --chat-bg: #eef0f2;
+
   /* roles of colour */
   --bg: var(--n-50);
   --surface: var(--n-0);
@@ -734,7 +741,6 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .toolbar { display: flex; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--sp-4); }
 .back { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--h-sm); padding: 0 var(--sp-2) 0 var(--sp-1); margin-left: calc(-1 * var(--sp-1)); border-radius: var(--r-sm); color: var(--ink-3); text-decoration: none; font-weight: var(--w-medium); font-size: var(--text-sm); }
 .back:hover { color: var(--ink); background: var(--n-100); }
-.back-mobile { display: none; }
 
 /* ==========================================================================
    Pages
@@ -894,28 +900,39 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 
 .convo { container: convo / inline-size; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
-/* The header: who, how to reach them, the window, their bookings - one line, wrapping only when narrow. */
+/* The header is one row, as a chat app's: the avatar, the name with how to
+   reach them under it, and at the end the WhatsApp window and their bookings.
+   A narrower column drops what is said elsewhere (see the container queries
+   below) instead of wrapping onto a second row. */
 .convo-head {
-  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2);
-  min-height: 48px; padding: 6px var(--sp-3); border-bottom: 1px solid var(--line); background: var(--surface);
+  display: flex; align-items: center; flex-wrap: nowrap; gap: var(--sp-2);
+  min-height: 56px; padding: 6px var(--sp-3); border-bottom: 1px solid var(--line); background: var(--surface);
 }
-.convo-head > .avatar { flex: none; width: 32px; height: 32px; }
-.convo-title { min-width: 0; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); line-height: var(--lh-snug); font-weight: var(--w-semibold); }
-.convo-chips { display: inline-flex; align-items: center; gap: var(--sp-1); flex: none; }
-.convo-chips .tag { height: 22px; padding: 0 6px; font-size: var(--text-xs); }
-.convo-chips .tag svg { width: 12px; height: 12px; }
-.convo-phone { display: inline-flex; align-items: center; gap: var(--sp-1); flex: none; font-size: var(--text-sm); font-weight: var(--w-medium); white-space: nowrap; }
-.convo-profile { flex: 1 1 0; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--ink-3); }
+.convo-head > .avatar { flex: none; width: 36px; height: 36px; }
+.convo-back { display: none; flex: none; place-items: center; width: 32px; height: 36px; margin-left: calc(-1 * var(--sp-1)); border-radius: var(--r-sm); color: var(--ink-2); }
+.convo-back:hover { color: var(--ink); background: var(--n-100); }
+.convo-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.convo-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); line-height: var(--lh-snug); font-weight: var(--w-semibold); }
+.convo-sub { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-size: var(--text-sm); line-height: var(--lh-snug); color: var(--ink-3); }
+.convo-sub > * { flex: none; }
+.convo-sub > * + *::before { content: '·'; display: inline-block; margin: 0 6px; color: var(--ink-3); text-decoration: none; }
+.convo-phone { display: inline-flex; align-items: center; gap: 3px; font-weight: var(--w-medium); white-space: nowrap; text-decoration: none; }
+.convo-phone:hover bdi { text-decoration: underline; }
+.convo-phone svg { flex: none; }
+.convo-profile { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.convo-end { display: flex; align-items: center; gap: var(--sp-2); flex: none; margin-left: auto; }
 .window-chip {
-  display: inline-flex; align-items: center; gap: 5px; flex: none; height: 22px; padding: 0 var(--sp-2); margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px; flex: none; height: 24px; padding: 0 var(--sp-2);
   border: 1px solid; border-radius: var(--r-full); font-size: var(--text-xs); font-weight: var(--w-semibold); white-space: nowrap; cursor: default;
 }
+.window-chip .wc-short { display: none; }
 .window-chip.tone-green { color: var(--green-text); background: var(--green-bg); border-color: var(--green-line); }
 .window-chip.tone-amber { color: var(--amber-text); background: var(--amber-bg); border-color: var(--amber-line); }
 .window-chip.tone-gray { color: var(--gray-text); background: var(--gray-bg); border-color: var(--gray-line); }
-.convo-extra { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); margin-left: auto; }
-.window-chip + .convo-extra { margin-left: 0; }
+.convo-extra { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: var(--sp-1); }
 .convo-extra:empty { display: none; }
+.refs-inline { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.refs-menu { display: none; }
 .pill.pill-sm { min-height: 24px; gap: 6px; padding: 0 2px 0 var(--sp-2); font-size: var(--text-xs); }
 .pill.pill-sm .badge { height: 18px; }
 .pill-more { padding: 0 var(--sp-2); cursor: pointer; list-style: none; font-weight: var(--w-semibold); }
@@ -925,7 +942,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .convo-empty, .convo-older { color: var(--ink-3); text-align: center; padding: var(--sp-2); font-size: var(--text-sm); }
 
 .transcript-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.transcript { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-3) var(--sp-4); background: var(--n-50); display: flex; flex-direction: column; gap: var(--sp-2); }
+.transcript { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-2) var(--sp-5) var(--sp-3); background: var(--chat-bg); display: flex; flex-direction: column; gap: 3px; }
 .new-pill {
   position: absolute; left: 50%; bottom: var(--sp-3); transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: var(--sp-1); border: 0; border-radius: var(--r-full); padding: 0 var(--sp-3); min-height: 30px;
@@ -934,32 +951,46 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .day { text-align: center; margin: var(--sp-2) 0 var(--sp-1); }
 .day span { font-size: var(--text-xs); font-weight: var(--w-bold); color: var(--ink-3); background: var(--surface); border: 1px solid var(--line); padding: 2px var(--sp-3); border-radius: var(--r-full); }
 
-.msg { display: flex; flex-direction: column; max-width: min(86%, 560px); }
+/* Messages from one sender in a row sit close; a new run (runStarts in
+   conversation.js) gets the space above it and the bubble's small tail. */
+.msg { display: flex; flex-direction: column; max-width: min(82%, 560px); }
+.msg.run-start { margin-top: var(--sp-2); }
 .msg-in { align-self: flex-start; align-items: flex-start; }
 .msg-out { align-self: flex-end; align-items: flex-end; }
-.bubble { padding: var(--sp-2) var(--sp-3) 6px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-xs); min-width: 96px; max-width: 100%; }
-.msg-in .bubble { border-top-left-radius: var(--r-xs); }
-.msg-out .bubble { border-top-right-radius: var(--r-xs); }
-.msg-bot .bubble { background: var(--n-100); border-color: var(--n-150); }
-.msg-staff .bubble { background: var(--brand-50); border-color: var(--brand-100); }
-.msg-system .bubble { background: #f4f1e8; border-color: #e3ddcb; }
+.bubble { position: relative; padding: 6px 10px 4px; border-radius: var(--r-md); box-shadow: 0 1px 1px rgba(16, 24, 40, .13); min-width: 88px; max-width: 100%; }
+.msg-in .bubble { background: var(--bubble-theirs); }
+.msg-out .bubble { background: var(--bubble-ours); }
+.msg-in.run-start > .bubble { border-top-left-radius: 0; }
+.msg-out.run-start > .bubble { border-top-right-radius: 0; }
+.msg-in.run-start > .bubble::before {
+  content: ''; position: absolute; top: 0; left: -7px; width: 8px; height: 12px;
+  background: var(--bubble-theirs); clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.msg-out.run-start > .bubble::before {
+  content: ''; position: absolute; top: 0; right: -7px; width: 8px; height: 12px;
+  background: var(--bubble-ours); clip-path: polygon(0 0, 100% 0, 0 100%);
+}
 .bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-lg); line-height: var(--lh-read); }
 .bubble-body > div:dir(rtl) { line-height: 1.7; }
 .bubble-body.clamped { max-height: calc(1.55em * 12); overflow: hidden; -webkit-mask-image: linear-gradient(#000 80%, transparent); mask-image: linear-gradient(#000 80%, transparent); }
 .bubble .link-btn { margin-top: 2px; font-size: var(--text-sm); }
 .bubble-meta { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-2); margin-top: 2px; font-size: var(--text-xs); color: var(--ink-3); }
-.bubble-who { font-weight: var(--w-bold); margin-right: auto; }
+.bubble-who { font-weight: var(--w-bold); margin-right: auto; padding-right: var(--sp-2); }
 .who-bot { color: var(--ink-2); }
-.who-staff { color: var(--brand-700); }
+.who-staff { color: #0e5a32; }
 .who-system { color: #6b5a2a; }
+.msg-out .bubble-meta { color: #4c5a4c; }
 .tick { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .tick-read { color: var(--brand-700); font-weight: var(--w-semibold); }
-.bubble-fail {
-  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-1); max-width: 100%;
-  font-size: var(--text-sm); color: var(--red-text); background: var(--red-bg); border: 1px solid var(--red-line); border-radius: var(--r-md); padding: 6px var(--sp-2);
-}
+/* A message that did not go: a red edge on the bubble and one quiet line under it. */
+.msg.is-failed > .bubble { box-shadow: 0 0 0 1px var(--red-line), 0 1px 1px rgba(16, 24, 40, .13); }
+.bubble-fail { display: block; margin-top: 3px; max-width: 100%; font-size: var(--text-sm); line-height: var(--lh-snug); color: var(--red-text); }
+.bubble-fail > svg { display: inline-block; vertical-align: -2px; margin-right: 4px; }
+.fail-retry { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; vertical-align: baseline; font-size: var(--text-sm); font-weight: var(--w-semibold); }
+.fail-retry svg { flex: none; }
+.fail-after { margin-left: 6px; color: var(--ink-3); }
 .msg-link { color: var(--accent); overflow-wrap: anywhere; text-decoration: underline; text-decoration-thickness: 1px; }
-.msg-staff .msg-link { color: var(--brand-800); }
+.msg-out .msg-link { color: var(--brand-800); }
 .caption { margin-top: var(--sp-1); }
 .msg-tap { align-self: flex-start; }
 .tap { display: inline-flex; gap: var(--sp-2); align-items: baseline; font-size: var(--text-sm); color: var(--ink-2); background: var(--surface); border: 1px dashed var(--line-strong); border-radius: var(--r-full); padding: 2px var(--sp-3); }
@@ -972,14 +1003,14 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .bubble-media > .bubble-meta { padding: 2px var(--sp-2) 2px; }
 .media-thumb {
   position: relative; display: block; width: 260px; max-width: 100%; aspect-ratio: 4 / 3; max-height: 280px; padding: 0;
-  border: 0; border-radius: calc(var(--r-lg) - 3px); overflow: hidden; background: var(--n-150); cursor: zoom-in;
+  border: 0; border-radius: calc(var(--r-md) - 3px); overflow: hidden; background: var(--n-150); cursor: zoom-in;
 }
 .media-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
 .media-thumb.is-loading { background: linear-gradient(90deg, var(--n-150) 0%, var(--n-50) 50%, var(--n-150) 100%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; }
 .media-thumb.is-loading img { opacity: 0; }
 .media-thumb.is-broken { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: var(--sp-3); color: var(--ink-3); font-size: var(--text-sm); text-align: center; cursor: pointer; white-space: normal; }
 .media-thumb:focus-visible { outline-offset: -2px; }
-.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 300px; max-width: 100%; border-radius: calc(var(--r-lg) - 3px); overflow: hidden; }
+.media-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 300px; max-width: 100%; border-radius: calc(var(--r-md) - 3px); overflow: hidden; }
 .media-grid .media-thumb { width: 100%; aspect-ratio: 1; max-height: none; border-radius: 0; }
 .media-grid.n-3 > :first-child { grid-column: 1 / -1; aspect-ratio: 2 / 1; }
 .grid-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(16, 20, 28, .55); color: var(--n-0); font-size: var(--text-2xl); font-weight: var(--w-bold); }
@@ -1002,7 +1033,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 button.file-chip, a.place-chip { cursor: pointer; transition: border-color var(--dur-fast), background var(--dur-fast); }
 button.file-chip:hover, a.place-chip:hover { border-color: var(--accent); background: var(--surface); color: var(--ink); }
 .place-chip.is-static + .place-chip { margin-top: var(--sp-1); }
-.msg-staff .file-chip, .msg-bot .file-chip { background: var(--surface); }
+.msg-out .file-chip { background: var(--surface); border-color: var(--bubble-ours-line); }
 .chip-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--blue-bg); color: var(--blue-text); }
 .chip-icon.is-pdf { background: var(--red-bg); color: var(--red-text); }
 .chip-icon.is-place { background: var(--green-bg); color: var(--green-text); }
@@ -1041,6 +1072,10 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
 .composer-send { flex: none; min-height: 36px; border-radius: var(--r-md); }
 .menu-head { margin: 0; padding: 6px var(--sp-3) 2px; font-size: var(--text-xs); font-weight: var(--w-bold); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
 .banner-slim { padding: 6px var(--sp-3); }
+/* Why nothing can be typed, where the box would be: compact, with its one button. */
+.banner-composer { align-items: center; gap: 6px var(--sp-2); padding: 6px var(--sp-2) 6px var(--sp-3); font-size: var(--text-sm); line-height: var(--lh-snug); }
+.banner-composer > svg { align-self: flex-start; margin-top: 2px; }
+.banner-composer > p { flex: 1 1 260px; }
 
 /* The files waiting to go: a row of chips, each with its preview, size, progress and a way out. */
 .tray { display: flex; flex-direction: column; gap: 6px; }
@@ -1069,25 +1104,30 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
 
 /* The WhatsApp profile name only where the line has room for it; it is always in the name's tooltip. */
 @container convo (max-width: 980px) { .convo-profile { display: none; } }
-.retry-wait { display: inline-flex; align-items: center; gap: var(--sp-2); }
-/* Narrow (the case page's column, a phone): Send is its icon. */
+/* Under 720 px the bookings are one button with a count; the list is behind it. */
+@container convo (max-width: 720px) {
+  .refs-inline { display: none; }
+  .refs-menu { display: inline-block; }
+  .refs-menu > summary { display: inline-flex; gap: 4px; }
+}
+/* Narrow (the case page's column, a laptop at 125%, a phone): Send is its icon,
+   the window chip its hours, and under the name only the number - the avatar's
+   mark is the channel and the composer's placeholder the language. */
 @container convo (max-width: 560px) {
-  .convo-profile { display: none; }
-  .convo-title { max-width: 18ch; }
+  .convo-profile, .sub-channel, .sub-lang { display: none; }
+  .convo-sub > .convo-phone::before { content: none; }
+  .window-chip .wc-long { display: none; }
+  .window-chip .wc-short { display: inline; }
   .composer-send { width: 40px; padding: 0; }
   /* The files waiting to go are a strip that scrolls sideways, so the conversation keeps its height. */
   .tray-list { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; padding-bottom: 2px; }
   .tray-item { flex: 0 0 210px; width: 210px; }
   .tray-hint { display: none; }
   .send-label { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .transcript { padding: var(--sp-3); }
-  .msg { max-width: 92%; }
-}
-@container convo (max-width: 480px) {
-  /* A phone: the avatar's mark says the channel; the word stays for a screen reader. */
-  .convo-chips .tag:has(> .channel) { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .window-chip { margin-left: 0; }
-  .convo-extra { margin-left: 0; }
+  .transcript { padding: var(--sp-2) var(--sp-4) var(--sp-3); }
+  .msg { max-width: 88%; }
+  .convo-head { padding: 6px var(--sp-2); gap: 6px; }
+  .convo-head > .avatar { width: 32px; height: 32px; }
 }
 
 /* -- A file opened large ---------------------------------------------------------- */
@@ -1366,12 +1406,16 @@ a.result:hover .result-title { color: var(--brand-700); }
   .chats:not(.chats-open) .chat-pane { display: none; }
   .chats-open .chat-pane { height: calc(100dvh - var(--top-h) - 84px - env(safe-area-inset-bottom)); }
   .chat-list { max-height: none; }
-  .back-mobile { display: inline-flex; margin: var(--sp-1) var(--sp-2); }
-  .msg { max-width: 90%; }
-  /* On a phone the conversation gets the height: the header keeps who and how to reach them. */
-  .convo-head { padding: 6px var(--sp-2); }
-  .composer { padding: 6px var(--sp-2); }
-  .composer-input { font-size: 16px; }   /* 16 px: iOS does not zoom into the field */
+  .msg { max-width: 88%; }
+  /* On a phone the conversation gets the height: one header row with the way
+     back in it, and a composer no taller than it must be. */
+  .convo-back { display: inline-grid; }
+  .convo-head { min-height: 52px; padding: 4px var(--sp-2); }
+  .composer { padding: 6px var(--sp-2); gap: 4px; }
+  .composer-box { padding: 2px; }
+  .composer-tool { width: 34px; height: 34px; }
+  .composer-input { font-size: 16px; min-height: 34px; max-height: 104px; padding: 6px var(--sp-1); }   /* 16 px: iOS does not zoom into the field; four lines at most */
+  .composer-send { min-height: 34px; }
   .next-actions > .btn { flex: 1 1 auto; }
   .next-actions > .btn-ghost { flex: 0 0 auto; }
   .next-actions > .menu { margin-left: auto; }

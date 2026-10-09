@@ -26,8 +26,8 @@
  */
 
 import {
-  h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelBadge, avatar, clock, dayLabel, draft, session, safeGet, safeSet,
-  errorState, skeleton, add, fill, uploadFile,
+  h, clear, icon, api, post, newKey, toast, toastError, badge, avatar, clock, dayLabel, draft, session, safeGet, safeSet,
+  errorState, skeleton, add, fill, uploadFile, channelWords,
 } from './ui.js';
 import { openFilePreview } from './viewer.js';
 
@@ -44,6 +44,50 @@ const FILE_KINDS = ['document', 'image', 'video', 'audio', 'sticker'];
 const LANG = { ar: 'Arabic', en: 'English' };
 /** Inbound photos this close together, uncaptioned after the first, are one album. */
 const ALBUM_MS = 2 * 60_000;
+
+/** Two messages from one sender further apart than this are two runs. */
+const RUN_GAP_MS = 10 * 60_000;
+const senderOf = (m) => (m.direction === 'in' ? 'client' : `${m.author ?? 'system'}|${m.author === 'staff' ? (m.staff_name ?? '') : ''}`);
+const localDay = (at) => new Date(at).toDateString();
+
+/**
+ * The messages that start a run: consecutive messages from one sender sit
+ * close together, as a chat app shows them, and only the first has the
+ * bubble's tail and the space above it. A new sender (each colleague is their
+ * own), a pause of more than ten minutes, a tapped button or a new day starts
+ * a new run.
+ * @returns {Set<number|string>} the ids of the messages that start one
+ */
+export function runStarts(messages) {
+  const starts = new Set();
+  let prev = null;
+  for (const m of messages) {
+    if (!prev || m.kind === 'tap' || prev.kind === 'tap' || senderOf(m) !== senderOf(prev)
+      || localDay(m.at) !== localDay(prev.at) || new Date(m.at) - new Date(prev.at) > RUN_GAP_MS) starts.add(m.id);
+    prev = m;
+  }
+  return starts;
+}
+
+/**
+ * Why each failed message failed - said once. A failure with the same reason
+ * as the one just before it says only that it failed, until the customer
+ * writes (which can change what is possible), so five messages refused for
+ * the same closed window do not repeat the same sentence five times.
+ * @returns {Map<number|string, string|null>} failed message id -> the reason, or null for "the same as above"
+ */
+export function failureReasons(messages) {
+  const out = new Map();
+  let last = null;
+  for (const m of messages) {
+    if (m.direction === 'in') { last = null; continue; }
+    if (m.status !== 'failed') continue;
+    const why = m.error_words || 'It did not go through.';
+    out.set(m.id, why === last ? null : why);
+    last = why;
+  }
+  return out;
+}
 
 /** Remembers, per browser, the newest customer message each chat has shown - for "unread". */
 export const seen = {
@@ -104,6 +148,7 @@ const typeWords = (f) => {
  *   headExtra  more chips for the header line (the Chats page puts the customer's bookings there)
  *   fileOn     the bookings a sent file may also be filed on, as an MKY document
  *   openPaper  opens a paper the bot read in the document viewer
+ *   backHref   where the header's back arrow goes on a phone (the Chats list); none on a case
  *   signal     the screen's: its reads are given up when the screen is left
  *
  * Refreshing is the screen's: it subscribes refresh() to the chat's own
@@ -115,7 +160,7 @@ const typeWords = (f) => {
  * live loop asks again on the next tick.
  */
 export function mountConversation(container, {
-  channel, chatId, target, draftKey, onSent = null, onLoad = null, headExtra = null, fileOn = null, openPaper = null, signal = null,
+  channel, chatId, target, draftKey, onSent = null, onLoad = null, headExtra = null, fileOn = null, openPaper = null, backHref = null, signal = null,
 }) {
   let data = null;
   let signature = null;   // null, not '': an empty conversation must still be drawn once
@@ -133,8 +178,9 @@ export function mountConversation(container, {
   const drop = h('div', { class: 'convo-drop', hidden: true, 'aria-hidden': 'true' }, icon('upload', { size: 22 }), h('span', {}, 'Drop the files to attach them'));
   add(container, head, notice, h('div', { class: 'transcript-wrap' }, transcript, pill), composer, drop);
 
+  const back = () => (backHref ? h('a', { class: 'convo-back', href: backHref, 'aria-label': 'All chats', title: 'All chats' }, icon('back', { size: 18 })) : null);
   if (!chatId) {
-    add(head, h('div', { class: 'convo-id' }, h('h2', { class: 'convo-title' }, 'Conversation')));
+    add(head, back(), h('div', { class: 'convo-id' }, h('h2', { class: 'convo-title' }, 'Conversation')));
     add(transcript, h('p', { class: 'convo-empty' }, 'This customer has no chat linked, so there is no conversation to show or answer.'));
     return { refresh() {}, dispose() {} };
   }
@@ -207,20 +253,29 @@ export function mountConversation(container, {
     if (sig === headDrawn) return;
     headDrawn = sig;
     const profile = c.profile_name && c.profile_name !== c.name ? `${c.channel === 'whatsapp' ? 'WhatsApp' : 'Profile'} name: ${c.profile_name}` : null;
-    fill(head,
-      avatar(c.name, { channel: c.channel }),
-      h('h2', { class: 'convo-title', title: [c.name, profile, c.bot_state_words ? `With the bot: ${c.bot_state_words}` : null].filter(Boolean).join('\n') },
-        h('bdi', {}, c.name)),
-      h('span', { class: 'convo-chips' },
-        c.channel ? tag(channelBadge(c.channel)) : null,
-        // Not chosen means the bot writes to them in both languages.
-        c.language ? tag(LANG[c.language], { quiet: true }) : tag('No language yet', { quiet: true, title: 'They have not chosen a language: the bot writes to them in both.' }),
-        c.opted_out_at ? badge('Wrote STOP', 'red', { small: true }) : null,
-        c.is_blocked ? badge('Blocked', 'red', { icon: 'lock', small: true }) : null),
-      c.phone ? h('a', { href: `tel:${c.phone.replace(/[^\d+]/g, '')}`, class: 'convo-phone' }, icon('phone', { size: 13 }), h('bdi', { dir: 'ltr' }, c.phone)) : null,
+    // Under the name, as a chat app puts it: the channel, the language, the
+    // number. Each part is its own item so a narrow column can drop the ones
+    // shown elsewhere (the avatar's mark is the channel; the composer's
+    // placeholder is the language) and keep the number.
+    const sub = [
+      c.channel ? h('span', { class: 'sub-channel' }, channelWords(c.channel)) : null,
+      // Not chosen means the bot writes to them in both languages.
+      h('span', { class: 'sub-lang' }, c.language ? LANG[c.language] : 'No language chosen yet'),
+      c.phone ? h('a', { href: `tel:${c.phone.replace(/[^\d+]/g, '')}`, class: 'convo-phone', 'aria-label': `Call ${c.phone}` },
+        icon('phone', { size: 12 }), h('bdi', { dir: 'ltr' }, c.phone)) : null,
       profile ? h('span', { class: 'convo-profile' }, h('bdi', {}, profile)) : null,
-      windowChip(),
-      headExtra ? h('span', { class: 'convo-extra' }, headExtra(data)) : null);
+    ].filter(Boolean);
+    fill(head,
+      back(),
+      avatar(c.name, { channel: c.channel }),
+      h('div', { class: 'convo-id' },
+        h('h2', { class: 'convo-title', title: [c.name, profile].filter(Boolean).join('\n') }, h('bdi', {}, c.name)),
+        h('p', { class: 'convo-sub' }, sub)),
+      h('div', { class: 'convo-end' },
+        c.opted_out_at ? badge('Wrote STOP', 'red', { small: true }) : null,
+        c.is_blocked ? badge('Blocked', 'red', { icon: 'lock', small: true }) : null,
+        windowChip(),
+        headExtra ? h('span', { class: 'convo-extra' }, headExtra(data)) : null));
   }
 
   /**
@@ -231,8 +286,11 @@ export function mountConversation(container, {
   function windowChip() {
     const w = data.window ?? {};
     if (data.composer.mode !== 'text' || !w.applies) return null;
+    // The long words where there is room; a narrow column says the short
+    // ones, and a screen reader always hears the long.
+    const words = (long, short) => [h('span', { class: 'wc-long' }, long), h('span', { class: 'wc-short', 'aria-hidden': 'true' }, short)];
     if (!w.closes_at) {
-      return h('span', { class: 'window-chip tone-gray', title: data.composer.note ?? '' }, icon('clock', { size: 13 }), 'Window not known');
+      return h('span', { class: 'window-chip tone-gray', title: data.composer.note ?? '' }, icon('clock', { size: 13 }), words('Window not known', 'Not known'));
     }
     const ms = new Date(w.closes_at).getTime() - Date.now();
     const hours = Math.max(0, Math.floor(ms / 3600_000));
@@ -241,7 +299,9 @@ export function mountConversation(container, {
       class: `window-chip ${closing ? 'tone-amber' : 'tone-green'}`,
       title: `WhatsApp lets us write freely until ${new Date(w.closes_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}; after that only an approved template.`,
     }, icon('clock', { size: 13 }),
-    closing ? (hours >= 1 ? `Window closes in ${hours} h` : 'Window closes within the hour') : `Window open · ${hours} h left`);
+    closing
+      ? words(hours >= 1 ? `Window closes in ${hours} h` : 'Window closes within the hour', hours >= 1 ? `${hours} h left` : '< 1 h left')
+      : words(`Window open · ${hours} h left`, `${hours} h left`));
   }
 
   // -- files: links, lazily -----------------------------------------------------
@@ -439,6 +499,8 @@ export function mountConversation(container, {
     }
     let day = '';
     const ms = data.messages;
+    const starts = runStarts(ms);
+    const reasons = failureReasons(ms);
     for (let i = 0; i < ms.length; i++) {
       const m = ms[i];
       const d = dayLabel(m.at);
@@ -449,8 +511,13 @@ export function mountConversation(container, {
         while (i + 1 < ms.length && isAlbumable(ms[i + 1]) && !ms[i + 1].body && dayLabel(ms[i + 1].at) === d
           && new Date(ms[i + 1].at) - new Date(run[run.length - 1].at) <= ALBUM_MS) run.push(ms[++i]);
       }
-      if (run.length > 1) list.push(keep(`album|${run.map((x) => x.id).join('-')}|${run.map(fileSig).join(',')}`, () => album(run)));
-      else list.push(keep(`msg|${m.id}|${m.status}|${m.retried}|${m.retryable}|${fileSig(m)}|${m.status === 'failed' ? data.composer.mode : ''}`, () => message(m)));
+      const start = starts.has(m.id);
+      if (run.length > 1) list.push(keep(`album|${run.map((x) => x.id).join('-')}|${run.map(fileSig).join(',')}|${start}`, () => album(run, start)));
+      else {
+        const failed = m.status === 'failed';
+        const why = reasons.get(m.id) ?? null;
+        list.push(keep(`msg|${m.id}|${m.status}|${m.retried}|${m.retryable}|${fileSig(m)}|${failed ? `${data.composer.mode}|${why}` : ''}|${start}`, () => message(m, { start, why })));
+      }
     }
     reconcile(transcript, list);
     // Old keys are forgotten, so the map does not grow for ever.
@@ -497,7 +564,7 @@ export function mountConversation(container, {
     }
   }
 
-  function album(run) {
+  function album(run, start = true) {
     const shown = run.slice(0, 4);
     const grid = h('div', { class: `media-grid n-${Math.min(run.length, 4)}` }, shown.map((m, i) => {
       const t = thumb(m, { album: true });
@@ -505,18 +572,18 @@ export function mountConversation(container, {
       return t;
     }));
     const lastAt = run[run.length - 1].at;
-    return h('div', { class: 'msg msg-in msg-client' },
+    return h('div', { class: `msg msg-in msg-client${start ? ' run-start' : ''}` },
       h('div', { class: 'bubble bubble-media' },
         h('div', { class: 'bubble-body' }, grid, run[0].body ? h('div', { class: 'caption' }, richLines(run[0].body)) : null),
         h('div', { class: 'bubble-meta' }, h('span', { class: 'album-count' }, `${run.length} photos`),
           h('time', { datetime: lastAt, title: new Date(lastAt).toLocaleString('en-GB') }, clock(lastAt)))));
   }
 
-  function message(m) {
+  function message(m, { start = true, why = null } = {}) {
     const side = m.direction === 'in' ? 'in' : 'out';
     // A tapped button is an action, not words: a small line, not a bubble.
     if (m.kind === 'tap') {
-      return h('div', { class: 'msg msg-in msg-tap' },
+      return h('div', { class: 'msg msg-in msg-tap run-start' },
         h('span', { class: 'tap' },
           m.tap_title ? ['Tapped ', h('bdi', {}, `“${m.tap_title}”`)] : m.body,
           h('time', { class: 'tap-time', datetime: m.at }, clock(m.at))));
@@ -566,28 +633,31 @@ export function mountConversation(container, {
         ? h('span', { class: `tick tick-${m.status}` }, statusIcon === 'check2' ? '✓✓' : statusIcon === 'check' ? '✓' : icon('clock', { size: 12 }), ' ', statusWord)
         : null);
 
+    // A failure is one quiet line under the bubble, not a box: what happened,
+    // why (once - see failureReasons), and the one thing that can be done.
     let failure = null;
-    if (m.status === 'failed') {
+    const failed = m.status === 'failed';
+    if (failed) {
       failure = h('div', { class: 'bubble-fail', role: 'note' },
-        icon('alert', { size: 14 }),
-        h('span', {}, h('strong', {}, 'Not delivered. '), m.error_words || 'It did not go through.'),
-        m.retried ? h('span', { class: 'muted' }, 'Sent again') : m.retryable ? retryButton(m) : null);
+        icon('alert', { size: 13 }),
+        h('span', { class: 'fail-words' }, h('strong', {}, 'Not delivered'), why ? ` — ${why}` : ' — same reason as above.'),
+        m.retried ? h('span', { class: 'fail-after' }, 'Sent again') : m.retryable ? retryButton(m, { said: !why }) : null);
     }
     const media = m.file && ['image', 'sticker'].includes(m.file.kind) && m.file.ref && !m.body;
-    return h('div', { class: `msg msg-${side} msg-${m.author}` },
+    return h('div', { class: `msg msg-${side} msg-${m.author}${start ? ' run-start' : ''}${failed ? ' is-failed' : ''}` },
       h('div', { class: `bubble${media ? ' bubble-media' : ''}` }, body, toggle, meta), failure);
   }
 
-  function retryButton(m) {
+  /** `said`: the failure just above already says when this can be sent again. */
+  function retryButton(m, { said = false } = {}) {
     const key = newKey();
     // Outside the window, or after STOP, a retry would only be refused again:
-    // it waits, saying why, until they write.
-    const blockedNow = data.composer.mode !== 'text';
+    // no button that cannot work - it says when it can, once.
+    if (data.composer.mode !== 'text') return said ? null : h('span', { class: 'fail-after' }, 'It can be sent again once they write.');
     const b = h('button', {
-      class: 'btn btn-sm', type: 'button', disabled: !session.can('problems') || blockedNow,
-      title: blockedNow ? 'It can be sent again once they write to us.' : null,
-    }, icon('refresh', { size: 13 }), 'Retry');
-    if (blockedNow) return h('span', { class: 'retry-wait' }, b, h('span', { class: 'muted' }, 'Once they write'));
+      class: 'link-btn fail-retry', type: 'button', disabled: !session.can('problems'),
+      title: session.can('problems') ? null : 'Your role cannot do this.',
+    }, icon('refresh', { size: 13 }), 'Retry sending');
     b.addEventListener('click', async () => {
       b.disabled = true;
       try {
@@ -676,11 +746,13 @@ export function mountConversation(container, {
       tray.hidden = true;
       return;
     }
-    box.hidden = false;
     const text = c.mode === 'text';
-    // Closed, STOP or blocked: the banner, with what can still be done. On
-    // Telegram there is nothing to say (the channel chip says Telegram); a
+    // Closed, STOP or blocked: the banner, with what can still be done, in
+    // place of a box nobody can type in. The box is only hidden - what was
+    // typed stays in it, and it is back as it was when they write again. On
+    // Telegram there is nothing to say (the header says Telegram); a
     // WhatsApp window that cannot be read gets one quiet line.
+    box.hidden = !text;
     if (!text) add(slot, blocked(c));
     else if (c.note && data.window?.applies && data.window?.known === false) add(slot, h('p', { class: 'composer-note' }, icon('clock', { size: 13 }), c.note));
     ta.disabled = !text;
@@ -911,10 +983,11 @@ export function mountConversation(container, {
     const title = c.mode === 'template_only' ? 'The 24-hour window has closed. '
       : cust.opted_out_at ? 'Opted out. ' : cust.is_blocked ? 'Blocked. ' : '';
     const waiting = files.filter((f) => f.status !== 'sent').length;
-    const box2 = h('div', { class: `banner banner-${tone}`, role: 'status' },
+    const kept = ta.value.trim() ? ' What you typed is kept for then.' : '';
+    const box2 = h('div', { class: `banner banner-${tone} banner-composer`, role: 'status' },
       icon(c.mode === 'template_only' ? 'clock' : stopped ? 'lock' : 'alert', { size: 15 }),
       h('p', {}, title ? h('strong', {}, title) : null, c.reason,
-        waiting ? ` The ${waiting === 1 ? 'file' : `${waiting} files`} attached will wait here until then.` : null));
+        waiting ? ` The ${waiting === 1 ? 'file' : `${waiting} files`} attached will wait here until then.` : null, kept || null));
     if (c.mode === 'template_only') {
       const key = newKey();
       const label = 'Send the “please reply” template';

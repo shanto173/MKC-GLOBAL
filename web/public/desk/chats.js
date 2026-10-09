@@ -111,15 +111,14 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
 
   if (open) {
     const convoEl = h('div', { class: 'chat-convo' });
-    add(pane,
-      h('a', { class: 'back back-mobile', href: '#/chats' }, icon('back', { size: 16 }), 'All chats'),
-      convoEl);
-    // Their bookings and open requests, as small chips on the header line, so
-    // a question about "my truck" is one click from its case. Two are shown;
-    // the rest are behind "+N".
+    add(pane, convoEl);
+    // Their bookings and open requests, as small chips at the end of the
+    // header's one row, so a question about "my truck" is one click from its
+    // case. Two are shown, the rest behind "+N"; a narrow column (a laptop at
+    // 125%, a phone) has room for none, and lists them all behind one button.
     const links = (d) => {
       const requests = (d.requests ?? []).filter((r) => r.open);
-      const chips = [
+      const chips = () => [
         ...(d.bookings ?? []).map((b) => h('a', {
           class: 'pill pill-sm', href: linkFor({ type: 'booking', ref: b.booking_ref }), title: `${b.booking_ref} — ${b.status_words}`,
         }, h('span', { class: 'mono' }, b.booking_ref), badge(b.status_words, b.tone, { small: true }))),
@@ -127,13 +126,22 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
           class: 'pill pill-sm', href: linkFor({ type: 'request', ref: r.ticket_ref }), title: `${r.ticket_ref} — ${r.status_words}`,
         }, icon('phone', { size: 12 }), h('span', { class: 'mono' }, r.ticket_ref), badge(r.status_words, 'blue', { small: true }))),
       ];
-      if (chips.length <= 2) return chips;
-      return [...chips.slice(0, 2), h('details', { class: 'menu menu-right' },
-        h('summary', { class: 'pill pill-sm pill-more', 'aria-label': `${chips.length - 2} more bookings and requests` }, `+${chips.length - 2}`),
-        h('div', { class: 'menu-list chip-menu', role: 'menu' }, chips.slice(2)))];
+      const all = chips();
+      if (!all.length) return [];
+      const inline = all.length <= 2 ? all : [...all.slice(0, 2), h('details', { class: 'menu menu-right' },
+        h('summary', { class: 'pill pill-sm pill-more', 'aria-label': `${all.length - 2} more bookings and requests` }, `+${all.length - 2}`),
+        h('div', { class: 'menu-list chip-menu', role: 'menu' }, all.slice(2)))];
+      const words = `${all.length} ${all.length === 1 ? 'booking or request' : 'bookings and requests'}`;
+      return [
+        h('span', { class: 'refs-inline' }, inline),
+        h('details', { class: 'menu menu-right refs-menu' },
+          h('summary', { class: 'pill pill-sm pill-more', 'aria-label': words, title: words }, icon('truck', { size: 13 }), String(all.length)),
+          h('div', { class: 'menu-list chip-menu', role: 'menu' }, chips())),
+      ];
     };
     convo = mountConversation(convoEl, {
       channel, chatId, target: { channel, chat_id: chatId }, draftKey: `chat:${channel}:${chatId}`,
+      backHref: '#/chats',
       // The conversation reloads itself after a send; the list's last line follows at once.
       onSent: () => loadList({ quiet: true }),
       headExtra: links,
