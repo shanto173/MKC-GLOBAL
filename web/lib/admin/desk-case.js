@@ -707,6 +707,11 @@ export async function documentView(req, res, who) {
 async function deliveryNote({ channel, chatId, customer, eventType }) {
   const { window: win, composer } = await composerFor({ channel, chatId, customer });
   if (!chatId) return { via: 'none', words: 'This customer has no chat linked, so nothing will be sent.' };
+  // Blocked, or wrote STOP and has not written since: nothing is sent, on any
+  // channel and whatever the window - the send refuses exactly these.
+  if (customer?.is_blocked || (customer?.opted_out_at && composer.mode === 'disabled')) {
+    return { via: 'none', words: `Nothing will be sent. ${composer.reason}` };
+  }
   if (channel === 'whatsapp' && win.open !== true) {
     const templates = (await settings()).whatsapp_templates ?? {};
     const t = templates?.[eventType];

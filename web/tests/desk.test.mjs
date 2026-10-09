@@ -504,6 +504,27 @@ test('a WhatsApp customer outside the 24 hours: the preview says it goes as the 
   assert.match(r.body.delivery.words, /mky_information_needed/);
 });
 
+// Found walking through Shipments for the redesign: the preview said "Sent on
+// WhatsApp." for a customer who had written STOP, and the save then reported
+// that it was not sent. A preview must say what will really happen.
+test('a customer who wrote STOP, or is blocked: the preview says nothing will be sent, window open or not', async () => {
+  channelsState.deployed = true;
+  // Delta (MKY-BKG-2's customer) wrote STOP an hour ago; they last wrote three hours ago.
+  const delta = rows('clients').find((c) => c.id === 2);
+  delta.opted_out_at = iso(3600_000);
+  for (const open of [true, false]) {
+    channelsState.api = fakeChannels({ open }).api;
+    const r = await get({ view: 'preview', kind: 'request_info', booking_ref: 'MKY-BKG-2', requested: 'The brief' });
+    assert.equal(r.body.delivery.via, 'none', `window ${open ? 'open' : 'closed'}: ${JSON.stringify(r.body.delivery)}`);
+    assert.match(r.body.delivery.words, /STOP/);
+  }
+  delta.opted_out_at = null;
+  delta.is_blocked = true;
+  const blocked = await get({ view: 'preview', kind: 'request_info', booking_ref: 'MKY-BKG-2', requested: 'The brief' });
+  assert.equal(blocked.body.delivery.via, 'none');
+  assert.match(blocked.body.delivery.words, /blocked/);
+});
+
 // ---------------------------------------------------------------------------
 // Talking to the customer
 // ---------------------------------------------------------------------------
