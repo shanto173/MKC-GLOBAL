@@ -417,7 +417,7 @@ a message a minute. Two warm instances share the inbox (5 operators on it).
 |---|---:|---:|
 | Inbox | 4 pulses + 1.7 refreshes × ~6.6 (shared) ≈ **15** | 4 + one refresh per 5 min ≈ **7** |
 | Case | 4 + counts 11 + its case 2 + its conversation 7 ≈ **24** | ≈ **10** |
-| Conversation (chats.js as it is) | 4 + list and conversation every 20 s, 39 + counts 11 ≈ **54** | ≈ **9** |
+| Conversation (Chats, wired to the pulse on `release-2026-10-09`) | 4 + list at most every 20 s, ≤ 3 × 6 + its conversation 1 × 9 + counts 11 ≈ **42** (was ≈ 54) | ≈ **4** (measured: three pulses in 45 s, nothing else) |
 | Shipments | ≈ **15** | ≈ **8** |
 | Weighted | **≈ 24** | **≈ 8** |
 
@@ -429,10 +429,14 @@ An idle desk (nobody touching it for 3 minutes) asks once a minute.
 | Bot (500 messages; 14 → 11 calls; ~700 replies × 3 receipts × 2) | ~11,200 | ~9,700 |
 | Peak rate, desk | 22 calls/s, in bursts of 5+ at once per operator | 0.7/s quiet, ~4/s busy |
 
-The conversation screen is the largest remaining item, and it is the other
-work package's: subscribing its list to `scopesOf('chats')` and its open
-conversation to `scopesOf('chat', …)` (section 9) takes it from ~54 to ~20 a
-busy minute, and the desk total to ~19.
+The conversation screen was the largest remaining item. On
+`release-2026-10-09` its list follows `scopesOf('chats')` and its open
+conversation `scopesOf('chat', …)` (section 9): quiet, it costs the pulse and
+nothing else; busy, the list is still the bulk of it, because 'messages' and
+'bookings' move several times a minute and the list keeps the old 20-second
+minimum gap - ~42 a busy minute rather than ~54. The open conversation itself
+is fetched only when its own chat moves. A list read cheaper than the newest
+2,000 messages (section 5.5) is what would bring the busy figure down further.
 
 ---
 
@@ -560,6 +564,32 @@ Headless Edge on the local desk, three minutes:
 ```
 
 No exceptions and no console errors.
+
+### 8.5 On release-2026-10-09, with brand-chat's files
+
+The same local desk with brand-chat's media seed and the triggers emulated,
+headless Edge, every request logged by the server (`db` is the number of
+database calls the request made):
+
+```
+inbox, 50 s idle               pulse ×3 (db 1-2 each)                    nothing else
+a colleague takes a case       pulse · inbox 200 (db 18)                 row shows Sara after 5-11 s
+a message in another chat      pulse                                     inbox not fetched
+Chats open, 45 s idle          pulse ×3                                  (one chat 304, db 1, on the first
+                                                                          pulse after opening)
+customer sends photo + PDF     pulse · counts · chat 200 (db 9) ·        both drawn 0-4 s after the bot
+                               chats 200 (db 6) · chat_files (db 1)      finished, the photo loaded
+a colleague checks the PDF     pulse · counts · chat 200                 "Checked by Sara" after 11-15 s
+operator attaches a PDF, sends POST chat_upload (db 3) · POST            the customer side got the same
+                               send_files (db 14) · chat · chats         bytes, name and caption
+chat, 45 s idle after it       pulse ×3                                  (one chats 304 first, db 1)
+inbox, a paper arrives         pulse · inbox 200 (db 17)                 row updated within the tick
+case open, other booking moves pulse                                     case not fetched
+case open, this case moves     pulse · case 200 (db 11)                  note shown within the tick
+```
+
+Every `chat_files` answer was `no-store` without an ETag; every conversation
+answer carried a versioned ETag. No exceptions and no console errors.
 
 ---
 

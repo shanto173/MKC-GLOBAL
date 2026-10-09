@@ -298,7 +298,7 @@ Every row comes from the server with `status: { label, tone, meaning }`. `rowSta
 
 Buttons inside a row (Take it, Retry, Set aside) sit above the stretched link (`z-index: 1`), so they stay their own targets.
 
-**Take it** sends the version the row was drawn from: every row carries its record's `version`, so nothing is read first. The row can be up to 20 seconds old. If a colleague took the case, or changed it, in the meantime, the server refuses and names who did what ("Sara took this 1 min ago."), and the list redraws. A stale row never takes a case from a colleague.
+**Take it** sends the version the row was drawn from: every row carries its record's `version`, so nothing is read first. The row can be one pulse tick old (15 seconds while the desk is in use, a minute once nobody has touched it for three). If a colleague took the case, or changed it, in the meantime, the server refuses and names who did what ("Sara took this 1 min ago."), and the list redraws. A stale row never takes a case from a colleague.
 
 Column widths:
 
