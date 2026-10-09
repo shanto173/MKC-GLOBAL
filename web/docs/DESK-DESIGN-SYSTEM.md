@@ -606,12 +606,12 @@ The conversation is laid out by its own width (a container query on `.convo`), t
 
 | Screen | Transcript before | Transcript now |
 |---|---|---|
-| 1536×750 (1920×1080 at 125%, in a browser) | 326 px | 528 px |
-| 1536×864 | 424 px | 638 px |
-| 1280×800 at 125% | 376 px | 578 px |
-| 1366×768 | 344 px | 546 px |
+| 1536×750 (1920×1080 at 125%, in a browser) | 326 px | 524 px |
+| 1536×864 | 424 px | 634 px |
+| 1280×800 at 125% | 376 px | 574 px |
+| 1366×768 | 344 px | 542 px |
 | 1920×1080 | 640 px | 875 px |
-| Phone, 390 px | 336 px | 507 px |
+| Phone, 390 px | 336 px | 503 px |
 
 ### Settings
 
