@@ -1119,9 +1119,10 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
    the window chip its hours, and under the name only the number - the avatar's
    mark is the channel and the composer's placeholder the language. */
 @container convo (max-width: 560px) {
-  .convo-profile, .sub-channel, .sub-lang { display: none; }
+  .convo-profile { display: none; }
+  /* Hidden from sight, not from a screen reader: the long words are still read. */
+  .sub-channel, .sub-lang, .window-chip .wc-long { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .convo-sub > .convo-phone::before { content: none; }
-  .window-chip .wc-long { display: none; }
   .window-chip .wc-short { display: inline; }
   .composer-send { width: 40px; padding: 0; }
   /* The files waiting to go are a strip that scrolls sideways, so the conversation keeps its height. */

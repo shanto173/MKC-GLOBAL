@@ -98,6 +98,10 @@ test('failed messages in a row say why once; the next one with the same reason j
 
 test('the conversation header is one row', () => {
   assert.match(rule('.convo-head'), /flex-wrap:\s*nowrap/);
+  // What a narrow column drops from sight is still read out: never display:none.
+  for (const words of ['.sub-channel', '.sub-lang', '.wc-long']) {
+    assert.doesNotMatch(css, new RegExp(`${words.replace('.', '\\.')}[^{]*\\{\\s*display:\\s*none`), `${words} stays readable`);
+  }
 });
 
 // ---------------------------------------------------------------------------
