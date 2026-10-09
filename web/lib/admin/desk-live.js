@@ -1,14 +1,16 @@
 /**
  * Telling the desk what changed, cheaply.
  *
- *   GET ?resource=console&view=pulse   -> { supported, versions: { bookings: 41, … }, at }
+ *   GET ?resource=console&view=pulse&watch=booking:MKY-1,chat:whatsapp:wa:…
+ *     -> { supported, versions: { bookings: '41', …, 'booking:MKY-1': '7' }, at }
  *
  * The desk used to fetch every screen again every 20 seconds. Now it asks for
- * the pulse - one read of nine rows (supabase/migrations/20261009120000_
- * desk_activity.sql) - and fetches a screen only when one of the scopes that
- * screen shows has moved (public/desk/live.js says which). Ten people with
- * the desk open, nothing happening: ten small reads every 15 seconds, where
- * there were over four hundred.
+ * the pulse - one read of the nine areas' versions and of the records its
+ * open screens show (supabase/migrations/20261009120000_desk_activity.sql) -
+ * and fetches a screen only when something that screen shows has moved
+ * (public/desk/live.js scopesOf says what). Ten people with the desk open,
+ * nothing happening: ten small reads every 15 seconds, where there were over
+ * four hundred.
  *
  * The same versions make the heavy views conditional. Each answer carries an
  * ETag built from what it was worked out from - the view and its parameters,
@@ -20,7 +22,7 @@
  * reads.
  *
  * And the inbox, which every operator's desk asks for when one booking moves,
- * is worked out once per instance per set of versions (inboxMemo) rather than
+ * is worked out once per instance per set of versions (shared()) rather than
  * once per operator.
  *
  * NOTHING HERE IS ALLOWED TO BE STALE. The versions are transactional: a
