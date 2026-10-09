@@ -1,6 +1,6 @@
-# MKY Desk design system
+# MKY Global Forwarding operations desk: design system
 
-The rules, tokens, components and layouts the MKY Desk is built from. Everything here is real code:
+The rules, tokens, components and layouts the operations desk of MKY Global Forwarding is built from. Everything here is real code:
 
 - the tokens are the custom properties at the top of `public/desk/desk.css`;
 - the components are CSS classes in the same file;
@@ -69,6 +69,17 @@ All tokens are CSS custom properties on `:root`. Don't use a raw colour, size, g
 | `--brand-600` (`--accent`) | `#1d5bd6` | primary button, links, focus ring, active tab |
 | `--brand-700` | `#1749b0` | hover, active nav text |
 | `--brand-50` / `--brand-100` | `#eef3fe` / `#dce6fc` | active nav, staff bubbles, focus halo |
+| `--logo-bg` | `#15161b` | the dark tile the company badge sits in |
+
+**The logo.** The company's own badge (a plane, a truck and a globe over "MKY GLOBAL FORWARDING", dark with gold and blue) lives in `public/brand/`:
+
+| File | Size | Used for |
+|---|---|---|
+| `mky-logo.png` | 189×148 | the sidebar, the rail, the phone header, the sign-in page, the website widget |
+| `mky-logo-square.png` | 640×640 | the source of the icons below, and profile pictures |
+| `favicon-32.png`, `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png` | square | the browser tab, a phone's home screen, `manifest.json` |
+
+The small icons are cropped to the badge, so it is not a speck at 32 px. The badge always sits in a rounded tile (`.brand-logo`, `--logo-bg`, a hairline and `--shadow-sm`), so on the light sidebar it reads as a badge and not as a dark hole. `brandLogo(size)` in `ui.js` builds it; `BRAND` holds the name, "MKY Global Forwarding", and the product, "Operations desk". The tab title is `pageTitle(count)`: "MKY Global Forwarding — Operations desk", or "(3) MKY Global Forwarding" while something waits.
 
 **Semantic.** Each tone has four values: text, soft background, border and solid. Text on its soft background is always at least 5.6:1.
 
@@ -501,17 +512,17 @@ On a phone every row becomes a stacked card with "Label: value" lines.
 ### App shell
 
 - **Sidebar** (224 px, sticky, full height):
-  - the brand mark and name;
+  - the brand: the logo tile (48×38), "MKY Global Forwarding" in 14 px bold, and "OPERATIONS DESK" as a 12 px eyebrow under it;
   - the navigation: Inbox, Chats, Shipments, Settings (administrators only);
   - the Inbox count, which is red while there are problems;
   - two shortcuts under Inbox, "Assigned to me" and "Problems", with their counts;
   - a hint at the foot: "Press / to search".
-- **Rail.** At 1360 px and below the sidebar becomes a 76 px rail: icon over a 12 px label, with the count on the icon. A laptop at 1280×800 and 125% gets 150 px back for the work.
+- **Rail.** At 1360 px and below the sidebar becomes a 76 px rail: icon over a 12 px label, with the count on the icon. The logo tile grows to 54×42 and the words go (the link keeps them as its label). A laptop at 1280×800 and 125% gets 150 px back for the work.
 - **Top bar** (56 px, sticky, translucent): the search field (up to 680 px), then the **account menu** on the right. The menu shows an avatar and name; open, it holds the name, role and Sign out.
 - **Content**: 20 by 24 px padding, at most 1760 px wide.
 - **Phone** (760 px and below):
   - the sidebar is replaced by a fixed bottom tab bar with counts;
-  - the top bar keeps the brand mark, search and account menu;
+  - the top bar keeps the logo tile (40×32), search and account menu;
   - content has 12 px gutters.
 
 ### Inbox

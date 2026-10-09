@@ -280,7 +280,8 @@ test('a new client is asked their language, and the answer to the tap is drawn i
   const answer = net.sent().at(-1);
   const titles = answer.interactive.action.buttons.map((b) => b.reply.title);
   assert.ok(titles.every((t) => /[؀-ۿ]/.test(t)), `Arabic titles straight after choosing: ${titles}`);
-  assert.doesNotMatch(answer.interactive.body.text, /[A-Za-z]{4,} [A-Za-z]{4,}/, 'no English sentence');
+  // The company's name is a name, written in Latin letters in both languages.
+  assert.doesNotMatch(answer.interactive.body.text.replaceAll('MKY Global Forwarding', 'MKY'), /[A-Za-z]{4,} [A-Za-z]{4,}/, 'no English sentence');
 });
 
 test('a tapped reply button and a chosen list row arrive as the engine\'s callbacks', async () => {

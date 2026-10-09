@@ -79,7 +79,9 @@ export const config = {
 
   mail: {
     apiKey: env.RESEND_API_KEY || '',
-    from: env.MAIL_FROM || 'MKC Global Logistics <onboarding@resend.dev>',
+    // The sender's name is the company's; the address is Resend's test sender
+    // until a domain is verified (docs/SETUP.md).
+    from: env.MAIL_FROM || `${env.COMPANY_NAME || 'MKY Global Forwarding'} <onboarding@resend.dev>`,
     opsEmail: env.OPS_EMAIL || '',
   },
 

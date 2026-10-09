@@ -194,7 +194,7 @@ test('first contact asks which language, in both, with two buttons', async () =>
 
   assert.match(said(r), /Which language would you like\?/);
   assert.match(said(r), /تحب نكمل بأنهي لغة؟/);
-  assert.match(said(r), /Welcome Arif to MKY Forwarding/, 'it is the welcome too');
+  assert.match(said(r), /Welcome Arif to MKY Global Forwarding/, 'it is the welcome too');
   assert.ok(said(r).includes(RULE), 'said before a choice, so in both');
   assert.deepEqual(datas(r), ['lang:en', 'lang:ar']);
   assert.deepEqual(buttons(r).map((b) => b.title), ['English', 'العربية']);
@@ -208,7 +208,7 @@ test('tapping العربية answers with the menu in Arabic only, and remembers
   const r = await h.tap('lang:ar');
 
   assertArabicOnly(r, 'menu');
-  assert.match(said(r), /أهلاً Arif بيك في MKY Forwarding/);
+  assert.match(said(r), /أهلاً Arif بيك في MKY Global Forwarding/);
   assert.deepEqual(datas(r), ['menu:book', 'menu:track', 'menu:contact']);
   assert.deepEqual(buttons(r).map((b) => b.text), ['📦 احجز شحنة', '🚚 تتبع شحنتي', '💬 كلّم موظف']);
   assert.deepEqual(buttons(r).map((b) => b.title), ['احجز شحنة', 'تتبع شحنتي', 'كلّم موظف']);
@@ -243,7 +243,7 @@ test('a typed "1" at the question is its first button: English', async () => {
   const r = await h.text('1');
   assert.equal(r.language, 'en');
   assertEnglishOnly(r, '"1"');
-  assert.match(said(r), /Welcome Arif to MKY Forwarding/);
+  assert.match(said(r), /Welcome Arif to MKY Global Forwarding/);
 });
 
 test('"hi" first is asked; an answer in words is read for its script and then dealt with', async () => {

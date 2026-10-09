@@ -66,6 +66,20 @@ export const lines = (text) => String(text ?? '').split('\n').map((line) => (lin
 export const sr = (text) => h('span', { class: 'sr-only' }, text);
 
 // ---------------------------------------------------------------------------
+// The brand
+// ---------------------------------------------------------------------------
+
+/**
+ * Who the desk belongs to. The company's own badge (public/brand/) - dark,
+ * gold and blue - sits in a dark rounded tile so it reads as a badge on the
+ * light sidebar rather than a dark hole in it.
+ */
+export const BRAND = { name: 'MKY Global Forwarding', product: 'Operations desk', logo: '/brand/mky-logo.png' };
+export const pageTitle = (count = 0) => (count ? `(${count}) ${BRAND.name}` : `${BRAND.name} — ${BRAND.product}`);
+export const brandLogo = (size = '') => h('span', { class: `brand-logo${size ? ` brand-logo-${size}` : ''}` },
+  h('img', { src: BRAND.logo, alt: '', width: size === 'lg' ? 120 : size === 'sm' ? 40 : 48, height: size === 'lg' ? 94 : size === 'sm' ? 32 : 38 }));
+
+// ---------------------------------------------------------------------------
 // Icons - static path data only; never built from anything a customer typed.
 // ---------------------------------------------------------------------------
 

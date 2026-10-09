@@ -1,5 +1,5 @@
 /**
- * The MKY Desk's API.
+ * The API of the MKY Global Forwarding operations desk.
  *
  *   GET  ?resource=console&view=me            who is signed in, and what they may do
  *   GET  ?resource=console&view=inbox         everything that needs a person

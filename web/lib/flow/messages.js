@@ -23,7 +23,10 @@
 
 import { pick, currentChannel, currentLanguage } from '../lang.js';
 import { displayPhone } from '../phone.js';
-import { DESTINATION_PORTS_AR } from '../config.js';
+import { DESTINATION_PORTS_AR, config } from '../config.js';
+
+/** The company, as the customer reads it: COMPANY_NAME, by default "MKY Global Forwarding". */
+const company = () => config.companyName;
 import { languageSupported } from './language.js';
 
 /** An Egyptian port in Arabic, for the Arabic half; anything else as it is. */
@@ -97,8 +100,8 @@ export const NOT_ASSIGNED = { ar: 'لسه مش متحدد', en: 'Not assigned ye
 export const M = {
   // -- menu ----------------------------------------------------------------
   welcome: (name) => both(
-    `👋 أهلاً${name ? ' ' + name : ''} بيك في MKY Forwarding!\n\nنقدر نساعدك في إيه النهاردة؟`,
-    `👋 Welcome${name ? ' ' + name : ''} to MKY Forwarding!\n\nHow can we help you today?`,
+    `👋 أهلاً${name ? ' ' + name : ''} بيك في ${company()}!\n\nنقدر نساعدك في إيه النهاردة؟`,
+    `👋 Welcome${name ? ' ' + name : ''} to ${company()}!\n\nHow can we help you today?`,
   ),
 
   menu: () => both('نقدر نساعدك في إيه؟', 'How can we help you today?'),
@@ -139,8 +142,8 @@ export const M = {
   // question always put in both languages. The welcome rides along on first
   // contact: it is the first thing the client reads from us.
   chooseLanguage: (name, { first = true } = {}) => stacked(
-    (first ? `👋 أهلاً${name ? ' ' + name : ''} بيك في MKY Forwarding!\n\n` : '') + 'تحب نكمل بأنهي لغة؟',
-    (first ? `👋 Welcome${name ? ' ' + name : ''} to MKY Forwarding!\n\n` : '') + 'Which language would you like?',
+    (first ? `👋 أهلاً${name ? ' ' + name : ''} بيك في ${company()}!\n\n` : '') + 'تحب نكمل بأنهي لغة؟',
+    (first ? `👋 Welcome${name ? ' ' + name : ''} to ${company()}!\n\n` : '') + 'Which language would you like?',
   ),
 
   // The answer told us nothing - digits, an emoji. Asked once more, saying how.
@@ -495,13 +498,13 @@ What I need right now is ${needEn}.`,
     `الشاسيه: ${b.vin}\n` +
     `الماركة: ${b.make}\n` +
     `خط الشحن: ${b.origin_port} ← ${portAr(b.destination_port)}\n\n` +
-    'شكراً لاختيارك MKY Forwarding! 😊',
+    `شكراً لاختيارك ${company()}! 😊`,
     `🎉 Your booking is confirmed!\n\n` +
     `Booking Ref: ${b.booking_ref}\n` +
     `Chassis: ${b.vin}\n` +
     `Make: ${b.make}\n` +
     `Route: ${b.origin_port} → ${b.destination_port}\n\n` +
-    'Thank you for choosing MKY Forwarding! 😊',
+    `Thank you for choosing ${company()}! 😊`,
   ),
 
   // Sent with kb.agentOrHome(), so the button it names is under it on every
