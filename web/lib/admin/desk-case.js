@@ -581,7 +581,7 @@ export async function mrnCase(req, res, who) {
   let primary = null;
   if (open) {
     primary = button(who, 'issue_mrn', 'Record the MRN', { perm: 'mrn', kind: 'primary', request_ref: ref });
-    secondary.push(button(who, 'mrn_need_info', 'Ask the customer for information', { perm: 'mrn' }));
+    secondary.push(button(who, 'mrn_need_info', 'Request information', { perm: 'mrn' }));
     if (m.status === 'submitted') secondary.push(button(who, 'mrn_review', 'Start working on it', { perm: 'mrn' }));
     secondary.push(button(who, 'mrn_reject', 'Reject the application', { perm: 'mrn', kind: 'danger', more: true }));
   }

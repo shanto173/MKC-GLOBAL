@@ -48,6 +48,18 @@ const ALBUM_MS = 2 * 60_000;
 /** The one thing a closed WhatsApp window allows: the approved template that asks them to reply. */
 export const TEMPLATE_WORDS = 'Send the reply-request template';
 
+/**
+ * Where the customer is with the bot, said under the newest message - not
+ * only in a tooltip - and what a person most often gets wrong about it: the
+ * bot is not paused by a reply from the desk (there is no pausing it).
+ * @returns {{state: string, note: string}|null}
+ */
+export function botStateLine(customer) {
+  const words = customer?.bot_state_words;
+  if (!words) return null;
+  return { state: `With the bot: ${words}`, note: 'The bot keeps answering them. A reply from the desk does not pause it.' };
+}
+
 /** Two messages from one sender further apart than this are two runs. */
 const RUN_GAP_MS = 10 * 60_000;
 const senderOf = (m) => (m.direction === 'in' ? 'client' : `${m.author ?? 'system'}|${m.author === 'staff' ? (m.staff_name ?? '') : ''}`);
@@ -206,7 +218,7 @@ export function mountConversation(container, {
     onLoad?.(data);
     notice.hidden = !data.notice;
     notice.textContent = data.notice ?? '';
-    const sig = data.messages.map((m) => `${m.id}:${m.status}:${m.retried}:${m.file?.ref ?? ''}:${m.file?.paper?.status_words ?? ''}:${m.file?.paper?.note ?? ''}`).join(',') + `|${data.has_more}|${data.composer.mode}`;
+    const sig = data.messages.map((m) => `${m.id}:${m.status}:${m.retried}:${m.file?.ref ?? ''}:${m.file?.paper?.status_words ?? ''}:${m.file?.paper?.note ?? ''}`).join(',') + `|${data.has_more}|${data.composer.mode}|${data.customer?.bot_state_words ?? ''}`;
     if (sig !== signature) {
       const atEnd = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 60;
       const first = signature === null;
@@ -521,6 +533,11 @@ export function mountConversation(container, {
         const why = reasons.get(m.id) ?? null;
         list.push(keep(`msg|${m.id}|${m.status}|${m.retried}|${m.retryable}|${fileSig(m)}|${failed ? `${data.composer.mode}|${why}` : ''}|${start}`, () => message(m, { start, why })));
       }
+    }
+    const bot = botStateLine(data.customer);
+    if (bot) {
+      list.push(keep(`bot|${bot.state}`, () => h('p', { class: 'bot-state', role: 'note' },
+        icon('chats', { size: 13 }), h('span', {}, h('strong', {}, bot.state), ` · ${bot.note}`))));
     }
     reconcile(transcript, list);
     // Old keys are forgotten, so the map does not grow for ever.

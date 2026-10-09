@@ -15,7 +15,7 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelIcon, avatar, timeEl, age,
-  emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES, PURPOSE,
+  emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES, PURPOSE, dialog,
 } from './ui.js';
 
 /**
@@ -43,6 +43,30 @@ export const KIND = {
 };
 /** What the buttons on a row say: the result, not the gesture. */
 export const ACTION_WORDS = { assign: 'Assign to me', retry: 'Retry sending', dismiss: 'Dismiss issue' };
+
+/**
+ * The owner column for work that is never assigned to one person - an issue,
+ * an MRN application: the team's, said in words rather than left blank.
+ */
+export function ownerNote(item) {
+  return item?.kind === 'problem' || item?.kind === 'mrn' ? 'Anyone on the team' : null;
+}
+
+/**
+ * What "Dismiss issue" does, said before it is pressed: it takes the alert
+ * off the Inbox, and that is all - a message stays undelivered, a file stays
+ * where it is and is not verified by it.
+ */
+export function dismissWords(problem) {
+  if (problem?.type === 'chat') {
+    const n = Number(problem.count) || 0;
+    return `Dismissing removes the alert for these ${n === 1 ? '1 failed message' : `${n} failed messages`} from the Inbox. They are still not delivered, and nothing is sent again. A new failure will appear again.`;
+  }
+  if (problem?.type === 'document') {
+    return 'Dismissing removes the alert from the Inbox. The file is kept where it is - it is not deleted, and it is not marked as verified.';
+  }
+  return 'Dismissing removes the alert from the Inbox. The message is still not delivered, and it is not sent again.';
+}
 const EMPTY = {
   needs_us: ['Nothing needs your team right now.', 'New bookings, call-back requests, MRN applications and messages that did not go through appear here as they arrive.', 'checkCircle', 'done'],
   waiting: ['Nobody is waiting for a customer.', 'When the team asks a customer for something, the work waits here until they answer - the customer’s move, not a delay of ours.', 'clock', ''],
@@ -338,7 +362,8 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
 
   /** Who has it - or, when nobody does and it is ours, the button that takes it. */
   function owner(item) {
-    if (item.kind === 'problem' || item.kind === 'mrn') return h('div', { class: 'row-owner' });
+    const team = ownerNote(item);
+    if (team) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-team' }, icon('users', { size: 14 }), team));
     if (item.assigned_to) {
       const mine = item.assigned_to.toLowerCase() === String(session.name).toLowerCase();
       return h('div', { class: 'row-owner', title: `${item.assigned_to} has this` },
@@ -410,7 +435,19 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
       class: 'btn btn-sm btn-ghost', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.',
       'aria-label': `${ACTION_WORDS.dismiss}: ${item.sentence}`,
     }, ACTION_WORDS.dismiss);
-    aside.addEventListener('click', () => act(aside, { action: 'dismiss_problem', problem_id: problemId(p) }, asideWords));
+    // Asked first, with what it does and does not do: it looks like a fix and is not one.
+    aside.addEventListener('click', () => dialog({
+      title: 'Dismiss this issue?',
+      body: [h('p', {}, h('bdi', {}, item.sentence)), h('p', { class: 'muted', style: { marginTop: '8px' } }, dismissWords(p))],
+      actions: [{ label: 'Keep it' }, {
+        label: ACTION_WORDS.dismiss, kind: 'primary', busy: 'Dismissing…',
+        run: async () => {
+          await post({ action: 'dismiss_problem', problem_id: problemId(p) });
+          toast(asideWords);
+          await load({ quiet: true });
+        },
+      }],
+    }));
     add(box, aside);
     if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));
     return box;

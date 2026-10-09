@@ -42,6 +42,16 @@ const HISTORY_SHOWN = 6;
 /** Said on every internal note: the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 7). */
 export const NOTE_WORDS = 'Internal — customer cannot see this';
 
+/**
+ * What recording an MRN means here, said where it is done (the brief, section
+ * 8): the desk stores a number that was issued elsewhere, and approving an
+ * application is not the same step as recording its number.
+ */
+export const MRN_WORDS = {
+  record: 'Type the MRN that was issued for this export. The desk only records it - it does not apply for it or obtain it.',
+  steps: 'Approving the application and recording the issued MRN are separate steps. Record the number only once it has been issued.',
+};
+
 /** The phone's two panes, named for what they hold: the work, and the conversation. */
 export function paneWords(type) {
   return [type === 'request' ? 'Call-back' : type === 'mrn' ? 'Application' : 'Booking', 'Conversation'];
@@ -382,6 +392,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       h('dl', { class: 'kv' },
         row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
         m.request_ref ? row('Application', h('a', { href: linkFor({ type: 'mrn', ref: m.request_ref }) }, m.request_ref)) : null),
+      m.mrn_number ? null : h('p', { class: 'kv-foot' }, MRN_WORDS.steps),
       m.supplied.length ? h('div', {}, h('h3', {}, 'What the customer told us'),
         h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), h('bdi', { dir: 'auto' }, s.text))))) : null);
   }
@@ -421,6 +432,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
         data.booking ? row('Booking', h('span', {}, h('a', { href: linkFor({ type: 'booking', ref: data.booking.booking_ref }) }, data.booking.booking_ref), ` · ${data.booking.status_words}`)) : row('Booking', h('span', { class: 'kv-empty' }, 'None linked')),
         m.missing?.length ? row('Still needed', m.missing.join(', ')) : null,
         m.notes ? row('Desk notes', h('bdi', { dir: 'auto' }, m.notes)) : null),
+      m.mrn_number ? null : h('p', { class: 'kv-foot' }, MRN_WORDS.steps),
       m.supplied.length ? h('div', {}, h('h3', {}, 'What the customer told us'),
         h('ul', { class: 'said' }, m.supplied.map((s) => h('li', {}, h('span', { class: 'muted' }, when(s.at)), h('bdi', { dir: 'auto' }, s.text))))) : null);
   }
@@ -798,7 +810,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     if (pv) { input.addEventListener('input', pv.update); pv.now(); }
     dialog({
       title: 'Record the MRN',
-      subtitle: 'Type it exactly as customs issued it. It is never generated here.',
+      subtitle: MRN_WORDS.record,
       body: [h('label', { class: 'label' }, 'MRN number'), input, pv ? pv.el : h('p', { class: 'field-hint' }, 'The customer is told the number.')],
       actions: [{ label: 'Cancel' }, {
         label: 'Record and tell the customer', kind: 'primary', busy: 'Recording…',

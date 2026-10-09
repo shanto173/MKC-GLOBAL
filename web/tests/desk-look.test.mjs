@@ -159,3 +159,44 @@ test('internal notes say the customer cannot see them; the phone switch says Boo
 test('the closed window\'s one button says which template', () => {
   assert.equal(convo.TEMPLATE_WORDS, 'Send the reply-request template');
 });
+
+// ---------------------------------------------------------------------------
+// Guidance a person can see, not only hover for (sections 3, 4, 7, 8)
+// ---------------------------------------------------------------------------
+
+test('where the customer is with the bot is said in the conversation - and that a reply does not pause the bot', () => {
+  assert.equal(convo.botStateLine({ bot_state_words: null }), null);
+  assert.equal(convo.botStateLine({}), null);
+  assert.deepEqual(convo.botStateLine({ bot_state_words: 'Booking — giving the chassis number' }), {
+    state: 'With the bot: Booking — giving the chassis number',
+    note: 'The bot keeps answering them. A reply from the desk does not pause it.',
+  });
+});
+
+test('every inbox row says who owns it, even work nobody is assigned', () => {
+  const { ownerNote } = inbox;
+  assert.equal(ownerNote({ kind: 'problem' }), 'Anyone on the team');
+  assert.equal(ownerNote({ kind: 'mrn' }), 'Anyone on the team');
+  assert.equal(ownerNote({ kind: 'booking', assigned_to: null, tab: 'needs_us' }), null, 'a booking has its own owner, or Assign to me');
+});
+
+test('Dismiss issue says, before it is pressed, what it does and what it does not do', () => {
+  const { dismissWords } = inbox;
+  const one = dismissWords({ type: 'message', id: 3 });
+  assert.match(one, /removes the alert from the Inbox/);
+  assert.match(one, /not delivered/);
+  assert.match(one, /not sent again/);
+  const chat = dismissWords({ type: 'chat', id: 'whatsapp:wa:2010', count: 3 });
+  assert.match(chat, /3 failed messages/);
+  assert.match(chat, /A new failure will appear again/);
+  const paper = dismissWords({ type: 'document', id: 301 });
+  assert.match(paper, /The file is kept/);
+  assert.match(paper, /not deleted/);
+  assert.match(paper, /not marked as verified/);
+});
+
+test('an MRN is recorded, not obtained, here - and approving is a different step from recording', () => {
+  assert.match(caseMod.MRN_WORDS.record, /issued/);
+  assert.match(caseMod.MRN_WORDS.record, /does not apply for it or obtain it/);
+  assert.match(caseMod.MRN_WORDS.steps, /Approving the application and recording the issued MRN are separate steps/);
+});
