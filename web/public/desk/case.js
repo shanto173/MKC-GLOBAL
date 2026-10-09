@@ -26,6 +26,7 @@ import { mountConversation } from './conversation.js';
 import { openViewer } from './viewer.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
+import { infoDot } from './glossary.js';
 
 const TURN_TONE = { ops: 'blue', client: 'amber', none: 'green' };
 const TURN_WORDS = { ops: 'Our turn', client: 'Customer’s turn', none: 'Nothing to do' };
@@ -328,14 +329,14 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       h('span', { class: 'progress-bar', 'aria-hidden': 'true' }, list.map((c) => h('span', { class: `is-${(CHECK_ICON[c.state] ?? ['', 'gray'])[1]}` }))),
       `${checked} of ${list.length} verified`) : null;
     const fileOf = (id) => data.documents.find((d) => d.id === id)?.file_name ?? null;
-    const item = ({ state, label, words, document_id: docId, tone: wordsTone }) => {
+    const item = ({ type: docType, state, label, words, document_id: docId, tone: wordsTone }) => {
       const [ic, tone] = CHECK_ICON[state] ?? ['file', 'gray'];
       const needsEyes = ['received', 'mismatch', 'unreadable'].includes(state);
       const file = docId ? fileOf(docId) : null;
       return h('li', { class: `check-item check-${state}${docId ? ' is-openable' : ''}` },
         h('span', { class: `check-icon tone-${tone}`, 'aria-hidden': 'true' }, icon(ic, { size: 16 })),
         h('span', { class: 'check-main' },
-          h('span', { class: 'check-label' }, label),
+          h('span', { class: 'check-label' }, label, infoDot(docType)),
           h('span', { class: `check-words tone-text-${wordsTone ?? tone}` }, words),
           file ? h('bdi', { class: 'check-file', dir: 'ltr', title: file }, file) : null),
         docId
@@ -348,7 +349,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       list.length ? h('ul', { class: 'checklist' }, list.map((c) => item(c))) : null,
       data.other_documents.length ? h('div', { class: 'other-docs' },
         h('h3', {}, 'Other files'),
-        h('ul', { class: 'checklist' }, data.other_documents.map((d) => item({ state: 'other', label: d.label, words: d.status_words, document_id: d.id, tone: 'gray' })))) : null,
+        h('ul', { class: 'checklist' }, data.other_documents.map((d) => item({ type: d.doc_type, state: 'other', label: d.label, words: d.status_words, document_id: d.id, tone: 'gray' })))) : null,
       // Papers MKY sent the customer from the conversation and filed here:
       // ours, apart from theirs, never to check.
       data.mky_documents?.length ? h('div', { class: 'other-docs' },
@@ -388,9 +389,9 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
 
   function mrnCard() {
     const m = data.mrn;
-    return card('mrn-title', 'MRN — MKY is getting it', { ic: 'stamp', tools: badge(m.status_words, m.mrn_number ? 'green' : 'blue') },
+    return card('mrn-title', ['MRN — MKY is getting it', infoDot('mrn')], { ic: 'stamp', tools: badge(m.status_words, m.mrn_number ? 'green' : 'blue') },
       h('dl', { class: 'kv' },
-        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
+        row(['MRN number', infoDot('mrn')], m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
         m.request_ref ? row('Application', h('a', { href: linkFor({ type: 'mrn', ref: m.request_ref }) }, m.request_ref)) : null),
       m.mrn_number ? null : h('p', { class: 'kv-foot' }, MRN_WORDS.steps),
       m.supplied.length ? h('div', {}, h('h3', {}, 'What the customer told us'),
@@ -428,7 +429,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
         row('Customer', name || channel
           ? h('span', { class: 'kv-customer' }, name ? h('bdi', {}, name) : null, channel ? channelBadge(channel) : null)
           : h('span', { class: 'kv-empty' }, 'Not known')),
-        row('MRN number', m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
+        row(['MRN number', infoDot('mrn')], m.mrn_number ? h('span', { class: 'mono' }, m.mrn_number) : h('span', { class: 'kv-empty' }, 'Not issued yet')),
         data.booking ? row('Booking', h('span', {}, h('a', { href: linkFor({ type: 'booking', ref: data.booking.booking_ref }) }, data.booking.booking_ref), ` · ${data.booking.status_words}`)) : row('Booking', h('span', { class: 'kv-empty' }, 'None linked')),
         m.missing?.length ? row('Still needed', m.missing.join(', ')) : null,
         m.notes ? row('Desk notes', h('bdi', { dir: 'auto' }, m.notes)) : null),
@@ -449,7 +450,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
 
   function detailRow(field, label, value) {
     const dd = h('dd', { class: 'kv-val' });
-    const wrap = h('div', { class: 'kv-row' }, h('dt', { class: 'kv-key' }, label), dd);
+    const wrap = h('div', { class: 'kv-row' }, h('dt', { class: 'kv-key' }, label, field === 'vin' ? infoDot('vin') : null), dd);
     const show = () => {
       wrap.classList.remove('is-editing');
       fill(dd,

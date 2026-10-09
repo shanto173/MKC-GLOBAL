@@ -15,6 +15,7 @@ import {
   h, icon, api, post, toast, toastError, badge, when, dialog, add, fill,
 } from './ui.js';
 import { previewBox } from './preview.js';
+import { infoDot } from './glossary.js';
 
 const TYPABLE_LABELS = {
   vin: 'Chassis (VIN)', mrn: 'MRN', acid: 'ACID', eur1: 'EUR.1 number', make: 'Make', model: 'Model', document_date: 'Date on the document',
@@ -24,6 +25,19 @@ const TYPABLE_LABELS = {
 export const DECISION_WORDS = {
   verify: 'Mark as verified', verifyAnyway: 'Mark as verified anyway', verified: 'Verified', replace: 'Request replacement',
 };
+
+/**
+ * Each difference between a paper and what it is held to, as one specific
+ * sentence: "The chassis number on this Invoice differs from the booking: the
+ * Invoice says …, the booking says …" (the brief, section 6).
+ */
+export function mismatchWords(doc) {
+  return (doc?.checks ?? []).filter((c) => !c.match).map((c) => {
+    const what = c.field === 'vin' ? 'The chassis number' : `The ${c.label}`;
+    const against = c.against ?? 'the booking';
+    return `${what} on this ${doc.label} differs from ${against}: the ${doc.label} says ${c.document}, ${against} says ${c.booking}.`;
+  });
+}
 
 /** Pages drawn in the viewer; a longer file is for "Open in a new tab". */
 const MAX_PAGES = 20;
@@ -316,8 +330,7 @@ export function openViewer(ctx) {
       // Each check names what it was held to: the booking, or - for an MRN
       // printed on another paper - the customer's MRN declaration.
       mismatch.length ? h('div', { class: 'callout callout-red', role: 'note' }, icon('alert', { size: 16 }),
-        h('p', {}, h('strong', {}, mismatch.every((c) => (c.against ?? 'the booking') === 'the booking') ? 'Does not match the booking. ' : 'Does not match. '),
-          mismatch.map((c) => `${c.label}: the document says ${c.document}, ${c.against ?? 'the booking'} says ${c.booking}.`).join(' '))) : null,
+        h('div', {}, mismatchWords(doc).map((line) => h('p', {}, line)))) : null,
       doc.reading ? h('div', { class: 'callout callout-gray' }, h('p', {}, 'The bot is still reading this file. Look again in a moment.')) : null,
       doc.sent_by_mky ? h('p', { class: 'muted' }, 'A paper MKY sent the customer. The bot does not read MKY’s own papers.')
         : doc.unreadable ? typeIn(doc, actions) : readTable(doc),
@@ -340,7 +353,7 @@ export function openViewer(ctx) {
         h('tbody', {}, doc.read.map((f) => {
           const c = byField.get(f.field);
           return h('tr', { class: c && !c.match ? 'is-mismatch' : '' },
-            h('th', { scope: 'row' }, f.label),
+            h('th', { scope: 'row' }, f.label, infoDot(f.field)),
             h('td', { dir: 'auto', class: f.field === 'vin' || f.field === 'mrn' ? 'mono' : '' }, String(f.value), f.typed ? h('span', { class: 'muted small' }, ' (typed)') : null),
             // The verdict is one unbreakable word; a differing value is its
             // own piece, free to wrap onto the next line in a narrow column.

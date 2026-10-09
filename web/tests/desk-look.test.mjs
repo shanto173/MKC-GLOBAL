@@ -199,6 +199,46 @@ test('Dismiss issue says, before it is pressed, what it does and what it does no
   assert.match(paper, /not marked as verified/);
 });
 
+// ---------------------------------------------------------------------------
+// The words of the trade (section 5): one place, shown where they appear
+// ---------------------------------------------------------------------------
+
+test('the glossary says what each document term means, in one place the owner can edit', async () => {
+  const { GLOSSARY, termFor } = await import('../public/desk/glossary.js');
+  assert.deepEqual(Object.keys(GLOSSARY), ['vin', 'mrn', 'acid', 'eur1', 'cmr', 'brief']);
+  assert.match(GLOSSARY.vin.text, /^The vehicle’s unique identification number/);
+  assert.match(GLOSSARY.vin.text, /17-character chassis number/);
+  assert.match(GLOSSARY.mrn.text, /Movement Reference Number of the EU export declaration/);
+  assert.match(GLOSSARY.acid.text, /Egypt’s Advance Cargo Information Declaration, registered on Nafeza before shipping/);
+  assert.match(GLOSSARY.eur1.text, /movement certificate proving EU origin for preferential duty/);
+  assert.match(GLOSSARY.cmr.text, /international road consignment note/);
+  for (const [k, g] of Object.entries(GLOSSARY)) {
+    assert.ok(g.term && g.text.length < 140, `${k}: a term and one short line`);
+    assert.doesNotMatch(g.text, /must|required|law|legal/i, `${k}: no legal requirement is claimed`);
+  }
+  // The document types and read fields the desk shows, mapped to their entry.
+  assert.deepEqual(['vin', 'mrn', 'acid', 'eur1', 'brief', 'invoice'].map(termFor), ['vin', 'mrn', 'acid', 'eur1', 'brief', null]);
+});
+
+test('a difference is named specifically: the chassis number on this invoice differs from the booking', () => {
+  const { mismatchWords } = viewer;
+  assert.deepEqual(mismatchWords({ label: 'Invoice', checks: [
+    { field: 'vin', label: 'Chassis', document: 'YV2RT40A8FB799999', booking: 'YV2RT40A8FB712905', match: false },
+    { field: 'make', label: 'Make', document: 'VOLVO', booking: 'Volvo', match: true },
+  ] }), ['The chassis number on this Invoice differs from the booking: the Invoice says YV2RT40A8FB799999, the booking says YV2RT40A8FB712905.']);
+  assert.deepEqual(mismatchWords({ label: 'EUR.1', checks: [
+    { field: 'mrn', label: 'MRN', document: '26LT1', booking: '26LT2', against: 'the MRN declaration', match: false },
+  ] }), ['The MRN on this EUR.1 differs from the MRN declaration: the EUR.1 says 26LT1, the MRN declaration says 26LT2.']);
+  assert.deepEqual(mismatchWords({ label: 'Invoice', checks: [] }), []);
+});
+
+test('an info dot sits beside each term where it appears, and the whole glossary is one menu away for everyone', () => {
+  for (const file of ['case.js', 'viewer.js', 'settings.js']) assert.match(src(file), /infoDot\(/, `${file} explains its terms`);
+  // Every role, every screen size: the account menu, not Settings (administrators only).
+  assert.match(src('app.js'), /openGlossary/);
+  assert.match(src('settings.js'), /glossaryList\(/, 'and Settings lists it too');
+});
+
 test('an MRN is recorded, not obtained, here - and approving is a different step from recording', () => {
   assert.match(caseMod.MRN_WORDS.record, /issued/);
   assert.match(caseMod.MRN_WORDS.record, /does not apply for it or obtain it/);

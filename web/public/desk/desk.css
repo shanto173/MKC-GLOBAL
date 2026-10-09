@@ -371,6 +371,8 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .inline-form .field { flex: 1 1 180px; }
 .check { display: inline-flex; align-items: center; gap: var(--sp-2); cursor: pointer; margin: var(--sp-1) 0; min-height: 28px; }
 .check input, .radio input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; flex: none; }
+.check-row { display: flex; align-items: center; gap: 2px; }
+.check-row > .check { margin: var(--sp-1) 0; }
 .checks, .radios { border: 0; padding: 0; margin: 0 0 var(--sp-2); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .radio { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; margin-bottom: 6px; min-height: 40px; }
 .radio:hover { border-color: var(--n-300); }
@@ -504,6 +506,28 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .menu-item-sub { font-size: var(--text-sm); color: var(--ink-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-danger .menu-item-title { color: var(--red-text); }
 .menu-sep { height: 1px; background: var(--line); margin: var(--sp-1) 0; }
+
+/* An info dot beside a term (glossary.js): a tap, a click or a resting mouse opens its one line. */
+.info { display: inline-block; vertical-align: middle; margin-left: 4px; line-height: 1; }
+.info-dot {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: var(--r-full); cursor: help;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-3);
+  font: italic var(--w-bold) 11px/1 Georgia, "Times New Roman", serif; user-select: none;
+}
+.info-dot:hover, .info[open] > .info-dot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.info[open] > summary.info-dot { background: var(--accent-soft); }
+/* A hit area larger than the dot, for a finger. */
+.info-dot { position: relative; }
+.info-dot::after { content: ''; position: absolute; inset: -8px; }
+.info-pop {
+  display: block; margin: 0; min-width: 220px; max-width: 300px; padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-sm); font-weight: var(--w-regular); font-style: normal; line-height: var(--lh-snug);
+  color: var(--ink-2); text-transform: none; letter-spacing: 0; white-space: normal; text-align: left;
+}
+.info-pop strong { color: var(--ink); }
+.glossary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-2) var(--sp-4); margin: 0; }
+.glossary dt { font-weight: var(--w-semibold); }
+.glossary dd { margin: 0; color: var(--ink-2); }
 .is-disabled { opacity: .5; cursor: not-allowed; }
 
 /* -- States: empty, error, loading, offline, toasts ------------------------------ */

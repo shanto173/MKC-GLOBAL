@@ -28,6 +28,7 @@ import { renderChats } from './chats.js';
 import { renderShipments } from './shipments.js';
 import { renderSettings } from './settings.js';
 import { renderSearch } from './search.js';
+import { openGlossary } from './glossary.js';
 
 const NAV = [
   { key: 'inbox', label: 'Inbox', icon: 'inbox', href: '#/inbox' },
@@ -139,6 +140,9 @@ function drawNav(active, query = {}) {
       h('div', { class: 'me-card' }, avatar(session.name, { size: 'lg' }),
         h('div', {}, h('div', { class: 'me-name' }, session.name), h('div', { class: 'me-role' }, session.role_words ?? ''))),
       h('div', { class: 'menu-sep', role: 'separator' }),
+      // The words of the trade, for every role (Settings is administrators' only).
+      h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; openGlossary(); } },
+        h('span', { class: 'menu-item-title' }, icon('note', { size: 15 }), 'Glossary')),
       h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; signOut(); } },
         h('span', { class: 'menu-item-title' }, icon('logout', { size: 15 }), 'Sign out'))));
   fill($('#me'), menu);

@@ -11,8 +11,9 @@
 import {
   h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill, PURPOSE,
 } from './ui.js';
+import { infoDot, glossaryList } from './glossary.js';
 
-const SECTIONS = [['team', 'Team', 'users'], ['hours', 'Hours and phone', 'hours'], ['docs', 'Documents', 'file'], ['whatsapp', 'WhatsApp', 'whatsapp'], ['replies', 'Saved replies', 'reply']];
+const SECTIONS = [['team', 'Team', 'users'], ['hours', 'Hours and phone', 'hours'], ['docs', 'Documents', 'file'], ['whatsapp', 'WhatsApp', 'whatsapp'], ['replies', 'Saved replies', 'reply'], ['glossary', 'Glossary', 'note']];
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
@@ -50,7 +51,7 @@ export function renderSettings({ main }) {
           icon(ic, { size: 16 }), label);
         return links[id];
       }));
-    const body = h('div', { class: 'settings-body' }, teamCard(), hoursCard(), docsCard(), whatsappCard(), repliesCard());
+    const body = h('div', { class: 'settings-body' }, teamCard(), hoursCard(), docsCard(), whatsappCard(), repliesCard(), glossaryCard());
     fill(root, nav, body);
     spy?.disconnect();
     if ('IntersectionObserver' in window) {
@@ -202,8 +203,9 @@ export function renderSettings({ main }) {
     const list = (key, label, allowMrn) => {
       const chosen = new Set(v[key] ?? []);
       return h('fieldset', { class: 'checks' }, h('legend', { class: 'label' }, label),
-        data.document_types.filter((t) => allowMrn || t !== 'mrn').map((t) => h('label', { class: 'check' },
-          h('input', { type: 'checkbox', name: key, value: t, checked: chosen.has(t) }), h('span', {}, DOC_WORDS[t] ?? t))),
+        // The info dot sits beside the label, not in it: a tap on it must not tick the box.
+        data.document_types.filter((t) => allowMrn || t !== 'mrn').map((t) => h('span', { class: 'check-row' }, h('label', { class: 'check' },
+          h('input', { type: 'checkbox', name: key, value: t, checked: chosen.has(t) }), h('span', {}, DOC_WORDS[t] ?? t)), infoDot(t))),
         errorSlot(key));
     };
     const acid = h('input', { type: 'checkbox', id: 's-acid', checked: v.acid_required === true });
@@ -213,7 +215,7 @@ export function renderSettings({ main }) {
       h('div', { class: 'form-grid' },
         list('required_booking_documents', 'When the customer has their own MRN', true),
         list('required_booking_documents_mky_mrn', 'When MKY gets the MRN for them', false)),
-      h('label', { class: 'check', for: 's-acid' }, acid, h('span', {}, 'An ACID certificate is required at booking time')),
+      h('span', { class: 'check-row' }, h('label', { class: 'check', for: 's-acid' }, acid, h('span', {}, 'An ACID certificate is required at booking time')), infoDot('acid')),
       errorSlot('acid_required'),
       h('div', { class: 'form-actions' }, button));
     form.addEventListener('submit', (e) => {
@@ -303,6 +305,12 @@ export function renderSettings({ main }) {
     });
     add(c, form);
     return c;
+  }
+
+  // -- glossary -------------------------------------------------------------------
+  /** The words of the trade, as every info dot on the desk explains them. Edited in public/desk/glossary.js. */
+  function glossaryCard() {
+    return card('glossary', 'Glossary', 'What the info dots beside VIN, MRN, ACID, EUR.1 and CMR say. Everyone can open this list from their account menu.', glossaryList());
   }
 
   /**
