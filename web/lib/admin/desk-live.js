@@ -171,7 +171,11 @@ export async function conditionalView(view, req, res, who, run) {
     send(body) { res.send?.(body); return wrapped; },
     end(...args) { if (typeof res.end === 'function') res.end(...args); else res.send?.(''); return wrapped; },
     json(payload) {
-      if (code === 200) {
+      // A view that could not read all of what it shows says so (deskNoTag):
+      // no ETag, so nothing is ever answered "not modified" from it.
+      if (code === 200 && req.deskNoTag) {
+        res.setHeader?.('Cache-Control', 'no-store');
+      } else if (code === 200) {
         const etag = tag ?? bodyTag(JSON.stringify(payload));
         if (!tag && matches(asked, etag)) { notModified(res, etag); return wrapped; }
         res.setHeader?.('ETag', etag);
@@ -207,7 +211,11 @@ export function shared(name, pulse, scopes, compute, now = Date.now()) {
   if (memo?.client === client && memo.key === key) return memo.promise;
   const promise = compute();
   memo = { client, key, promise };
-  // A failure is not remembered: the next request works it out again.
-  promise.catch(() => { if (memo?.promise === promise) memo = null; });
+  // A failure is not remembered, nor an answer missing part of what it shows
+  // (`partial`): the next request works it out again.
+  promise.then(
+    (value) => { if (value?.partial && memo?.promise === promise) memo = null; },
+    () => { if (memo?.promise === promise) memo = null; },
+  );
   return promise;
 }

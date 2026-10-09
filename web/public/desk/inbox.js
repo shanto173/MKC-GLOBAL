@@ -207,7 +207,8 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     if (data === drawnFrom) return true;
     drawnFrom = data;
     draw();
-    return true;
+    // Part of it could not be read: shown, and asked for again next tick.
+    return !data.partial;
   }
 
   /** "Updated 14:05": when the list was last known to be true, changed or not. */

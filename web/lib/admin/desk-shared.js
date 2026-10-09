@@ -466,6 +466,30 @@ export async function customerFor({ clientId = null, channel = null, chatId = nu
   return customerFrom({ client, session, clientId, channel, chatId, name, contact });
 }
 
+/**
+ * Most values one `in.(…)` filter carries. The filter travels in the URL,
+ * which has a length limit somewhere between here and Postgres, and these
+ * lists grow with the desk: a few hundred booking references or chat ids is
+ * several kilobytes.
+ */
+export const IN_CHUNK = 150;
+
+/**
+ * Runs `build(chunk)` - a read filtered by `.in(column, chunk)` - once per
+ * IN_CHUNK values, side by side, and answers { data, error } as one read
+ * would: every chunk's rows, and the first error. Rows keep their order
+ * within a chunk; a caller whose order matters across rows of one value
+ * gets them from one chunk, since a value is never split.
+ */
+export async function inChunks(values, build) {
+  const list = [...values];
+  if (!list.length) return { data: [], error: null };
+  const chunks = [];
+  for (let i = 0; i < list.length; i += IN_CHUNK) chunks.push(list.slice(i, i + IN_CHUNK));
+  const results = await Promise.all(chunks.map((c) => build(c)));
+  return { data: results.flatMap((r) => r?.data ?? []), error: results.find((r) => r?.error)?.error ?? null };
+}
+
 /** The key customersFor() answers each request under. */
 export const customerKey = ({ clientId = null, channel = null, chatId = null } = {}) => `${channel ?? ''}|${chatId ?? ''}|${clientId ?? ''}`;
 
@@ -490,12 +514,15 @@ export async function customersFor(list) {
   const asks = list.filter(Boolean);
   const out = new Map();
   if (!asks.length) return out;
+  // A read that failed is said on the answer (out.partial), so a caller does
+  // not keep names worked out from half the rows as if they were the truth.
+  const note = (r) => { if (r.error) out.partial = true; return r; };
 
   const sessionId = (a) => (a.channel && a.chatId ? `${a.channel}:${a.chatId}` : null);
   const sessions = new Map();
   const sessionIds = uniq(asks.map(sessionId));
   if (sessionIds.length) {
-    const { data } = await db().from('conversation_sessions').select('*').in('id', sessionIds);
+    const { data } = note(await inChunks(sessionIds, (c) => db().from('conversation_sessions').select('*').in('id', c)));
     for (const s of data ?? []) sessions.set(String(s.id), s);
   }
   const clientIdOf = (a) => a.clientId ?? sessions.get(sessionId(a) ?? '')?.client_id ?? null;
@@ -503,7 +530,7 @@ export async function customersFor(list) {
   const byId = new Map();
   const ids = uniq(asks.map(clientIdOf));
   if (ids.length) {
-    const { data } = await db().from('clients').select('*').in('id', ids);
+    const { data } = note(await inChunks(ids, (c) => db().from('clients').select('*').in('id', c)));
     for (const c of data ?? []) byId.set(String(c.id), c);
   }
 
@@ -513,8 +540,8 @@ export async function customersFor(list) {
   const waIds = uniq(asks.map(waOf));
   const tgIds = uniq(asks.map(tgOf));
   const [wa, tg] = await Promise.all([
-    waIds.length ? db().from('clients').select('*').in('whatsapp_id', waIds) : { data: [] },
-    tgIds.length ? db().from('clients').select('*').in('telegram_chat_id', tgIds) : { data: [] },
+    inChunks(waIds, (c) => db().from('clients').select('*').in('whatsapp_id', c)),
+    inChunks(tgIds, (c) => db().from('clients').select('*').in('telegram_chat_id', c)).then(note),
   ]);
   const byWa = new Map();
   if (!wa.error) for (const c of wa.data ?? []) byWa.set(String(c.whatsapp_id), c);

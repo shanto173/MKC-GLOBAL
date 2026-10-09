@@ -388,3 +388,52 @@ test('the pulse answers for the records it is asked about, in the same one read'
   assert.equal(out.body.versions['booking:MKY-BKG-5'], undefined, 'never written since: none yet');
   assert.equal(out.body.versions['not a key'], undefined);
 });
+
+// ---------------------------------------------------------------------------
+// The inbox says what it said before
+// ---------------------------------------------------------------------------
+
+test('the inbox says, item for item, what it said before its reads were batched', async (t) => {
+  const { readFileSync } = await import('node:fs');
+  const { FIXED_NOW, GOLDEN_SIZES, seed: busyDesk } = await import('./helpers/inbox-seed.mjs');
+  const { inboxItems } = await import('../lib/admin/desk-inbox.js');
+  // What 6993e5c's inbox returned for these desks at this moment.
+  const golden = JSON.parse(readFileSync(new URL('./fixtures/inbox-golden.json', import.meta.url), 'utf8'));
+  t.mock.timers.enable({ apis: ['Date'], now: FIXED_NOW });
+  for (const n of GOLDEN_SIZES) {
+    db = createDeskDb(busyDesk(n));
+    setClientForTests(db);
+    invalidateSettings();
+    const rec = countCalls(db);
+    const items = JSON.parse(JSON.stringify(await inboxItems()));
+    assert.deepEqual(items, golden[n], `a desk of ${n}`);
+    // Every kind of row there is: 4 + 8 + 2 + 4 reads in four rounds, and the settings once -
+    // the same at 7 customers as at 61.
+    assert.ok(rec.count <= 19, `${rec.count} reads for a desk of ${n}:\n${rec.lines().join('\n')}`);
+  }
+});
+
+test('a read that fails makes the inbox partial: shown, never shared, never "not modified"', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  // The call-backs cannot be read, this once.
+  const from = db.from.bind(db);
+  let failNext = true;
+  db.from = (name) => {
+    const q = from(name);
+    if (name === 'client_request_queue' && failNext) {
+      failNext = false;
+      q.run = async () => ({ data: null, error: { message: 'connection reset' } });
+    }
+    return q;
+  };
+  const broken = await get({ view: 'inbox' });
+  assert.equal(broken.status, 200);
+  assert.equal(broken.body.partial, true);
+  assert.equal(broken.headers.etag, undefined, 'nothing to vouch for');
+  assert.ok(!broken.body.items.some((i) => i.kind === 'callback'), 'shown without what could not be read');
+
+  const next = await get({ view: 'inbox' });
+  assert.equal(next.body.partial, undefined);
+  assert.ok(next.body.items.some((i) => i.kind === 'callback'), 'and whole again on the next ask - nothing kept from the broken one');
+});
