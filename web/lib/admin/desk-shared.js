@@ -56,23 +56,86 @@ export function deniedReason(permission, role) {
   }[permission] ?? 'Your role cannot do this.';
 }
 
+/**
+ * How long this instance trusts its copy of the team list.
+ *
+ * Every request the desk makes names its operator, and checking that name was
+ * a database read on every one of them - the most frequent statement on the
+ * live database after PostgREST's own set-up. The team is a dozen rows that
+ * change a few times a month, so the whole list is read once and kept for
+ * half a minute. A change made on this instance (userSave, bootstrapAdmin)
+ * is seen at once; one made on another instance within 30 seconds - someone
+ * switched off, a role changed - is the window, and the desk secret is still
+ * the gate in front of all of it.
+ */
+export const TEAM_TTL_MS = 30_000;
+
+let team = null;       // { client, at, rows }
+let teamRead = null;   // { client, promise }
+
+/**
+ * Everyone on the desk: name, role, active. Cached per database client, so a
+ * test that swaps the client never sees the last test's team.
+ */
+export async function teamList({ fresh = false } = {}) {
+  const client = db();
+  if (!fresh && team?.client === client && Date.now() - team.at < TEAM_TTL_MS) return team.rows;
+  if (teamRead?.client !== client || fresh) {
+    const promise = client.from('ops_users').select('name, role, active').then(({ data, error }) => {
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      if (teamRead?.promise === promise) team = { client, at: Date.now(), rows };
+      return rows;
+    }).finally(() => { if (teamRead?.promise === promise) teamRead = null; });
+    teamRead = { client, promise };
+  }
+  return teamRead.promise;
+}
+
+/** Forgets the cached team, after a write to it. */
+export function invalidateTeam() {
+  team = null;
+  teamRead = null;
+}
+
 /** Resolves the operator named in the request, and what they may do. */
 export async function operatorFor(req) {
   const name = String(req.body?.operator ?? req.query?.operator ?? '').trim();
   if (!name) return { ok: false, error: 'Sign in with your name before making changes.' };
 
-  const { data, error } = await db()
-    .from('ops_users')
-    .select('name, role, active')
-    .ilike('name', name)
-    .maybeSingle();
-
-  if (error) return { ok: false, error: 'Could not check who you are. Try again.' };
+  let rows;
+  try {
+    rows = await teamList();
+  } catch {
+    return { ok: false, error: 'Could not check who you are. Try again.' };
+  }
+  // Any capitalisation of the name, as the ilike it replaces matched it. Two
+  // rows that differ only in case are ambiguous, as maybeSingle() found them.
+  const matches = rows.filter((u) => String(u.name ?? '').toLowerCase() === name.toLowerCase());
+  if (matches.length > 1) return { ok: false, error: 'Could not check who you are. Try again.' };
+  const data = matches[0];
   if (!data) return { ok: false, unknown: true, error: `"${name}" is not on the team list. Ask an administrator to add you.` };
   if (!data.active) return { ok: false, error: `"${data.name}" is no longer active. Ask an administrator.` };
 
   const can = (p) => PERMISSIONS[data.role]?.has(p) ?? false;
   return { ok: true, name: data.name, role: data.role, can, permissions: [...(PERMISSIONS[data.role] ?? [])] };
+}
+
+let messageLog = null;   // { client, exists, at }
+
+/**
+ * Whether chat_messages exists (migration 20261007090000). Asked by the inbox
+ * and by view=me on every load, with a read of one row; a table that exists
+ * does not stop existing, so once seen it is remembered, and a missing one is
+ * looked for again every five minutes.
+ */
+export async function hasMessageLog() {
+  const client = db();
+  if (messageLog?.client === client && (messageLog.exists || Date.now() - messageLog.at < 300_000)) return messageLog.exists;
+  const { error } = await client.from('chat_messages').select('id').limit(1);
+  const exists = !isMissingTable(error);
+  messageLog = { client, exists, at: Date.now() };
+  return exists;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +463,81 @@ export async function customerFor({ clientId = null, channel = null, chatId = nu
     const { data } = await db().from('clients').select('*').eq('telegram_chat_id', chatId).maybeSingle();
     client = data ?? null;
   }
+  return customerFrom({ client, session, clientId, channel, chatId, name, contact });
+}
 
+/** The key customersFor() answers each request under. */
+export const customerKey = ({ clientId = null, channel = null, chatId = null } = {}) => `${channel ?? ''}|${chatId ?? ''}|${clientId ?? ''}`;
+
+const uniq = (xs) => [...new Set(xs.filter((x) => x != null && x !== '').map(String))];
+
+/**
+ * What customerFor() says for each of several customers, from at most four
+ * reads whatever the number of them: the sessions, the clients by id, then -
+ * for those still without a client - by WhatsApp number and Telegram chat.
+ *
+ * The inbox used to call customerFor() once per paper, per MRN application and
+ * per chat with a failed message, one after another: three reads each, and
+ * the list took longer the more there was to do. The answers are the same,
+ * rule for rule; only the number of round trips changed.
+ *
+ * Asked without a name or a contact: one answer per key, whoever asks.
+ *
+ * @param {Array<{clientId?, channel?, chatId?}>} list
+ * @returns {Promise<Map<string, object>>} customerKey(request) -> customer
+ */
+export async function customersFor(list) {
+  const asks = list.filter(Boolean);
+  const out = new Map();
+  if (!asks.length) return out;
+
+  const sessionId = (a) => (a.channel && a.chatId ? `${a.channel}:${a.chatId}` : null);
+  const sessions = new Map();
+  const sessionIds = uniq(asks.map(sessionId));
+  if (sessionIds.length) {
+    const { data } = await db().from('conversation_sessions').select('*').in('id', sessionIds);
+    for (const s of data ?? []) sessions.set(String(s.id), s);
+  }
+  const clientIdOf = (a) => a.clientId ?? sessions.get(sessionId(a) ?? '')?.client_id ?? null;
+
+  const byId = new Map();
+  const ids = uniq(asks.map(clientIdOf));
+  if (ids.length) {
+    const { data } = await db().from('clients').select('*').in('id', ids);
+    for (const c of data ?? []) byId.set(String(c.id), c);
+  }
+
+  const found = (a) => (clientIdOf(a) != null ? byId.get(String(clientIdOf(a))) ?? null : null);
+  const waOf = (a) => (!found(a) && a.chatId && a.channel === 'whatsapp' ? String(a.chatId).replace(/^wa:/, '') : null);
+  const tgOf = (a) => (!found(a) && a.chatId && a.channel === 'telegram' && /^-?\d+$/.test(String(a.chatId)) ? String(a.chatId) : null);
+  const waIds = uniq(asks.map(waOf));
+  const tgIds = uniq(asks.map(tgOf));
+  const [wa, tg] = await Promise.all([
+    waIds.length ? db().from('clients').select('*').in('whatsapp_id', waIds) : { data: [] },
+    tgIds.length ? db().from('clients').select('*').in('telegram_chat_id', tgIds) : { data: [] },
+  ]);
+  const byWa = new Map();
+  if (!wa.error) for (const c of wa.data ?? []) byWa.set(String(c.whatsapp_id), c);
+  // Telegram chat ids are not unique on clients: two rows for one chat is no
+  // answer, as maybeSingle() made it in customerFor().
+  const byTg = new Map();
+  for (const c of tg.data ?? []) {
+    const k = String(c.telegram_chat_id);
+    byTg.set(k, byTg.has(k) ? null : c);
+  }
+
+  for (const a of asks) {
+    const session = sessionId(a) ? sessions.get(sessionId(a)) ?? null : null;
+    const client = found(a) ?? (waOf(a) ? byWa.get(waOf(a)) ?? null : null) ?? (tgOf(a) ? byTg.get(tgOf(a)) ?? null : null);
+    out.set(customerKey(a), customerFrom({
+      client, session, clientId: clientIdOf(a), channel: a.channel ?? null, chatId: a.chatId ?? null, name: null, contact: null,
+    }));
+  }
+  return out;
+}
+
+/** The customer, from the rows customerFor() and customersFor() read. */
+function customerFrom({ client, session, clientId, channel, chatId, name, contact }) {
   const language = ['en', 'ar'].includes(client?.language) ? client.language
     : ['en', 'ar'].includes(session?.language) ? session.language : null;
 

@@ -52,7 +52,7 @@ import {
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
-  shipmentVersion, actionKeyOf, customerFor, isMissingTable, isMissingColumn,
+  shipmentVersion, actionKeyOf, customerFor, isMissingTable, isMissingColumn, teamList, hasMessageLog,
 } from './desk-shared.js';
 import { inboxView, countsView, shortPort } from './desk-inbox.js';
 import {
@@ -138,7 +138,8 @@ async function me(req, res) {
   const who = await operatorFor(req);
   if (!who.ok) {
     if (who.unknown) {
-      const { data } = await db().from('ops_users').select('name, active');
+      // Fresh: the first person on an empty desk must not wait out a cache.
+      const data = await teamList({ fresh: true }).catch(() => []);
       if (!(data ?? []).some((u) => u.active !== false)) return res.status(200).json({ bootstrap: true });
     }
     return res.status(403).json({ error: who.error });
@@ -149,19 +150,17 @@ async function me(req, res) {
     .then(() => null, () => null);
 
   const chan = await channels();
-  const [{ error: logErr }, { data: team }] = await Promise.all([
-    db().from('chat_messages').select('id').limit(1),
-    db().from('ops_users').select('name, role, active').order('name'),
-  ]);
+  const [logged, team] = await Promise.all([hasMessageLog(), teamList().catch(() => [])]);
   return res.status(200).json({
     name: who.name,
     role: who.role,
     role_words: ROLE_WORDS[who.role] ?? who.role,
     permissions: who.permissions,
-    features: { channels: Boolean(chan), chat_messages: !isMissingTable(logErr) },
+    features: { channels: Boolean(chan), chat_messages: logged },
     saved_replies: await savedReplies(),
     // Who work can be handed to. Names only: roles are the administrator's business.
-    team: (team ?? []).filter((u) => u.active !== false && u.role !== 'read_only').map((u) => u.name),
+    team: [...(team ?? [])].sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      .filter((u) => u.active !== false && u.role !== 'read_only').map((u) => u.name),
   });
 }
 
@@ -352,7 +351,8 @@ async function assign(req, res, who, { clear = false } = {}) {
     return res.status(403).json({ error: deniedReason('assign_others', who.role) });
   }
   if (!clear) {
-    const { data: person } = await db().from('ops_users').select('name, active').ilike('name', to).maybeSingle();
+    const people = (await teamList().catch(() => [])).filter((u) => String(u.name ?? '').toLowerCase() === to.toLowerCase());
+    const person = people.length === 1 ? people[0] : null;
     if (!person || person.active === false) return res.status(400).json({ error: `"${to}" is not an active member of the team.` });
   }
 
