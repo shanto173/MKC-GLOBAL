@@ -38,7 +38,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 1",
    "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-1",
@@ -69,7 +69,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-0",
@@ -309,7 +309,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "+2019999",
    "detail": "MKY-MRN-X",
    "ref": "MKY-MRN-X",
@@ -365,7 +365,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "MKY-BKG-NONAME",
    "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
    "ref": "MKY-MRN-Z",
@@ -466,7 +466,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -561,7 +561,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700008 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-8",
@@ -591,7 +591,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 7",
    "detail": "Volvo FH · YV2RT40A8FB700007 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-7",
@@ -622,7 +622,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700016 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-16",
@@ -652,7 +652,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 15",
    "detail": "Volvo FH · YV2RT40A8FB700015 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-15",
@@ -746,7 +746,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 14",
    "detail": "Volvo FH · YV2RT40A8FB700014 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-14",
@@ -806,7 +806,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the MRN",
+   "sentence": "Request the MRN",
    "who": "Booked 22",
    "detail": "Volvo FH · YV2RT40A8FB700022 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-22",
@@ -836,7 +836,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the MRN",
+   "sentence": "Request the MRN",
    "who": "Booked 21",
    "detail": "Volvo FH · YV2RT40A8FB700021 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-21",
@@ -896,7 +896,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 29",
    "detail": "Volvo FH · YV2RT40A8FB700029 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-29",
@@ -926,7 +926,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 1",
    "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-1",
@@ -957,7 +957,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 28",
    "detail": "Volvo FH · YV2RT40A8FB700028 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-28",
@@ -988,7 +988,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-0",
@@ -1552,7 +1552,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "+2019999",
    "detail": "MKY-MRN-X",
    "ref": "MKY-MRN-X",
@@ -1608,7 +1608,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "MKY-BKG-NONAME",
    "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
    "ref": "MKY-MRN-Z",
@@ -1861,7 +1861,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -1892,7 +1892,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -1923,7 +1923,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -1954,7 +1954,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -1985,7 +1985,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2016,7 +2016,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2047,7 +2047,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2078,7 +2078,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2109,7 +2109,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2140,7 +2140,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2171,7 +2171,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2202,7 +2202,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -2634,7 +2634,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700008 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-8",
@@ -2664,7 +2664,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 35",
    "detail": "Volvo FH · YV2RT40A8FB700035 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-35",
@@ -2789,7 +2789,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 7",
    "detail": "Volvo FH · YV2RT40A8FB700007 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-7",
@@ -2820,7 +2820,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700016 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-16",
@@ -2850,7 +2850,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 43",
    "detail": "Volvo FH · YV2RT40A8FB700043 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-43",
@@ -2880,7 +2880,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 15",
    "detail": "Volvo FH · YV2RT40A8FB700015 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-15",
@@ -2974,7 +2974,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 42",
    "detail": "Volvo FH · YV2RT40A8FB700042 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-42",
@@ -3034,7 +3034,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 14",
    "detail": "Volvo FH · YV2RT40A8FB700014 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-14",
@@ -3094,7 +3094,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 50",
    "detail": "Volvo FH · YV2RT40A8FB700050 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-50",
@@ -3188,7 +3188,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the MRN",
+   "sentence": "Request the MRN",
    "who": "Booked 22",
    "detail": "Volvo FH · YV2RT40A8FB700022 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-22",
@@ -3218,7 +3218,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Check 2 documents and confirm",
+   "sentence": "Review 2 documents and confirm",
    "who": "Booked 49",
    "detail": "Volvo FH · YV2RT40A8FB700049 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-49",
@@ -3278,7 +3278,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the MRN",
+   "sentence": "Request the MRN",
    "who": "Booked 21",
    "detail": "Volvo FH · YV2RT40A8FB700021 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-21",
@@ -3402,7 +3402,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the MRN",
+   "sentence": "Request the MRN",
    "who": "Booked 57",
    "detail": "Volvo FH · YV2RT40A8FB700057 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-57",
@@ -3462,7 +3462,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 29",
    "detail": "Volvo FH · YV2RT40A8FB700029 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-29",
@@ -3493,7 +3493,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700056 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-56",
@@ -3523,7 +3523,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Invoice",
+   "sentence": "Request the Invoice",
    "who": "Booked 1",
    "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-1",
@@ -3554,7 +3554,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 28",
    "detail": "Volvo FH · YV2RT40A8FB700028 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-28",
@@ -3615,7 +3615,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the missing details: client information",
+   "sentence": "Request missing information: client information",
    "who": "Unknown customer",
    "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-0",
@@ -3739,7 +3739,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Ask for the Brief",
+   "sentence": "Request the Brief",
    "who": "Booked 36",
    "detail": "Volvo FH · YV2RT40A8FB700036 · Klaipeda → Alexandria",
    "ref": "MKY-BKG-36",
@@ -4651,7 +4651,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "+2019999",
    "detail": "MKY-MRN-X",
    "ref": "MKY-MRN-X",
@@ -4707,7 +4707,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "MKY-BKG-NONAME",
    "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
    "ref": "MKY-MRN-Z",
@@ -4819,7 +4819,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "Cust 32",
    "detail": "MKY-BKG-32 · MKY-MRN-32",
    "ref": "MKY-MRN-32",
@@ -4903,7 +4903,7 @@
    ],
    "tab": "needs_us",
    "tone": "blue",
-   "sentence": "Issue the MRN",
+   "sentence": "Record the MRN once it is issued",
    "who": "Cust 48",
    "detail": "MKY-BKG-48 · MKY-MRN-48",
    "ref": "MKY-MRN-48",
@@ -5164,7 +5164,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5195,7 +5195,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5226,7 +5226,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5257,7 +5257,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5288,7 +5288,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5319,7 +5319,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5350,7 +5350,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5381,7 +5381,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5412,7 +5412,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5443,7 +5443,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5474,7 +5474,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5505,7 +5505,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5536,7 +5536,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5567,7 +5567,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5598,7 +5598,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5629,7 +5629,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5660,7 +5660,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5691,7 +5691,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5722,7 +5722,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5753,7 +5753,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5784,7 +5784,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5815,7 +5815,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5846,7 +5846,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5877,7 +5877,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5908,7 +5908,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5939,7 +5939,7 @@
    "priority": "normal",
    "since": "2026-10-09T06:59:30.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -5970,7 +5970,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -6001,7 +6001,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },
@@ -6032,7 +6032,7 @@
    "priority": "normal",
    "since": "2026-10-09T03:00:00.000Z",
    "status": {
-    "label": "New paper",
+    "label": "New document",
     "tone": "amber",
     "meaning": "warning"
    },

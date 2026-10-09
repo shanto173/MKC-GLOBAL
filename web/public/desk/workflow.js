@@ -303,7 +303,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   if (unverified.length && ['pending_review', 'under_review'].includes(status)) {
     return {
       code: 'REVIEW_DOCUMENTS',
-      label: 'Check the documents',
+      label: 'Review documents',
       owner: 'ops',
       detail: `Not verified yet: ${unverified.map((i) => i.label).join(', ')}.`,
       action: 'review_documents',
@@ -313,7 +313,7 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   if (booking.mrn_choice === 'mky_issue' && !ready.items.find((i) => i.key === 'mrn')?.ok) {
     return {
       code: 'PROCESS_MRN',
-      label: 'Issue the MRN',
+      label: 'Record the MRN once it is issued',
       owner: 'ops',
       detail: mrn ? `Application ${mrn.request_ref} is ${String(mrn.status).replace(/_/g, ' ')}.` : 'No application has been opened yet.',
       action: 'process_mrn',
@@ -323,9 +323,9 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
   if (!String(booking.booking_ref ?? '').trim()) {
     return {
       code: 'CREATE_BOOKING',
-      label: 'Create the booking',
+      label: 'Record the shipping reference',
       owner: 'ops',
-      detail: 'Everything needed is in. Record the booking reference.',
+      detail: 'Everything needed is in. Record the shipping reference.',
       action: 'create_booking',
     };
   }

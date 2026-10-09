@@ -263,7 +263,7 @@ test('the inbox says what to do, in sentences, most urgent first', async () => {
   assert.equal(r.status, 200);
   const sentences = r.body.items.map((i) => i.sentence);
 
-  assert.ok(sentences.some((s) => /^Check 3 documents and confirm$/.test(s)), sentences.join(' | '));
+  assert.ok(sentences.some((s) => /^Review 3 documents and confirm$/.test(s)), sentences.join(' | '));
   assert.ok(sentences.some((s) => /^Call back \+20 100 000 0001$/.test(s)));
   assert.ok(sentences.some((s) => /Message failed — couldn’t reach Delta Trans/.test(s)));
   assert.ok(sentences.some((s) => /Couldn’t read the MRN/.test(s)), 'an unreadable file is its own line');
@@ -353,7 +353,54 @@ test('Confirm is offered disabled, with what is missing, until the booking is co
   assert.equal(confirm.enabled, false);
   assert.match(confirm.reason, /Not ready yet: Invoice, Brief and MRN/);
   assert.equal(r.body.next_step.primary.action, 'request_info');
-  assert.match(r.body.next_step.primary.label, /Ask for the Invoice, Brief and MRN/);
+  assert.match(r.body.next_step.primary.label, /^Request the Invoice, Brief and MRN$/);
+});
+
+// The owner's redesign brief (docs/DESK-REDESIGN-PROMPT.md): buttons named
+// by what they do, and a received paper never called checked.
+test('the case names its buttons as the brief does: Review documents, Assign to me, Mark as verified, Request replacement', async () => {
+  const r = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.equal(r.body.next_step.primary.action, 'open_document');
+  assert.equal(r.body.next_step.primary.label, 'Review documents');
+  assert.ok(r.body.next_step.secondary.some((b) => b.action === 'request_info' && b.label === 'Request information'),
+    r.body.next_step.secondary.map((b) => b.label).join(', '));
+  assert.deepEqual([r.body.take.label, r.body.take.words], ['Assign to me', 'Unassigned']);
+  assert.equal(r.body.document_actions.verify.label, 'Mark as verified');
+  assert.equal(r.body.document_actions.reject.label, 'Request replacement');
+  assert.equal(r.body.checklist.find((c) => c.type === 'invoice').words, 'Received — not verified yet');
+
+  const loose = await get({ view: 'document', id: 102 });
+  assert.equal(loose.body.document_actions.verify.label, 'Mark as verified');
+  assert.equal(loose.body.document_actions.reject.label, 'Request replacement');
+
+  // Taken: hers to give back; a colleague's to take over.
+  assert.equal((await post({ action: 'take', booking_ref: 'MKY-BKG-1', version: r.body.version })).status, 200);
+  const mine = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.deepEqual([mine.body.take.label, mine.body.take.words], ['Unassign', 'Assigned to you']);
+  const theirs = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Ariful');
+  assert.deepEqual([theirs.body.take.label, theirs.body.take.words], ['Assign to me instead', 'Assigned to Sara']);
+});
+
+// The booking rules (public/desk/workflow.js) ask for a booking reference only
+// when a booking has none - and every request has its MKY-BKG-… from the bot -
+// so verified papers lead straight to Confirm. "Record shipping reference" is
+// the button's name for the day that step is reached.
+test('once the papers are verified, the next step is Confirm booking, and each paper says who verified it', async () => {
+  setup({
+    bookings: [{ ...seed().bookings[0], mrn_number: '26DE000000000001A1' }],
+    booking_documents: [
+      { id: 101, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'invoice', status: 'verified', verified_by: 'Sara', uploaded_at: iso(5 * 3600_000) },
+      { id: 102, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'brief', status: 'verified', verified_by: 'Sara', uploaded_at: iso(5 * 3600_000) },
+      { id: 103, booking_ref: 'MKY-BKG-1', chat_id: '555', doc_type: 'mrn', status: 'verified', verified_by: 'Sara', uploaded_at: iso(4 * 3600_000) },
+    ],
+  });
+  const r = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.deepEqual([r.body.next_step.primary.action, r.body.next_step.primary.label], ['confirm', 'Confirm booking']);
+  assert.equal(r.body.checklist.find((c) => c.type === 'invoice').words, 'Verified by Sara');
+
+  const { nextAction } = await import('../lib/ops/workflow.js');
+  const noRef = nextAction({ ...seed().bookings[0], booking_ref: '', status: 'pending_review' }, { required: [], received_types: [], verified_types: [], missing: [] }, null);
+  assert.deepEqual([noRef.action, noRef.label], ['create_booking', 'Record the shipping reference']);
 });
 
 test('a case changed by somebody else refuses the action, naming who and when', async () => {
@@ -367,7 +414,7 @@ test('a case changed by somebody else refuses the action, naming who and when', 
   const late = await post({ action: 'verify_document', document_id: 103, version: seen }, 'Sara');
   assert.equal(late.status, 409);
   assert.equal(late.body.stale, true);
-  assert.match(late.body.error, /^Omar checked the Invoice (just now|\d+ min ago)\. The page now shows the latest\.$/);
+  assert.match(late.body.error, /^Omar verified the Invoice (just now|\d+ min ago)\. The page now shows the latest\.$/);
   assert.equal(rows('booking_documents').find((d) => d.id === 103).status, 'received', 'the stale action wrote nothing');
 
   const fresh = (await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Sara')).body.version;
@@ -1298,6 +1345,15 @@ test('the team: people are added and changed, and the last administrator cannot 
 // ---------------------------------------------------------------------------
 // Pure rules
 // ---------------------------------------------------------------------------
+
+test('a closed WhatsApp window says what to send, in the brief\'s words', () => {
+  const base = { channel: 'whatsapp', chatId: WA, customer: { name: 'Delta', last_client_message_at: iso(30 * 3600_000) }, connected: true, templateAvailable: true };
+  const c = composerState({ ...base, window: { open: false, last_client_message_at: iso(30 * 3600_000) } });
+  assert.equal(c.mode, 'template_only');
+  assert.match(c.reason, /^Delta last wrote .+\. After 24 hours WhatsApp allows only an approved template\. Send the approved reply-request template\. You can type a normal reply after the customer responds\.$/);
+  // No template set up: the rule, and that the template is missing.
+  assert.match(composerState({ ...base, templateAvailable: false, window: { open: false } }).reason, /After 24 hours WhatsApp allows only an approved template\. The template isn’t available yet\.$/);
+});
 
 test('the composer rule, case by case', () => {
   const base = { channel: 'whatsapp', chatId: WA, customer: { name: 'Delta' }, connected: true, templateAvailable: true };

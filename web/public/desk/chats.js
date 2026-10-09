@@ -23,7 +23,7 @@
  */
 
 import {
-  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill, toast, toastError, scopesOf,
+  h, clear, icon, api, badge, avatar, timeEl, emptyState, errorState, skeleton, debounce, add, fill, toast, toastError, scopesOf, PURPOSE,
 } from './ui.js';
 import { RHYTHM } from './live.js';
 import { mountConversation, seen } from './conversation.js';
@@ -44,7 +44,9 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
 
   add(main, h('div', { class: `chats${open ? ' chats-open' : ''}` },
     h('div', { class: 'chats-side' },
-      h('div', { class: 'page-head page-head-tight' }, h('h1', {}, 'Chats')),
+      h('div', { class: 'page-head page-head-tight' }, h('div', {},
+        h('h1', {}, 'Chats'),
+        h('p', { class: 'page-sub' }, PURPOSE.chats, ' ', h('span', { class: 'page-sub-more' }, 'Work that needs doing is in the ', h('a', { href: '#/inbox' }, 'Inbox'), '.')))),
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search),
       notice,
       listEl),

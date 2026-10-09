@@ -83,6 +83,18 @@ export const pageTitle = (count = 0) => (count ? `(${count}) ${BRAND.name}` : `$
 export const brandLogo = (size = '') => h('span', { class: `brand-logo${size ? ` brand-logo-${size}` : ''}` },
   h('img', { src: BRAND.logo, alt: '', width: size === 'lg' ? 120 : size === 'sm' ? 40 : 48, height: size === 'lg' ? 94 : size === 'sm' ? 32 : 38 }));
 
+/**
+ * What each of the four destinations is for, under its title - the owner's
+ * words (docs/DESK-REDESIGN-PROMPT.md, section 3). Read together they tell
+ * the Inbox (work to do) from Chats (talking to customers).
+ */
+export const PURPOSE = {
+  inbox: 'Requests and issues that need your team.',
+  chats: 'Read customer messages and reply.',
+  shipments: 'Track confirmed shipments and update customers.',
+  settings: 'Manage the team and how the bot works.',
+};
+
 // ---------------------------------------------------------------------------
 // Icons - static path data only; never built from anything a customer typed.
 // ---------------------------------------------------------------------------

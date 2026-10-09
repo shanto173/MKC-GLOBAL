@@ -15,24 +15,38 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelIcon, avatar, timeEl, age,
-  emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES,
+  emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES, PURPOSE,
 } from './ui.js';
 
-const TABS = [
-  ['needs_us', 'Needs us', 'Needs us'],
-  ['waiting', 'Waiting on customer', 'Waiting'],
-  ['done', 'Done today', 'Done'],
+/**
+ * The words are the owner's (docs/DESK-REDESIGN-PROMPT.md, section 4); the
+ * keys are the API's and the URL's, unchanged. Each tab: key, label, the
+ * short label a phone shows (a screen reader always hears the label).
+ */
+export const TABS = [
+  ['needs_us', 'Needs attention', 'Attention'],
+  ['waiting', 'Waiting for customer', 'Waiting'],
+  ['done', 'Completed today', 'Completed'],
 ];
-const FILTERS = [
-  ['all', 'All'], ['bookings', 'Bookings'], ['mrn', 'MRN'], ['callbacks', 'Call-backs'], ['problems', 'Problems'], ['mine', 'Mine'],
+/** The kinds of work. */
+export const FILTERS = [
+  ['all', 'All'], ['bookings', 'Bookings'], ['callbacks', 'Call-back requests'], ['mrn', 'MRN applications'], ['problems', 'Issues'],
 ];
-const KIND = {
-  booking: ['Booking', 'truck'], callback: ['Call-back', 'phone'], mrn: ['MRN', 'stamp'], problem: ['Problem', 'alert'],
+/**
+ * Whose work: a shortcut of its own, apart from the kinds. The API takes one
+ * filter at a time, so choosing it shows all of your work, of every kind.
+ */
+export const OWN_FILTER = ['mine', 'Assigned to me'];
+const ALL_FILTERS = [...FILTERS, OWN_FILTER];
+export const KIND = {
+  booking: ['Booking', 'truck'], callback: ['Call-back', 'phone'], mrn: ['MRN application', 'stamp'], problem: ['Issue', 'alert'],
 };
+/** What the buttons on a row say: the result, not the gesture. */
+export const ACTION_WORDS = { assign: 'Assign to me', retry: 'Retry sending', dismiss: 'Dismiss issue' };
 const EMPTY = {
-  needs_us: ['Nothing needs you right now.', 'New bookings, call-backs and messages that did not go through appear here as they arrive.', 'checkCircle', 'done'],
-  waiting: ['Nobody is waiting on a customer.', 'When we ask a customer for something, the case waits here until they answer.', 'clock', ''],
-  done: ['Nothing finished yet today.', 'Confirmed bookings, resolved call-backs and recorded MRNs from today are listed here.', 'check', ''],
+  needs_us: ['Nothing needs your team right now.', 'New bookings, call-back requests, MRN applications and messages that did not go through appear here as they arrive.', 'checkCircle', 'done'],
+  waiting: ['Nobody is waiting for a customer.', 'When the team asks a customer for something, the work waits here until they answer - the customer’s move, not a delay of ours.', 'clock', ''],
+  done: ['Nothing completed yet today.', 'Confirmed bookings, resolved call-backs and recorded MRNs from today are listed here.', 'check', ''],
 };
 const AGE_HEAD = { needs_us: 'Waiting', waiting: 'Waiting', done: 'Finished' };
 const WHAT_HEAD = { needs_us: 'What needs doing', waiting: 'What we are waiting for', done: 'What was done' };
@@ -99,7 +113,7 @@ const SHORT_STATUS = {
   'Approved — record the number': 'Approved',
 };
 /** Labels whose tone's own icon would say the wrong thing: a paper is a file, held is locked. */
-const STATUS_ICON = { Held: 'lock', 'No booking': 'file', 'New paper': 'file' };
+const STATUS_ICON = { Held: 'lock', 'No booking': 'file', 'New document': 'file' };
 
 export function rowStatus(item) {
   const s = item?.status;
@@ -162,7 +176,7 @@ export function refPieces(text) {
 }
 const withWholeRefs = (text) => refPieces(text).map((p) => (typeof p === 'string' ? p : h('span', { class: 'ref-whole' }, p.ref)));
 
-/** What "Set aside" sends: a whole chat's failures, one message, an outbox row, or a paper. */
+/** What "Dismiss issue" sends: a whole chat's failures, one message, an outbox row, or a paper. */
 export function problemId(problem) {
   return `${problem.type}:${problem.id}`;
 }
@@ -171,24 +185,25 @@ const href = (tab, filter) => `#/inbox?tab=${tab}${filter && filter !== 'all' ? 
 
 export function renderInbox({ route, main, setCounts = () => {}, signal = null }) {
   const tab = TABS.some(([k]) => k === route.query.tab) ? route.query.tab : 'needs_us';
-  const filter = FILTERS.some(([k]) => k === route.query.filter) ? route.query.filter : 'all';
+  const filter = ALL_FILTERS.some(([k]) => k === route.query.filter) ? route.query.filter : 'all';
   let limit = 50;
   let data = null;
   let drawnFrom = null;    // the answer last drawn: a 304 gives the same object back
 
   const updated = h('p', { class: 'page-meta', 'aria-live': 'polite' });
   const tabsEl = h('nav', { class: 'tabs', 'aria-label': 'Whose move' });
-  const chipsEl = h('nav', { class: 'seg', 'aria-label': 'Show only' });
+  const chipsEl = h('nav', { class: 'seg', 'aria-label': 'Kind of work' });
+  const ownEl = h('nav', { class: 'seg seg-own', 'aria-label': 'Whose work' });
   const listEl = h('div', { class: 'list-wrap' }, skeleton(7, { kind: 'rows' }));
 
   add(main,
     h('div', { class: 'page-head' },
       h('div', {},
         h('h1', {}, 'Inbox'),
-        h('p', { class: 'page-sub' }, 'Everything that needs a person, most urgent first.')),
+        h('p', { class: 'page-sub' }, PURPOSE.inbox, ' ', h('span', { class: 'page-sub-more' }, 'Most urgent first. Conversations themselves are in ', h('a', { href: '#/chats' }, 'Chats'), '.'))),
       updated),
     tabsEl,
-    h('div', { class: 'inbox-bar' }, chipsEl),
+    h('div', { class: 'inbox-bar' }, chipsEl, ownEl),
     listEl);
 
   /** Loads the list; false when it could not (the next tick tries again). */
@@ -225,21 +240,27 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     }, h('span', { class: 'long' }, label), h('span', { class: 'short', 'aria-hidden': 'true' }, short),
     h('span', { class: 'tab-count' }, String(c.tabs[k] ?? 0)))));
 
-    fill(chipsEl, ...FILTERS.map(([k, label]) => {
+    const segItem = ([k, label], { own = false } = {}) => {
       const n = c.filters[k] ?? 0;
+      // Choosing the selected shortcut again turns it off.
+      const to = own && k === filter ? 'all' : k;
       return h('a', {
-        href: href(tab, k),
+        href: href(tab, to),
         class: `seg-item${n === 0 ? ' is-zero' : ''}${k === 'problems' && n ? ' is-alert' : ''}`,
         'aria-current': k === filter ? 'true' : null,
         'aria-label': `${label}, ${n}`,
-      }, label, h('span', { class: 'seg-count', 'aria-hidden': 'true' }, String(n)));
-    }));
+      }, own ? icon('user', { size: 14 }) : null, label, h('span', { class: 'seg-count', 'aria-hidden': 'true' }, String(n)));
+    };
+    fill(chipsEl, ...FILTERS.map((f) => segItem(f)));
+    fill(ownEl, segItem(OWN_FILTER, { own: true }));
 
     clear(listEl);
     if (!data.items.length) {
       const [title, detail, ic, tone] = filter === 'all'
         ? EMPTY[tab]
-        : [`No ${FILTERS.find(([k]) => k === filter)[1].toLowerCase()} here.`, 'Other kinds of work may still be waiting.', 'inbox', ''];
+        : filter === 'mine'
+          ? ['Nothing here is assigned to you.', 'Work you assign to yourself appears here.', 'user', '']
+          : [`No ${FILTERS.find(([k]) => k === filter)[1].toLowerCase()} here.`, 'Other kinds of work may still be waiting.', 'inbox', ''];
       add(listEl, emptyState(title, detail, filter !== 'all' ? h('a', { class: 'btn', href: href(tab, 'all') }, 'Show everything') : null, { icon: ic, tone }));
       return;
     }
@@ -269,7 +290,7 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     const paper = item.problem?.type === 'document';
     const [kindWordOf, kindIconOf] = KIND[item.kind] ?? ['Item', 'file'];
     // A paper is a file whatever is wrong with it; a failed message is an alert.
-    const kindWord = paper ? 'Paper' : kindWordOf;
+    const kindWord = paper ? 'Document' : kindWordOf;
     const kindIcon = paper ? 'file' : kindIconOf;
     const kindTone = item.kind === 'problem' ? ` kind-${problemTone(item)}` : '';
     const tags = [
@@ -289,7 +310,7 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     const late = item.overdue ? ' - overdue' : tone === 'red' ? ' - waiting too long' : tone === 'amber' ? ' - getting late' : '';
 
     // The whole row is clickable through the title link (stretched over the
-    // row in CSS), while Take it, Retry and Set aside stay their own buttons -
+    // row in CSS), while Assign to me, Retry sending and Dismiss issue stay their own buttons -
     // a link cannot contain buttons, and the row should not need two targets.
     return h('div', { class: `row row-${item.kind}` },
       h('span', { class: `row-mark mark-${markTone(item)}`, 'aria-hidden': 'true' }),
@@ -324,14 +345,14 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
         avatar(item.assigned_to, { size: 'sm' }), h('span', {}, mine ? 'You' : item.assigned_to));
     }
     if (item.tab !== 'needs_us') return h('div', { class: 'row-owner' });
-    if (!session.can('assign_self')) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-none' }, icon('userX', { size: 14 }), 'Nobody yet'));
-    const take = h('button', { class: 'btn btn-sm row-take', type: 'button', 'aria-label': `Take it: ${item.sentence}` }, icon('userPlus', { size: 14 }), 'Take it');
+    if (!session.can('assign_self')) return h('div', { class: 'row-owner' }, h('span', { class: 'owner-none' }, icon('userX', { size: 14 }), 'Unassigned'));
+    const take = h('button', { class: 'btn btn-sm row-take', type: 'button', 'aria-label': `${ACTION_WORDS.assign}: ${item.sentence}` }, icon('userPlus', { size: 14 }), ACTION_WORDS.assign);
     take.addEventListener('click', () => takeIt(take, item));
     return h('div', { class: 'row-owner' }, take);
   }
 
   /**
-   * "Take it" from the list, with the version the row was drawn from - the
+   * "Assign to me" from the list, with the version the row was drawn from - the
    * server gives every row its record's version, so nothing is read first.
    * The row can be a tick old (15 seconds; a minute on an idle desk): if a
    * colleague took it, or anything else changed, in the meantime, the server refuses and says who did what,
@@ -354,7 +375,7 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
         version = c.version;
       }
       await post({ action: 'take', ...target, version });
-      toast('It is yours now.');
+      toast('Assigned to you.');
       await load({ quiet: true });
     } catch (err) {
       toastError(err);
@@ -365,29 +386,30 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
 
   /**
    * What can be done about a problem, right on its row - a failed message
-   * should not need three clicks. One failed message: Retry and Set aside. A
-   * chat's failures together: how many and when, then Set aside for the lot
-   * (each one can be sent again from the conversation). A paper: Set aside.
+   * should not need three clicks. One failed message: Retry sending and
+   * Dismiss issue. A chat's failures together: how many and when, then
+   * Dismiss issue for the lot (each one can be sent again from the
+   * conversation). A paper: Dismiss issue.
    */
   function problemActions(item, facts) {
     const p = item.problem;
     const can = session.can('problems');
     const box = h('div', { class: 'row-actions' });
     if (p.retryable && (p.type === 'message' || p.type === 'outbox')) {
-      const retry = h('button', { class: 'btn btn-sm', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.' }, icon('refresh', { size: 14 }), 'Retry');
+      const retry = h('button', { class: 'btn btn-sm', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.' }, icon('refresh', { size: 14 }), ACTION_WORDS.retry);
       const key = newKey();
       retry.addEventListener('click', () => act(retry, p.type === 'message'
         ? { action: 'retry_message', message_id: p.id, action_key: key }
         : { action: 'retry_outbox', outbox_id: p.id }, 'Sent again.'));
       add(box, retry);
     }
-    const asideWords = p.type === 'chat' ? 'Set aside. These failures will not come back; a new one would.'
-      : p.type === 'document' ? 'Set aside. The paper is kept; it leaves the inbox.'
-        : 'Set aside. It will not come back.';
+    const asideWords = p.type === 'chat' ? 'Issue dismissed. These failures will not come back; a new one would.'
+      : p.type === 'document' ? 'Issue dismissed. The document is kept; the alert leaves the Inbox.'
+        : 'Issue dismissed. It will not come back.';
     const aside = h('button', {
       class: 'btn btn-sm btn-ghost', type: 'button', disabled: !can, title: can ? null : 'Your role cannot do this.',
-      'aria-label': `Set aside: ${item.sentence}`,
-    }, 'Set aside');
+      'aria-label': `${ACTION_WORDS.dismiss}: ${item.sentence}`,
+    }, ACTION_WORDS.dismiss);
     aside.addEventListener('click', () => act(aside, { action: 'dismiss_problem', problem_id: problemId(p) }, asideWords));
     add(box, aside);
     if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));

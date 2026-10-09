@@ -665,7 +665,7 @@ async function requestInfo(req, res, who) {
 async function createBookingRecord(req, res, who) {
   const ref = String(req.body.booking_ref ?? '').trim();
   const reference = String(req.body.reference ?? '').trim().toUpperCase();
-  if (!reference) return res.status(400).json({ error: 'Enter the booking reference.' });
+  if (!reference) return res.status(400).json({ error: 'Enter the shipping reference.' });
 
   const { data: booking } = await db().from('bookings').select('*').eq('booking_ref', ref).maybeSingle();
   if (!booking) return res.status(404).json({ error: `There is no booking ${ref}.` });
@@ -685,7 +685,7 @@ async function createBookingRecord(req, res, who) {
 
   if (reference !== booking.booking_ref) {
     const { data: clash } = await db().from('bookings').select('booking_ref').eq('booking_ref', reference).maybeSingle();
-    if (clash) return res.status(409).json({ error: 'This booking reference already exists.' });
+    if (clash) return res.status(409).json({ error: 'That reference is already another booking’s request reference.' });
   }
 
   const patch = {};

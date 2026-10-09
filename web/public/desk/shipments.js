@@ -8,7 +8,7 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, channelIcon, timeEl, ago, when, emptyState, errorState, skeleton, debounce, add, fill,
-  VIEW_SCOPES, scopesOf,
+  VIEW_SCOPES, scopesOf, PURPOSE,
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -62,7 +62,7 @@ function renderList({ route, main, signal = null }) {
   add(main,
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Shipments'),
-      h('p', { class: 'page-sub' }, 'Confirmed bookings on their way. Open one to update it and tell the customer.')), count),
+      h('p', { class: 'page-sub' }, PURPOSE.shipments, ' ', h('span', { class: 'page-sub-more' }, 'Open one to record what changed and, if you choose, tell the customer.'))), count),
     h('div', { class: 'ship-bar' },
       filtersEl,
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search)),

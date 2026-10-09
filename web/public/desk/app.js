@@ -105,14 +105,14 @@ function drawNav(active, query = {}) {
   const items = NAV.filter((n) => !n.needs || session.can(n.needs));
   const badge = (n) => (n.key === 'inbox' && counts.needs_us
     ? h('span', { class: `nav-count${counts.problems ? ' nav-count-alert' : ''}` },
-      String(counts.needs_us), h('span', { class: 'sr-only' }, ' need a person'))
+      String(counts.needs_us), h('span', { class: 'sr-only' }, ' need attention'))
     : null);
 
   // Under Inbox, the two lists people jump to most: their own work, and what failed.
   const inInbox = active === 'inbox' && (!query.tab || query.tab === 'needs_us');
   const sub = [
     { filter: 'mine', label: 'Assigned to me', count: counts.mine, words: ' assigned to you' },
-    { filter: 'problems', label: 'Problems', count: counts.problems, alert: true, words: ' problems' },
+    { filter: 'problems', label: 'Issues', count: counts.problems, alert: true, words: ' issues' },
   ];
   const subList = h('ul', { class: 'nav-sub', 'aria-label': 'Inbox shortcuts' }, sub.map((s) => h('li', {},
     h('a', { href: `#/inbox?tab=needs_us&filter=${s.filter}`, 'aria-current': inInbox && query.filter === s.filter ? 'true' : null },

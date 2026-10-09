@@ -363,7 +363,7 @@ test('every file message finds its stored copy: by media id, by hash after a re-
   const byId = (id) => wa.find((m) => m.id === id);
   assert.equal(byId(1).file.ref, 'doc:31', 'the first copy of a re-sent paper still opens');
   assert.equal(byId(1).file.paper.label, 'Invoice');
-  assert.equal(byId(1).file.paper.status_words, 'Received, not checked');
+  assert.equal(byId(1).file.paper.status_words, 'Received — not verified yet');
   assert.equal(byId(1).file.kind, 'pdf');
   assert.equal(byId(2).file.ref, 'doc:32', 'a photo logged before names were');
   assert.equal(byId(2).file.paper.booking_ref, null);
@@ -701,7 +701,7 @@ test('a photo and a paper from the customer move their conversation; with nothin
   const checked = await callH({ query: chatQ, headers: { 'if-none-match': after.headers.etag } });
   assert.equal(checked.status, 200);
   const chip = checked.body.messages.find((m) => m.file?.ref === `doc:${pdf.id}`).file.paper;
-  assert.equal(chip.status_words, 'Checked by Sara');
+  assert.equal(chip.status_words, 'Verified by Sara');
 });
 
 test('a file the desk sends, and the MKY document filed from it, move the conversation and the case', async () => {

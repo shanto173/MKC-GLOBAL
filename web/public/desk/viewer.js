@@ -20,6 +20,11 @@ const TYPABLE_LABELS = {
   vin: 'Chassis (VIN)', mrn: 'MRN', acid: 'ACID', eur1: 'EUR.1 number', make: 'Make', model: 'Model', document_date: 'Date on the document',
 };
 
+/** The two decisions about a paper, in the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 6). */
+export const DECISION_WORDS = {
+  verify: 'Mark as verified', verifyAnyway: 'Mark as verified anyway', verified: 'Verified', replace: 'Request replacement',
+};
+
 /** Pages drawn in the viewer; a longer file is for "Open in a new tab". */
 const MAX_PAGES = 20;
 
@@ -329,7 +334,7 @@ export function openViewer(ctx) {
     const held = !(d.type === 'document' && !d.booking_ref);
     return h('div', {},
       h('h3', { class: 'viewer-h' }, 'What the bot read'),
-      held ? null : h('p', { class: 'muted small viewer-note' }, 'It is on no booking, so there is nothing to check it against yet.'),
+      held ? null : h('p', { class: 'muted small viewer-note' }, 'It is on no booking, so there is nothing to compare it with yet.'),
       h('table', { class: 'read-table' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Field'), h('th', { scope: 'col' }, 'On the document'), held ? h('th', { scope: 'col' }, 'On the booking') : null)),
         h('tbody', {}, doc.read.map((f) => {
@@ -364,7 +369,7 @@ export function openViewer(ctx) {
       if (!Object.keys(values).length) return toast('Type at least one value from the document.', 'info');
       try {
         await post({ action: 'mark_document_read_values', document_id: doc.id, values, version: ctx.getData().version });
-        toast('Saved. The values are checked against the booking.');
+        toast('Saved. The values are compared with the booking.');
         await ctx.reload();
         ctx.refreshCounts();
         draw();
@@ -379,15 +384,16 @@ export function openViewer(ctx) {
   /**
    * The two decisions about a paper. The primary button follows the
    * evidence: when the paper does not match the booking or could not be read,
-   * "Ask for a new one" is the primary and "Looks right" becomes "Looks right
-   * anyway" - the button a person reaches for first is the one the evidence
-   * supports.
+   * "Request replacement" is the primary and "Mark as verified" becomes "Mark
+   * as verified anyway" - the button a person reaches for first is the one
+   * the evidence supports. Received, or read by the bot, is never verified:
+   * only a person's decision is.
    */
   function decision(doc, actions) {
     // A paper MKY sent the customer: ours, nothing to check or ask for.
     if (doc.sent_by_mky) {
       return h('div', { class: 'viewer-decided is-aside' }, icon('send', { size: 16 }),
-        h('p', {}, `Sent to the customer${doc.sent_by ? ` by ${doc.sent_by}` : ''} ${when(doc.uploaded_at)}, from the conversation. It is MKY’s own paper, so there is nothing to check.`));
+        h('p', {}, `Sent to the customer${doc.sent_by ? ` by ${doc.sent_by}` : ''} ${when(doc.uploaded_at)}, from the conversation. It is MKY’s own document, so there is nothing to verify.`));
     }
     if (doc.status === 'replacement_requested') {
       return h('div', { class: 'viewer-decided' }, icon('refresh', { size: 16 }),
@@ -403,18 +409,18 @@ export function openViewer(ctx) {
     const doubtful = !verified && (doc.checks.some((c) => !c.match) || doc.unreadable);
     const ok = h('button', {
       class: `btn ${doubtful ? 'btn-secondary' : 'btn-primary'}`, type: 'button', 'aria-disabled': actions.verify.enabled ? null : 'true', title: actions.verify.reason,
-    }, icon('check', { size: 15 }), verified ? 'Checked' : doubtful ? 'Looks right anyway' : 'Looks right');
+    }, icon('check', { size: 15 }), verified ? DECISION_WORDS.verified : doubtful ? DECISION_WORDS.verifyAnyway : DECISION_WORDS.verify);
     if (verified) ok.disabled = true;
     const bad = h('button', {
       class: `btn ${doubtful ? 'btn-primary' : 'btn-secondary'}`, type: 'button', 'aria-disabled': actions.reject.enabled ? null : 'true', title: actions.reject.reason,
-    }, icon('refresh', { size: 15 }), 'Ask for a new one');
+    }, icon('refresh', { size: 15 }), DECISION_WORDS.replace);
 
     ok.addEventListener('click', async () => {
       if (!actions.verify.enabled) return toast(actions.verify.reason, 'info');
       ok.disabled = true;
       try {
         await post({ action: 'verify_document', document_id: doc.id, version: ctx.getData().version });
-        toast(`${doc.label} checked.`);
+        toast(`${doc.label} marked as verified.`);
         await ctx.reload();
         ctx.refreshCounts();
         // Straight on to the next paper that still needs eyes.
@@ -489,7 +495,7 @@ export function openViewer(ctx) {
     note.addEventListener('input', pv.update);
 
     const back = h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => draw() }, icon('back', { size: 15 }), 'Back');
-    const send = h('button', { class: 'btn btn-primary', type: 'button' }, icon('send', { size: 15 }), h('span', {}, 'Send to customer'));
+    const send = h('button', { class: 'btn btn-primary', type: 'button' }, icon('send', { size: 15 }), h('span', {}, 'Send request to customer'));
     let sending = false;
     send.addEventListener('click', async () => {
       if (sending) return;
@@ -517,14 +523,14 @@ export function openViewer(ctx) {
         if (err.data?.stale) { dlg.close(); return ctx.onStale(err); }
         toastError(err);
         send.disabled = false;
-        send.lastChild.textContent = 'Send to customer';
+        send.lastChild.textContent = 'Send request to customer';
       } finally {
         sending = false;
       }
     });
 
     fill(info,
-      h('h3', { class: 'viewer-h' }, `Ask for a new ${doc.label}`),
+      h('h3', { class: 'viewer-h' }, `Request a replacement for the ${doc.label}`),
       reasons,
       h('div', { class: 'field' }, h('label', { class: 'label', for: 'reject-note' }, 'Note to the customer'), note),
       pv.el);

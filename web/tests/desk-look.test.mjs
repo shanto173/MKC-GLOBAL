@@ -99,3 +99,63 @@ test('failed messages in a row say why once; the next one with the same reason j
 test('the conversation header is one row', () => {
   assert.match(rule('.convo-head'), /flex-wrap:\s*nowrap/);
 });
+
+// ---------------------------------------------------------------------------
+// The brief's words (section 3 to 7)
+// ---------------------------------------------------------------------------
+
+const ui = await import('../public/desk/ui.js');
+const inbox = await import('../public/desk/inbox.js');
+const caseMod = await import('../public/desk/case.js');
+const viewer = await import('../public/desk/viewer.js');
+const src = (file) => readFileSync(path.join(DESK, file), 'utf8');
+
+test('each of the four destinations says what it is for', () => {
+  assert.deepEqual(ui.PURPOSE, {
+    inbox: 'Requests and issues that need your team.',
+    chats: 'Read customer messages and reply.',
+    shipments: 'Track confirmed shipments and update customers.',
+    settings: 'Manage the team and how the bot works.',
+  });
+  for (const [file, key] of [['inbox.js', 'inbox'], ['chats.js', 'chats'], ['shipments.js', 'shipments'], ['settings.js', 'settings']]) {
+    assert.match(src(file), new RegExp(`PURPOSE\\.${key}\\b`), `${file} shows its purpose`);
+  }
+});
+
+test('the inbox tabs and filters say whose move it is and what kind of work - the API\'s keys unchanged', () => {
+  assert.deepEqual(inbox.TABS.map(([k, label]) => [k, label]), [
+    ['needs_us', 'Needs attention'], ['waiting', 'Waiting for customer'], ['done', 'Completed today'],
+  ]);
+  assert.deepEqual(inbox.FILTERS, [
+    ['all', 'All'], ['bookings', 'Bookings'], ['callbacks', 'Call-back requests'], ['mrn', 'MRN applications'], ['problems', 'Issues'],
+  ]);
+  // Ownership is its own shortcut, apart from the kinds of work.
+  assert.deepEqual(inbox.OWN_FILTER, ['mine', 'Assigned to me']);
+  assert.equal(inbox.KIND.problem[0], 'Issue');
+});
+
+test('row actions are named by what they do; the old words are gone from the desk', () => {
+  assert.deepEqual(inbox.ACTION_WORDS, { assign: 'Assign to me', retry: 'Retry sending', dismiss: 'Dismiss issue' });
+  for (const file of ['inbox.js', 'app.js', 'case.js', 'conversation.js', 'viewer.js']) {
+    const text = src(file).split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
+    assert.doesNotMatch(text, /'(Take it|Set aside|Retry|Problems|Looks right|Ask for a new one|Mine)'/, `${file} still says an old word`);
+  }
+  assert.match(src('app.js'), /label: 'Issues'/, 'the sidebar says Issues');
+});
+
+test('the document viewer\'s two decisions', () => {
+  assert.deepEqual(viewer.DECISION_WORDS, {
+    verify: 'Mark as verified', verifyAnyway: 'Mark as verified anyway', verified: 'Verified', replace: 'Request replacement',
+  });
+});
+
+test('internal notes say the customer cannot see them; the phone switch says Booking and Conversation', () => {
+  assert.equal(caseMod.NOTE_WORDS, 'Internal — customer cannot see this');
+  assert.deepEqual(caseMod.paneWords('booking'), ['Booking', 'Conversation']);
+  assert.deepEqual(caseMod.paneWords('request'), ['Call-back', 'Conversation']);
+  assert.deepEqual(caseMod.paneWords('mrn'), ['Application', 'Conversation']);
+});
+
+test('the closed window\'s one button says which template', () => {
+  assert.equal(convo.TEMPLATE_WORDS, 'Send the reply-request template');
+});

@@ -9,7 +9,7 @@
  */
 
 import {
-  h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill,
+  h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill, PURPOSE,
 } from './ui.js';
 
 const SECTIONS = [['team', 'Team', 'users'], ['hours', 'Hours and phone', 'hours'], ['docs', 'Documents', 'file'], ['whatsapp', 'WhatsApp', 'whatsapp'], ['replies', 'Saved replies', 'reply']];
@@ -30,7 +30,7 @@ export function renderSettings({ main }) {
   add(main,
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Settings'),
-      h('p', { class: 'page-sub' }, 'Changes reach the bot within a minute. Every change is recorded with your name.'))),
+      h('p', { class: 'page-sub' }, PURPOSE.settings, ' ', h('span', { class: 'page-sub-more' }, 'Changes reach the bot within a minute. Every change is recorded with your name.')))),
     root);
 
   let data = null;

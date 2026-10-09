@@ -57,10 +57,10 @@ function paperOut(d, docs) {
   else if (d.extracted?.pending === true) [words, tone] = ['Still being read', 'gray'];
   else if (d.status === 'rejected') [words, tone] = ['Set aside', 'gray'];
   else if (d.status === 'replacement_requested') [words, tone] = ['New copy asked for', 'amber'];
-  else if (d.status === 'verified') [words, tone] = [d.verified_by ? `Checked by ${d.verified_by}` : 'Checked', 'green'];
+  else if (d.status === 'verified') [words, tone] = [d.verified_by ? `Verified by ${d.verified_by}` : 'Verified', 'green'];
   else if (d.doc_type !== 'other' && unreadable(d)) [words, tone] = ['The bot couldn’t read it', 'red'];
   else if (d.doc_type === 'other') [words, tone] = [null, 'gray'];
-  else [words, tone] = ['Received, not checked', 'blue'];
+  else [words, tone] = ['Received — not verified yet', 'blue'];
   // The same kind of paper came again for the same booking: this one is history.
   const newer = d.booking_ref && !['other', 'mky'].includes(d.doc_type) && docs.some((x) => x.id !== d.id && !x.deleted_at
     && x.booking_ref === d.booking_ref && x.doc_type === d.doc_type && !['rejected'].includes(x.status)

@@ -22,7 +22,7 @@
  *
  * The composer knows the channel's rules. It never pretends it can send
  * something the server will refuse: outside WhatsApp's 24 hours it offers the
- * "please reply" template instead, and after STOP it says so.
+ * reply-request template instead, and after STOP it says so.
  */
 
 import {
@@ -44,6 +44,9 @@ const FILE_KINDS = ['document', 'image', 'video', 'audio', 'sticker'];
 const LANG = { ar: 'Arabic', en: 'English' };
 /** Inbound photos this close together, uncaptioned after the first, are one album. */
 const ALBUM_MS = 2 * 60_000;
+
+/** The one thing a closed WhatsApp window allows: the approved template that asks them to reply. */
+export const TEMPLATE_WORDS = 'Send the reply-request template';
 
 /** Two messages from one sender further apart than this are two runs. */
 const RUN_GAP_MS = 10 * 60_000;
@@ -980,7 +983,7 @@ export function mountConversation(container, {
     const cust = data.customer ?? {};
     const stopped = Boolean(cust.opted_out_at || cust.is_blocked);
     const tone = c.mode === 'template_only' ? 'amber' : stopped ? 'red' : 'gray';
-    const title = c.mode === 'template_only' ? 'The 24-hour window has closed. '
+    const title = c.mode === 'template_only' ? 'The WhatsApp window has closed. '
       : cust.opted_out_at ? 'Opted out. ' : cust.is_blocked ? 'Blocked. ' : '';
     const waiting = files.filter((f) => f.status !== 'sent').length;
     const kept = ta.value.trim() ? ' What you typed is kept for then.' : '';
@@ -990,14 +993,14 @@ export function mountConversation(container, {
         waiting ? ` The ${waiting === 1 ? 'file' : `${waiting} files`} attached will wait here until then.` : null, kept || null));
     if (c.mode === 'template_only') {
       const key = newKey();
-      const label = 'Send the “please reply” template';
+      const label = TEMPLATE_WORDS;
       const b = h('button', { class: 'btn btn-primary btn-sm', type: 'button' }, icon('template', { size: 14 }), h('span', {}, label));
       b.addEventListener('click', async () => {
         b.disabled = true;
         b.lastChild.textContent = 'Sending…';
         try {
           await post({ action: 'send_reopen_template', ...target, action_key: key });
-          toast('Template sent. When they answer you can write freely.');
+          toast('Reply-request template sent. You can type a normal reply after the customer responds.');
           await load({ quiet: true });
         } catch (err) {
           toastError(err);

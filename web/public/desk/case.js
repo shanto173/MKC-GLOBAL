@@ -39,6 +39,14 @@ const DETAIL_LABELS = {
 };
 const HISTORY_SHOWN = 6;
 
+/** Said on every internal note: the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 7). */
+export const NOTE_WORDS = 'Internal — customer cannot see this';
+
+/** The phone's two panes, named for what they hold: the work, and the conversation. */
+export function paneWords(type) {
+  return [type === 'request' ? 'Call-back' : type === 'mrn' ? 'Application' : 'Booking', 'Conversation'];
+}
+
 export function renderCase({ route, main, refreshCounts, signal = null, subscribe = null }) {
   const [type, ref] = route.parts;
   if (!['booking', 'request', 'mrn'].includes(type) || !ref) {
@@ -70,7 +78,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
   const switcher = h('div', { class: 'case-switch' }, h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' },
     ['work', 'chat'].map((p) => {
       paneButtons[p] = h('button', { class: 'seg-item', type: 'button', 'aria-pressed': String(p === 'work'), onclick: () => showPane(p) },
-        icon(p === 'work' ? 'file' : 'chats', { size: 15 }), p === 'work' ? 'Case' : 'Chat');
+        icon(p === 'work' ? 'file' : 'chats', { size: 15 }), paneWords(type)[p === 'work' ? 0 : 1]);
       return paneButtons[p];
     })));
 
@@ -242,7 +250,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     return h('div', { class: `case-owner owner-${t.state}` },
       who ? avatar(who, { size: 'sm' }) : icon('userX', { size: 16 }), h('span', {}, t.words),
       actionButton({ ...t, kind: t.state === 'mine' ? 'ghost' : 'secondary' }, (e, b) => quick(b, body,
-        t.action === 'unassign' ? 'Put back for anyone to take.' : 'It is yours now.'), { cls: 'btn-sm', iconName: t.state === 'nobody' ? 'userPlus' : null }));
+        t.action === 'unassign' ? 'Unassigned. Anyone on the team can assign it to themselves.' : 'Assigned to you.'), { cls: 'btn-sm', iconName: t.state === 'nobody' ? 'userPlus' : null }));
   }
 
   function nextStepCard() {
@@ -306,9 +314,9 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
   function documentsCard() {
     const list = data.checklist;
     const checked = list.filter((c) => c.state === 'checked').length;
-    const meter = list.length ? h('span', { class: 'progress', title: `${checked} of ${list.length} checked` },
+    const meter = list.length ? h('span', { class: 'progress', title: `${checked} of ${list.length} verified` },
       h('span', { class: 'progress-bar', 'aria-hidden': 'true' }, list.map((c) => h('span', { class: `is-${(CHECK_ICON[c.state] ?? ['', 'gray'])[1]}` }))),
-      `${checked} of ${list.length} checked`) : null;
+      `${checked} of ${list.length} verified`) : null;
     const fileOf = (id) => data.documents.find((d) => d.id === id)?.file_name ?? null;
     const item = ({ state, label, words, document_id: docId, tone: wordsTone }) => {
       const [ic, tone] = CHECK_ICON[state] ?? ['file', 'gray'];
@@ -321,8 +329,8 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
           h('span', { class: `check-words tone-text-${wordsTone ?? tone}` }, words),
           file ? h('bdi', { class: 'check-file', dir: 'ltr', title: file }, file) : null),
         docId
-          ? h('button', { class: `btn btn-sm ${needsEyes ? 'btn-secondary' : 'btn-ghost'}`, type: 'button', onclick: () => openDoc(docId), 'aria-label': `${needsEyes ? 'Check' : 'View'} the ${label}` },
-            icon(needsEyes ? 'eye' : 'file', { size: 14 }), needsEyes ? 'Check' : 'View')
+          ? h('button', { class: `btn btn-sm ${needsEyes ? 'btn-secondary' : 'btn-ghost'}`, type: 'button', onclick: () => openDoc(docId), 'aria-label': `${needsEyes ? 'Review' : 'View'} the ${label}` },
+            icon(needsEyes ? 'eye' : 'file', { size: 14 }), needsEyes ? 'Review' : 'View')
           : h('span', { 'aria-hidden': 'true' }));
     };
     return card('docs-title', 'Documents', { tools: meter, ic: 'file' },
@@ -489,7 +497,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       }
     });
     const notes = data.notes ?? [];
-    return card('notes-title', 'Internal notes', { cls: 'notes', ic: 'lock', tools: h('span', { class: 'notes-badge' }, 'Never sent to the customer') },
+    return card('notes-title', 'Internal notes', { cls: 'notes', ic: 'lock', tools: h('span', { class: 'notes-badge' }, NOTE_WORDS) },
       session.can('notes') ? h('div', { class: 'note-compose' }, ta, save) : null,
       notes.length ? h('ul', { class: 'note-list' }, notes.map((n) => h('li', { class: 'note' },
         h('p', { class: 'note-meta' }, h('strong', {}, n.author), ' · ', timeEl(n.at, when(n.at))),
@@ -533,7 +541,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     const p = data.next_step.primary;
     fill(sticky,
       p ? actionButton(p, () => run(p), { cls: 'btn-block' }) : h('span', { class: 'sticky-words' }, data.next_step.title),
-      data.conversation.chat_id ? h('button', { class: 'btn', type: 'button', onclick: () => showPane('chat') }, icon('chats', { size: 16 }), 'Chat') : null);
+      data.conversation.chat_id ? h('button', { class: 'btn', type: 'button', onclick: () => showPane('chat') }, icon('chats', { size: 16 }), paneWords(type)[1]) : null);
   }
 
   // -------------------------------------------------------------------------
@@ -570,7 +578,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
           });
         }
         return quick(null, { action: 'request_status', status: spec.status }, 'Updated.');
-      case 'take': return quick(null, { action: 'take' }, 'It is yours now.');
+      case 'take': return quick(null, { action: 'take' }, 'Assigned to you.');
       default: return toast('That action is not available here.', 'info');
     }
   }
@@ -627,12 +635,12 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     ta.addEventListener('input', pv.update);
     pv.now();
     dialog({
-      title: 'Ask the customer for something',
+      title: 'Request information from the customer',
       subtitle: 'The booking waits for them until they answer.',
       body: [h('label', { class: 'label' }, 'What should they send or tell us?'),
         ta, h('p', { class: 'field-hint', id: 'ask-hint' }, 'One thing per line. Write it the way you would say it to them.'), pv.el],
       actions: [{ label: 'Cancel' }, {
-        label: 'Send to customer', kind: 'primary', busy: 'Sending…',
+        label: 'Send request to customer', kind: 'primary', busy: 'Sending…',
         run: async (dlg) => {
           if (!ta.value.trim()) throw new Error('Write what they should send.');
           const r = await post({ action: 'request_info', booking_ref: ref, requested: ta.value.trim(), version, action_key: dlg.key });
@@ -660,7 +668,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
           row('Chassis', h('span', { class: 'mono' }, b.vin)),
           row('Vehicle', [b.make, b.model].filter(Boolean).join(' ') || '—'),
           row('Route', data.header.route ?? '—'),
-          row('Documents', `${checked} of ${data.checklist.length} checked`)),
+          row('Documents', `${checked} of ${data.checklist.length} verified`)),
         pv.el],
       actions: [{ label: 'Not yet' }, {
         label: 'Confirm booking', kind: 'primary', busy: 'Confirming…',
@@ -753,17 +761,27 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     });
   }
 
+  /**
+   * The shipping reference: the booking number the shipping line or carrier
+   * gave MKY - not the customer's request reference (the MKY-BKG-… this page
+   * is named by), which the field used to be filled with. One link puts the
+   * request reference in, for the day both are the same.
+   */
   function referenceDialog() {
     const version = data.version;
-    const input = h('input', { class: 'input mono', value: ref });
-    const vessel = h('input', { class: 'input' });
+    const input = h('input', { class: 'input mono', id: 'ship-ref', 'aria-describedby': 'ship-ref-hint', autocomplete: 'off', spellcheck: 'false', placeholder: 'The carrier’s booking number' });
+    const vessel = h('input', { class: 'input', id: 'ship-vessel' });
+    const same = h('button', { class: 'link-btn', type: 'button', onclick: () => { input.value = ref; input.focus(); } }, `Use the request reference, ${ref}`);
     dialog({
-      title: 'Record the booking reference',
-      body: [h('label', { class: 'label' }, 'Booking reference'), input,
-        h('label', { class: 'label' }, 'Vessel (if known)'), vessel],
+      title: 'Record the shipping reference',
+      subtitle: 'Nothing is sent to the customer. Confirming the booking comes next.',
+      body: [h('label', { class: 'label', for: 'ship-ref' }, 'Shipping reference'), input,
+        h('p', { class: 'field-hint', id: 'ship-ref-hint' }, `The booking number from the shipping line or carrier. The customer’s request reference is ${ref}. `, same),
+        h('label', { class: 'label', for: 'ship-vessel' }, 'Vessel (if known)'), vessel],
       actions: [{ label: 'Cancel' }, {
-        label: 'Record it', kind: 'primary',
+        label: 'Record shipping reference', kind: 'primary',
         run: async () => {
+          if (!input.value.trim()) throw new Error('Type the shipping reference.');
           await post({ action: 'create_booking', booking_ref: ref, reference: input.value.trim(), vessel: vessel.value.trim(), version });
           await after('Recorded. Confirm the booking when you are ready.');
         },
@@ -804,7 +822,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       title: 'Ask for information for the MRN',
       body: [h('label', { class: 'label' }, 'What do you need from them?'), ta, pv.el],
       actions: [{ label: 'Cancel' }, {
-        label: 'Send to customer', kind: 'primary', busy: 'Sending…',
+        label: 'Send request to customer', kind: 'primary', busy: 'Sending…',
         run: async () => {
           if (!ta.value.trim()) throw new Error('Write what you need.');
           const r = await post({ action: 'mrn_need_info', request_ref: ref, requested: ta.value.trim(), version });

@@ -110,12 +110,12 @@ export function composerState({ channel, chatId, customer, window: win, connecte
     const last = win?.last_client_message_at
       ? `${name} last wrote ${ago(win.last_client_message_at)}.`
       : `${name} has not written to us on WhatsApp yet.`;
-    const rule = 'WhatsApp only allows an approved template once 24 hours have passed.';
+    const rule = 'After 24 hours WhatsApp allows only an approved template.';
     if (!templateAvailable) return off(`${last} ${rule} The template isn’t available yet.`);
     return {
       mode: 'template_only',
       can_send: false,
-      reason: `${last} ${rule} Send the “please reply” template; when they answer you can write freely.`,
+      reason: `${last} ${rule} Send the approved reply-request template. You can type a normal reply after the customer responds.`,
       note: null,
     };
   }
@@ -331,7 +331,7 @@ export async function sendReopenTemplate(req, res, who) {
   const body = req.body ?? {};
   const target = await targetOf(body);
   if (!target) return res.status(404).json({ error: 'We could not find that conversation.' });
-  if (target.channel !== 'whatsapp') return res.status(400).json({ error: 'The “please reply” template is only for WhatsApp.' });
+  if (target.channel !== 'whatsapp') return res.status(400).json({ error: 'The reply-request template is only for WhatsApp.' });
 
   const chan = await channels();
   if (typeof chan?.sendReopenTemplate !== 'function') {

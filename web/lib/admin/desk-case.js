@@ -97,9 +97,9 @@ const TYPABLE_BY_TYPE = {
 export const typableFor = (docType) => TYPABLE_BY_TYPE[docType] ?? TYPABLE;
 
 const DOC_WORDS = {
-  received: ['Received, not checked', 'blue'],
-  pending_verification: ['Received, not checked', 'blue'],
-  verified: ['Checked', 'green'],
+  received: ['Received — not verified yet', 'blue'],
+  pending_verification: ['Received — not verified yet', 'blue'],
+  verified: ['Verified', 'green'],
   replacement_requested: ['New copy asked for', 'amber'],
   rejected: ['Rejected', 'red'],
 };
@@ -181,7 +181,7 @@ export function documentOut(d, booking, { declared = null } = {}) {
     label: DOC_LABEL[d.doc_type] ?? d.doc_type,
     status: d.status,
     status_words: ours ? `Sent by MKY${x.sent_by ? ` · ${x.sent_by}` : ''}`
-      : d.status === 'verified' && d.verified_by ? `Checked by ${d.verified_by}` : words,
+      : d.status === 'verified' && d.verified_by ? `Verified by ${d.verified_by}` : words,
     tone: ours ? 'gray' : tone,
     sent_by_mky: ours,
     sent_by: ours ? (x.sent_by ?? d.uploaded_by ?? null) : null,
@@ -217,12 +217,12 @@ export function checklistFor(required, docs) {
     const doc = live.find((d) => mine(d.doc_type));
     const asked = docs.find((d) => mine(d.doc_type) && d.status === 'replacement_requested');
     if (doc?.status === 'verified') {
-      return { type, label, state: 'checked', words: `Checked${doc.verified_by ? ` by ${doc.verified_by}` : ''}`, tone: 'green', document_id: doc.id };
+      return { type, label, state: 'checked', words: `Verified${doc.verified_by ? ` by ${doc.verified_by}` : ''}`, tone: 'green', document_id: doc.id };
     }
-    if (doc && doc.wrong_vehicle) return { type, label, state: 'mismatch', words: 'Chassis differs from the booking', tone: 'red', document_id: doc.id };
+    if (doc && doc.wrong_vehicle) return { type, label, state: 'mismatch', words: 'The chassis number differs from the booking', tone: 'red', document_id: doc.id };
     if (doc && doc.unreadable) return { type, label, state: 'unreadable', words: 'The bot couldn’t read it — check it by eye', tone: 'red', document_id: doc.id };
     if (doc && doc.reading) return { type, label, state: 'reading', words: 'Arrived, still being read', tone: 'gray', document_id: doc.id };
-    if (doc) return { type, label, state: 'received', words: 'Received, not checked', tone: 'blue', document_id: doc.id };
+    if (doc) return { type, label, state: 'received', words: 'Received — not verified yet', tone: 'blue', document_id: doc.id };
     if (asked) {
       const why = REPLACEMENT_REASONS.find((r) => r.code === asked.rejection_code)?.words?.toLowerCase();
       return { type, label, state: 'replacement', words: `New copy asked for${why ? ` — ${why}` : ''}`, tone: 'amber', document_id: asked.id };
@@ -261,7 +261,7 @@ export function bookingNextStep(who, state, docsOut) {
     case 'send_reminder': {
       const missing = summary.missing.map((t) => DOC_LABEL[t] ?? t);
       const label = next.action === 'send_reminder' ? 'Send a reminder'
-        : next.action === 'request_documents' ? `Ask for the ${listWords(missing)}` : 'Ask for the missing details';
+        : next.action === 'request_documents' ? `Request the ${listWords(missing)}` : 'Request missing information';
       const prefill = next.action === 'request_info'
         ? ready.items.filter((i) => i.blocking && !i.ok && !i.key.startsWith('doc:')).map((i) => i.label).join('\n')
         : missing.map((m) => `The ${m}`).join('\n');
@@ -269,7 +269,7 @@ export function bookingNextStep(who, state, docsOut) {
       break;
     }
     case 'review_documents':
-      primary = button(who, 'open_document', 'Check the documents', {
+      primary = button(who, 'open_document', 'Review documents', {
         perm: 'documents', kind: 'primary', document_id: unchecked[0]?.id ?? null,
       });
       break;
@@ -277,7 +277,7 @@ export function bookingNextStep(who, state, docsOut) {
       primary = button(who, 'issue_mrn', 'Record the MRN', { perm: 'mrn', kind: 'primary', request_ref: mrn?.request_ref ?? null });
       break;
     case 'create_booking':
-      primary = button(who, 'create_booking', 'Record the booking reference', { perm: 'booking', kind: 'primary', allowed: legal.includes('create_booking'), why: notReady });
+      primary = button(who, 'create_booking', 'Record shipping reference', { perm: 'booking', kind: 'primary', allowed: legal.includes('create_booking'), why: notReady });
       break;
     case 'confirm_booking':
       primary = button(who, 'confirm', 'Confirm booking', { perm: 'booking', kind: 'primary', allowed: legal.includes('confirm_booking'), why: notReady });
@@ -288,11 +288,11 @@ export function bookingNextStep(who, state, docsOut) {
 
   const secondary = [];
   if (open) {
-    if (primary?.action !== 'request_info') secondary.push(button(who, 'request_info', 'Ask the customer for something', { perm: 'client' }));
+    if (primary?.action !== 'request_info') secondary.push(button(who, 'request_info', 'Request information', { perm: 'client' }));
     if (primary?.action !== 'confirm') {
-      secondary.push(button(who, 'confirm', unchecked.length ? 'Confirm without checking' : 'Confirm booking', {
+      secondary.push(button(who, 'confirm', unchecked.length ? 'Confirm without verifying' : 'Confirm booking', {
         perm: 'booking', allowed: legal.includes('confirm_booking'), why: notReady, more: true,
-        warning: unchecked.length ? `${unchecked.length === 1 ? 'One document is' : `${unchecked.length} documents are`} not checked yet.` : null,
+        warning: unchecked.length ? `${unchecked.length === 1 ? 'One document is' : `${unchecked.length} documents are`} not verified yet.` : null,
       }));
     }
     secondary.push(button(who, 'reject', 'Reject request', { perm: 'booking', kind: 'danger' }));
@@ -402,8 +402,8 @@ export async function bookingCase(req, res, who) {
     // Papers MKY sent the customer from the conversation and filed here.
     mky_documents: docsOut.filter((d) => d.sent_by_mky),
     document_actions: {
-      verify: button(who, 'verify_document', 'Looks right', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
-      reject: button(who, 'reject_document', 'Ask for a new one', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
+      verify: button(who, 'verify_document', 'Mark as verified', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
+      reject: button(who, 'reject_document', 'Request replacement', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
       type_values: button(who, 'mark_document_read_values', 'Type what it says', { perm: 'documents', allowed: open, why: 'This request is closed.' }),
       reasons: REPLACEMENT_REASONS.map(({ code, words }) => ({ code, words })),
       typable: TYPABLE,
@@ -462,11 +462,11 @@ async function notesFor(entityId) {
 /** Taking a case is everyone's right; taking it from a colleague is a supervisor's. */
 function takeButton(who, assignedTo, open) {
   if (!open) return null;
-  if (mine(who, assignedTo)) return { ...button(who, 'unassign', 'Put back'), state: 'mine', words: 'You have this' };
+  if (mine(who, assignedTo)) return { ...button(who, 'unassign', 'Unassign'), state: 'mine', words: 'Assigned to you' };
   if (assignedTo) {
-    return { ...button(who, 'take', 'Take it over', { perm: 'assign_others' }), state: 'other', words: `${assignedTo} has this` };
+    return { ...button(who, 'take', 'Assign to me instead', { perm: 'assign_others' }), state: 'other', words: `Assigned to ${assignedTo}` };
   }
-  return { ...button(who, 'take', 'Take it', { perm: 'assign_self' }), state: 'nobody', words: 'Nobody has this yet' };
+  return { ...button(who, 'take', 'Assign to me', { perm: 'assign_self' }), state: 'nobody', words: 'Unassigned' };
 }
 
 /** GET view=case&type=request&ref= - a call-back or other client request. */
@@ -686,8 +686,8 @@ export async function documentView(req, res, who) {
     checklist: [],
     other_documents: [doc],
     document_actions: {
-      verify: button(who, 'verify_document', 'Looks right', { perm: 'documents', allowed: waiting, why: done }),
-      reject: button(who, 'reject_document', 'Ask for a new one', {
+      verify: button(who, 'verify_document', 'Mark as verified', { perm: 'documents', allowed: waiting, why: done }),
+      reject: button(who, 'reject_document', 'Request replacement', {
         perm: 'documents',
         allowed: waiting && Boolean(d.booking_ref),
         why: d.booking_ref ? done : 'It is on no booking, so there is no request to send. Ask them in the conversation.',

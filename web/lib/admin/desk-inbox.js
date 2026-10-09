@@ -84,21 +84,21 @@ export function bookingSentence(r) {
     case 'REVIEW_INFORMATION': {
       const ready = readiness(r, sum, null);
       const missing = ready.items.filter((i) => i.blocking && !i.ok && !i.key.startsWith('doc:') && i.key !== 'mrn');
-      return `Ask for the missing details: ${listWords(missing.map((i) => i.label.toLowerCase()))}`;
+      return `Request missing information: ${listWords(missing.map((i) => i.label.toLowerCase()))}`;
     }
     case 'REQUEST_DOCUMENTS':
-      return `Ask for the ${listWords(labelsOf(sum.missing))}`;
+      return `Request the ${listWords(labelsOf(sum.missing))}`;
     case 'REVIEW_DOCUMENTS': {
       const unchecked = sum.required.filter((t) => sum.received_types.includes(t) && !sum.verified_types.includes(t));
       const what = unchecked.length === 1 ? `the ${labelsOf(unchecked)[0]}` : `${unchecked.length} documents`;
       // "and confirm" only when confirming really is what comes after.
       const thenConfirm = r.mrn_choice !== 'mky_issue' || r.mrn_number;
-      return `Check ${what}${thenConfirm ? ' and confirm' : ''}`;
+      return `Review ${what}${thenConfirm ? ' and confirm' : ''}`;
     }
     case 'PROCESS_MRN':
-      return 'Issue the MRN';
+      return 'Record the MRN once it is issued';
     case 'CREATE_BOOKING':
-      return 'Record the booking reference';
+      return 'Record the shipping reference';
     case 'CONFIRM_BOOKING':
       return 'Confirm the booking';
     case 'WAIT_CLIENT': {
@@ -123,7 +123,7 @@ export function mrnSentence(m) {
   if (m.status === 'issued') return `MRN recorded${m.mrn_number ? `: ${m.mrn_number}` : ''}`;
   if (m.status === 'missing_information') return 'Waiting for the customer: information for the MRN';
   if (m.status === 'approved') return 'Record the issued MRN number';
-  return 'Issue the MRN';
+  return 'Record the MRN once it is issued';
 }
 
 const OUTBOX_WORDS = {
@@ -539,7 +539,7 @@ function paperItems({ papers, handled, drafting, nameOf }) {
       channel: b.channel ?? d.channel ?? null,
       priority: 'normal',
       since: d.uploaded_at,
-      status: statusBadge('New paper', 'amber'),
+      status: statusBadge('New document', 'amber'),
       version: null,
       problem: { type: 'document', id: d.id },
     });
@@ -747,7 +747,7 @@ function problemEntries({ entries }, { nameFor }) {
             : `The ${what} didn’t reach ${name}`,
         who: name,
         detail: needsTemplate
-          ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the “please reply” template, or set one up in Settings.`
+          ? `The ${what} cannot go as free text${o.template_name ? `; template “${o.template_name}”` : ''}. It goes as soon as they write; or send the reply-request template, or set one up in Settings.`
           : stopped ? `The ${what} is held until they write to us again. Call them if it cannot wait.`
             : failureWords(o.last_error, { template: o.template_name ?? null }),
         ref: o.entity_id ?? null,
