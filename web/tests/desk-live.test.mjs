@@ -98,6 +98,18 @@ test('the rhythm: 15 s while used, a minute when idle, doubling after errors, sp
   assert.equal(changed(['bookings'], { bookings: '1' }, { bookings: '1' }), false);
   assert.equal(changed(['bookings'], { bookings: '1' }, { bookings: '2' }), true);
   assert.equal(changed(['bookings'], null, { bookings: '1' }), true, 'nothing seen yet: fetch');
+  assert.equal(changed(['bookings'], {}, { bookings: '1' }), true, 'a scope that appeared: fetch');
+  assert.equal(changed(['unknown'], { bookings: '1' }, { bookings: '1' }), false, 'a scope the server does not have: left to MAX_AGE');
+});
+
+test('a subscription with a minimum gap is not refreshed more often than that, however often its scopes move', async () => {
+  ui.primeLive({ supported: true, versions: { ...server.versions } });
+  const at = [];
+  ui.subscribe(['messages'], async () => { at.push(Date.now()); return true; }, { minGapMs: 20_000 });
+  ui.startLive();
+  for (let i = 0; i < 16; i++) { server.versions.messages += 1; await pass(7_500); }
+  assert.ok(at.length >= 3 && at.length <= 6, `${at.length} refreshes in two minutes of constant change`);
+  for (let i = 1; i < at.length; i++) assert.ok(at[i] - at[i - 1] >= 20_000, 'never closer than the gap');
 });
 
 test('nothing changing: one pulse a tick, and no screen fetched', async () => {

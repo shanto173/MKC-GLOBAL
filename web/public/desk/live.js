@@ -74,10 +74,12 @@ export function pollDelay({ idleForMs = 0, errors = 0, supported = true, random 
 
 /**
  * Whether a screen that last saw `seen` must be fetched again, given the
- * versions now. A scope missing from either side counts as changed: better
- * one fetch too many than a screen that never catches up.
+ * versions now. Nothing seen yet counts as changed, and so does a scope that
+ * appeared or disappeared: better one fetch too many than a screen that never
+ * catches up. A scope the server does not know at all (missing on both
+ * sides) is left to MAX_AGE rather than fetched on every tick.
  */
 export function changed(scopes, seen, now) {
   if (!seen || !now) return true;
-  return scopes.some((s) => seen[s] == null || now[s] == null || String(seen[s]) !== String(now[s]));
+  return scopes.some((s) => String(seen[s] ?? '') !== String(now[s] ?? ''));
 }

@@ -23,6 +23,7 @@ import {
   dialog, draft, session, add, fill, lines, channelBadge, VIEW_SCOPES,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
+import { RHYTHM } from './live.js';
 import { openViewer } from './viewer.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -795,8 +796,10 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
   load();
   // The conversation beside the case moves far more often than the case
   // does - every message - so it is refreshed on its own areas, and the case
-  // on the case's (public/desk/live.js).
-  subscribe?.(VIEW_SCOPES.chat, () => convo?.refresh());
+  // on the case's (public/desk/live.js). 'messages' moves with every message
+  // in every chat, so the pane is fetched at most every 20 seconds, as
+  // before; sending from it reloads it at once (conversation.js).
+  subscribe?.(VIEW_SCOPES.chat, () => convo?.refresh(), { minGapMs: RHYTHM.fallbackMs });
   return {
     async refresh() {
       // A dialog open on this case is about the case as it was drawn; its

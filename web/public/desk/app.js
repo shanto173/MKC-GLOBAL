@@ -20,6 +20,7 @@ import {
   h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
   subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES,
 } from './ui.js';
+import { RHYTHM } from './live.js';
 import { renderInbox } from './inbox.js';
 import { renderCase } from './case.js';
 import { renderChats } from './chats.js';
@@ -81,10 +82,13 @@ function render() {
   const page = pages[route.page];
   if (!page) { location.replace('#/inbox'); return; }
   screen = page(ctx) ?? null;
-  // The screen's own refresh, on the areas it shows - every area when it
-  // does not say.
+  // The screen's own refresh, on the areas it shows. One that does not say
+  // is refreshed when anything moves - but never more often than the old
+  // 20-second timer did.
   const shown = screen;
-  if (shown?.refresh) ctx.subscribe(shown.scopes ?? null, () => shown.refresh());
+  if (shown?.refresh) {
+    ctx.subscribe(shown.scopes ?? null, () => shown.refresh(), shown.scopes ? {} : { minGapMs: RHYTHM.fallbackMs });
+  }
   // A new screen is a new place: move focus there so a keyboard or screen
   // reader user starts at its top, not wherever the old screen left them.
   main.focus({ preventScroll: true });

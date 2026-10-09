@@ -453,6 +453,11 @@ export async function api(params, { method = 'GET', body = null, signal = null }
  * `refresh` may return false to say it did not load (it is tried again on the
  * next tick, rather than counted as caught up). Only one refresh of a
  * subscription is ever in flight; one asked for meanwhile runs once after it.
+ *
+ * `minGapMs` keeps a subscription from being refreshed more often than that,
+ * however often its scopes move: for something expensive that moves with
+ * every message (a conversation, the list of chats), or a screen that names
+ * no scopes - it is then fetched at most as often as before the pulse.
  */
 const live = {
   running: false,
@@ -470,11 +475,12 @@ const live = {
 const PULSE_RECHECK_MS = 300_000;
 
 /** Subscribes a refresh to the scopes it shows. See above. */
-export function subscribe(scopes, refresh, { maxAgeMs = RHYTHM.maxAgeMs } = {}) {
+export function subscribe(scopes, refresh, { maxAgeMs = RHYTHM.maxAgeMs, minGapMs = 0 } = {}) {
   const sub = {
     scopes: Array.isArray(scopes) && scopes.length ? scopes : SCOPES,
     refresh,
     maxAgeMs,
+    minGapMs,
     // What the screen was loaded against: the last pulse before it loaded.
     // Anything that moved after that is fetched on the next tick.
     seen: live.versions ? { ...live.versions } : null,
@@ -509,6 +515,7 @@ function runSub(sub, versions) {
 /** Whether a subscription must be refreshed on this tick. */
 function due(sub, now = Date.now()) {
   if (sub.closed) return false;
+  if (now - sub.lastRun < sub.minGapMs) return false;
   if (live.supported !== true) return true;
   return changed(sub.scopes, sub.seen, live.versions) || now - sub.lastRun >= sub.maxAgeMs;
 }
