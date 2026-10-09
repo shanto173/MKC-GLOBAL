@@ -8,6 +8,7 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, channelIcon, timeEl, ago, when, emptyState, errorState, skeleton, debounce, add, fill,
+  VIEW_SCOPES,
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -40,7 +41,7 @@ export function renderShipments(ctx) {
   return id ? renderShipment(ctx, id) : renderList(ctx);
 }
 
-function renderList({ route, main }) {
+function renderList({ route, main, signal = null }) {
   const filter = FILTERS.some(([k]) => k === route.query.filter) ? route.query.filter : 'active';
   let q = '';
   const listEl = h('div', { class: 'list-wrap' }, skeleton(6, { kind: 'rows' }));
@@ -67,18 +68,64 @@ function renderList({ route, main }) {
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search)),
     listEl);
 
+  // A page at a time: the first page is fetched again when something
+  // changes; "Show more" adds the page after the last row shown, by its
+  // place in the order (the server's cursor), not by an offset that shifts
+  // when a shipment above it is updated.
+  const PAGE = 100;
+  const MAX_FIRST = 300;
+  let rows = [];
+  let next = null;
+  let counts = null;
+  let first = null;      // the first page's answer, as last drawn: a 304 hands back the same one
+
+  /** Loads the first page; false when it could not. */
   async function load({ quiet = false } = {}) {
     let data;
     try {
-      data = await api({ view: 'shipments', filter, q });
+      data = await api({ view: 'shipments', filter, q, limit: Math.min(MAX_FIRST, Math.max(PAGE, rows.length)) }, { signal });
     } catch (err) {
+      if (err.aborted) return false;
       if (!quiet) fill(listEl, errorState(err, () => load()));
+      return false;
+    }
+    if (data === first) return true;
+    first = data;
+    counts = data.counts ?? counts;
+    // Rows paged in beyond the first page are kept after it, once each.
+    const seen = new Set(data.rows.map((s) => s.shipment_id));
+    const beyond = rows.length > data.rows.length ? rows.slice(data.rows.length).filter((s) => !seen.has(s.shipment_id)) : [];
+    rows = [...data.rows, ...beyond];
+    if (!beyond.length) next = data.next ?? null;
+    draw();
+    return true;
+  }
+
+  async function more(button) {
+    if (!next) return;
+    button.disabled = true;
+    let data;
+    try {
+      data = await api({ view: 'shipments', filter, q, limit: PAGE, after: next }, { signal });
+    } catch (err) {
+      if (!err.aborted) toastError(err);
+      button.disabled = false;
       return;
     }
-    drawFilters(data.counts);
-    count.textContent = `${data.rows.length} shipment${data.rows.length === 1 ? '' : 's'}${q ? ' found' : ''}`;
+    const seen = new Set(rows.map((s) => s.shipment_id));
+    rows = [...rows, ...data.rows.filter((s) => !seen.has(s.shipment_id))];
+    next = data.next ?? null;
+    draw();
+  }
+
+  function draw() {
+    drawFilters(counts);
+    const total = q ? null : counts?.[filter];
+    count.textContent = total != null && total > rows.length
+      ? `${rows.length} of ${total} shipments`
+      : `${rows.length} shipment${rows.length === 1 ? '' : 's'}${q ? ' found' : ''}`;
     clear(listEl);
-    if (!data.rows.length) {
+    if (!rows.length) {
       add(listEl, emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',
         q ? 'Try the last six characters of the chassis, or the booking reference.' : 'A shipment opens when a booking is confirmed.', null,
         { icon: q ? 'search' : 'ship' }));
@@ -87,7 +134,7 @@ function renderList({ route, main }) {
     add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-hover' },
       h('thead', {}, h('tr', {},
         ['Shipment', 'Customer', 'Vehicle', 'Route and vessel', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)))),
-      h('tbody', {}, data.rows.map((s) => {
+      h('tbody', {}, rows.map((s) => {
         const eta = etaParts(s.eta, s.tone, new Date(), s.status);
         return h('tr', {},
           // The link stretches over its row: the whole row opens the shipment.
@@ -102,32 +149,40 @@ function renderList({ route, main }) {
             : h('span', { class: 'muted' }, 'Not set')),
           h('td', { 'data-label': 'Updated', class: 'muted' }, timeEl(s.updated_at, ago(s.updated_at))));
       })))));
+    if (next) {
+      const button = h('button', { class: 'btn', type: 'button' }, 'Show more');
+      button.addEventListener('click', () => more(button));
+      add(listEl, h('div', { class: 'more' }, button));
+    }
   }
 
-  search.addEventListener('input', debounce(() => { q = search.value.trim(); load(); }, 300));
+  search.addEventListener('input', debounce(() => { q = search.value.trim(); rows = []; next = null; first = null; load(); }, 300));
   load();
-  return { refresh: () => load({ quiet: true }) };
+  return { refresh: () => load({ quiet: true }), scopes: VIEW_SCOPES.shipments };
 }
 
-function renderShipment({ main }, id) {
+function renderShipment({ main, signal = null }, id) {
   let data = null;
   const root = h('div', { class: 'shipment' }, skeleton(6, { kind: 'cards' }));
   add(main, root);
 
+  /** Loads the shipment; false when it could not. */
   async function load({ quiet = false } = {}) {
     let fresh;
     try {
-      fresh = await api({ view: 'shipment', id });
+      fresh = await api({ view: 'shipment', id }, { signal });
     } catch (err) {
+      if (err.aborted) return false;
       if (!quiet) fill(root, errorState(err, err.status === 404 || err.status === 403 ? null : () => load()));
-      return;
+      return false;
     }
-    if (data && fresh.version === data.version) return;
+    if (data && fresh.version === data.version) return true;
     const editing = data && root.querySelector('.ship-form')?.dataset.dirty === '1';
     data = fresh;
     // Do not pull a half-filled form out from under somebody; say it changed.
-    if (editing) { toast('This shipment was just updated by someone else. Your form is kept; saving will show what changed.', 'info'); return; }
+    if (editing) { toast('This shipment was just updated by someone else. Your form is kept; saving will show what changed.', 'info'); return true; }
     draw();
+    return true;
   }
 
   function draw() {
@@ -233,7 +288,7 @@ function renderShipment({ main }, id) {
   }
 
   load();
-  return { refresh: () => load({ quiet: true }) };
+  return { refresh: () => load({ quiet: true }), scopes: VIEW_SCOPES.shipment };
 }
 
 const field = (label, input, id) => h('div', { class: 'field' }, h('label', { class: 'label', for: id }, label), input);

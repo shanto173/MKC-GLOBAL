@@ -297,3 +297,43 @@ test('search and previews are never answered from a tag: they are asked for, not
   assert.equal(r.status, 200);
   assert.equal(r.headers.etag, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Lists read what they show
+// ---------------------------------------------------------------------------
+
+/** 250 shipments; one write gave 120 of them the same updated_at, as a bulk update would. */
+function manyShipments() {
+  const same = iso(7 * 86400_000);
+  db._tables.shipments = Array.from({ length: 250 }, (_, i) => ({
+    shipment_id: `MKY-${String(30000 + i)}`, booking_ref: null, customer_name: i === 3 ? 'Old Customer Ltd' : `Cust ${i}`,
+    origin_port: 'Antwerp', destination_port: 'Port Said', status: 'In transit', delivery_status: i % 5 === 0 ? 'Complete' : 'Not yet',
+    updated_at: i < 120 ? same : iso(i * 60_000), vin: `VIN${i}`,
+  }));
+}
+
+test('shipments come a page at a time, each exactly once, even when many share an update time', async () => {
+  manyShipments();
+  const seen = [];
+  let after = null;
+  let pages = 0;
+  do {
+    const r = await get({ view: 'shipments', filter: 'all', limit: 40, ...(after ? { after } : {}) });
+    assert.equal(r.status, 200);
+    if (!after) assert.deepEqual(r.body.counts, { active: 200, delivered: 50, all: 250 });
+    seen.push(...r.body.rows.map((s) => s.shipment_id));
+    after = r.body.next;
+    pages += 1;
+  } while (after && pages < 20);
+  assert.equal(seen.length, 250);
+  assert.equal(new Set(seen).size, 250, 'no shipment twice, none skipped');
+});
+
+test('a search finds a shipment the first page does not show, and is filtered in the database', async () => {
+  manyShipments();
+  const first = await get({ view: 'shipments', filter: 'all' });
+  assert.ok(!first.body.rows.some((s) => s.customer_name === 'Old Customer Ltd'), 'not on the first page');
+  const { rec, out } = await counted(() => get({ view: 'shipments', filter: 'all', q: 'old customer' }));
+  assert.deepEqual(out.body.rows.map((s) => s.customer_name), ['Old Customer Ltd']);
+  assert.ok(rec.lines().some((l) => /select shipments \[.*or\(…\)/.test(l)), rec.lines().join('\n'));
+});
