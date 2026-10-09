@@ -62,7 +62,7 @@ import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
 import { audit, logEvent } from '../lib/audit.js';
 import { refreshPinSafely } from '../lib/pinned.js';
-import { drain } from '../lib/outbox.js';
+import { drainAfterTurn } from '../lib/outbox.js';
 import { defer, flush } from '../lib/background.js';
 
 /** Answers Telegram - after everything left running has finished. */
@@ -299,8 +299,9 @@ async function deliver(flow, input, ctx, update, callbackQuery) {
 
   // Anything the flow queued for this client goes out now rather than waiting
   // for the next cron tick, so a confirmation follows its trigger immediately.
-  // Failures here are the outbox's problem: it will retry.
-  await drain({ limit: 5 }).catch(() => null);
+  // Failures here are the outbox's problem: it will retry. A turn that queued
+  // nothing reads the outbox at most once a minute (drainAfterTurn).
+  await drainAfterTurn({ limit: 5 }).catch(() => null);
 
   await finishUpdate(update.update_id, 'processed');
   logEvent('telegram_update_processed', {

@@ -54,7 +54,7 @@ import {
 import { validateUpload } from '../lib/storage.js';
 import { settings } from '../lib/settings.js';
 import { audit, logEvent } from '../lib/audit.js';
-import { drain, releaseHeld, noteDeliveryStatus } from '../lib/outbox.js';
+import { drainAfterTurn, releaseHeld, noteDeliveryStatus } from '../lib/outbox.js';
 import { defer, flush } from '../lib/background.js';
 import { sendToChat, stampClientMessage, phrase, whatsappChatId } from '../lib/channels.js';
 import { logInbound, markDelivery, isSchemaMissing } from '../lib/chatlog.js';
@@ -358,7 +358,10 @@ async function turn(message, ctx, client, background) {
   }));
 
   try {
-    const flood = await floodCheck(chatId);
+    // This chat's claims of the last two minutes, read once for both the
+    // flood check and the wait for an earlier message.
+    const claims = await recentClaims(chatId);
+    const flood = await floodCheck(chatId, claims);
     if (flood !== 'ok') {
       if (flood === 'warn') await sendToChat(target, { text: T.slowDown() });
       logEvent('whatsapp_flood', { chat: masked(chatId), action: flood });
@@ -366,7 +369,7 @@ async function turn(message, ctx, client, background) {
       return;
     }
 
-    await waitForTurn(chatId, message.id);
+    await waitForTurn(chatId, message.id, claims);
 
     if (client?.is_blocked) {
       await sendToChat(target, { text: M.blocked() });
@@ -473,8 +476,10 @@ async function deliver(flow, input, ctx) {
   await Promise.all([flow.saved, ctx.opened].filter(Boolean));
 
   // Anything the flow queued goes now rather than at the next retry, so a
-  // confirmation follows its trigger. Failures are the outbox's to retry.
-  await drain({ limit: 5 }).catch(() => null);
+  // confirmation follows its trigger. Failures are the outbox's to retry. A
+  // turn that queued and released nothing reads the outbox at most once a
+  // minute (drainAfterTurn).
+  await drainAfterTurn({ limit: 5 }).catch(() => null);
 
   await finishClaim(ctx.messageId, 'processed');
   logEvent('whatsapp_message_processed', {
@@ -918,28 +923,65 @@ async function finishClaim(messageId, status, error = null) {
   }).eq('message_id', messageId);
 }
 
+/** A claim older than this is a crashed worker's, not one to wait for. */
+const CLAIM_LIVE_MS = 120_000;
+
+/**
+ * This chat's claims touched in the last two minutes - every message it sent
+ * in the flood window among them, since a claim's processed_at is never
+ * earlier than its created_at. One read where the flood check and the wait
+ * for an earlier message used to make three (a count, this message's own
+ * claim, then the earlier ones). Null without the claims table, or when the
+ * read fails: each check then reads for itself, as before.
+ */
+async function recentClaims(chatId) {
+  if (claimSupported !== true) return null;
+  const { data, error } = await db().from('processed_whatsapp_messages')
+    .select('message_id, status, processed_at, created_at')
+    .eq('chat_id', chatId)
+    .gte('processed_at', new Date(Date.now() - CLAIM_LIVE_MS).toISOString())
+    .limit(200);
+  return error ? null : data ?? [];
+}
+
+const at = (t) => new Date(t).getTime();
+
 /**
  * Waits while an earlier message from the same chat is still being handled.
  * Bounded: a message never waits more than a few seconds, and a claim older
- * than two minutes is a crashed worker's, not one to wait for.
+ * than two minutes is a crashed worker's, not one to wait for. The first look
+ * is at the claims already read (recentClaims); only a wait reads again.
  */
-async function waitForTurn(chatId, messageId) {
+async function waitForTurn(chatId, messageId, claims = null) {
   if (claimSupported !== true) return;
-  const { data: mine } = await db().from('processed_whatsapp_messages')
-    .select('processed_at').eq('message_id', messageId).maybeSingle();
+  let mine = claims?.find((c) => c.message_id === messageId) ?? null;
+  if (!mine) {
+    ({ data: mine } = await db().from('processed_whatsapp_messages')
+      .select('processed_at').eq('message_id', messageId).maybeSingle());
+  }
   if (!mine?.processed_at) return;
 
+  let first = mine && claims ? claims : null;
   const deadline = Date.now() + TURN_WAIT_MS;
   while (Date.now() < deadline) {
-    const { data, error } = await db().from('processed_whatsapp_messages')
-      .select('message_id')
-      .eq('chat_id', chatId)
-      .eq('status', 'processing')
-      .neq('message_id', messageId)
-      .lt('processed_at', mine.processed_at)
-      .gte('processed_at', new Date(Date.now() - 120_000).toISOString())
-      .limit(1);
-    if (error || !data?.length) return;
+    let waiting;
+    if (first) {
+      const live = Date.now() - CLAIM_LIVE_MS;
+      waiting = first.some((c) => c.status === 'processing' && c.message_id !== messageId
+        && at(c.processed_at) < at(mine.processed_at) && at(c.processed_at) >= live);
+      first = null;
+    } else {
+      const { data, error } = await db().from('processed_whatsapp_messages')
+        .select('message_id')
+        .eq('chat_id', chatId)
+        .eq('status', 'processing')
+        .neq('message_id', messageId)
+        .lt('processed_at', mine.processed_at)
+        .gte('processed_at', new Date(Date.now() - CLAIM_LIVE_MS).toISOString())
+        .limit(1);
+      waiting = !error && Boolean(data?.length);
+    }
+    if (!waiting) return;
     await sleep(250);
   }
 }
@@ -949,15 +991,19 @@ async function waitForTurn(chatId, messageId) {
  * 'drop'. Counted from the claims table, which every instance shares; without
  * it, per instance.
  */
-async function floodCheck(chatId) {
+async function floodCheck(chatId, claims = null) {
   let count = null;
   if (claimSupported === true) {
-    const since = new Date(Date.now() - FLOOD_WINDOW_MS).toISOString();
-    const { count: n, error } = await db().from('processed_whatsapp_messages')
-      .select('message_id', { count: 'exact', head: true })
-      .eq('chat_id', chatId)
-      .gte('created_at', since);
-    if (!error) count = n ?? 0;
+    const since = Date.now() - FLOOD_WINDOW_MS;
+    if (claims) {
+      count = claims.filter((c) => at(c.created_at) >= since).length;
+    } else {
+      const { count: n, error } = await db().from('processed_whatsapp_messages')
+        .select('message_id', { count: 'exact', head: true })
+        .eq('chat_id', chatId)
+        .gte('created_at', new Date(since).toISOString());
+      if (!error) count = n ?? 0;
+    }
   }
   if (count === null) {
     const now = Date.now();
