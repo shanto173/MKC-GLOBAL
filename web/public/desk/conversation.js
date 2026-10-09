@@ -57,7 +57,7 @@ export const TEMPLATE_WORDS = 'Send the reply-request template';
 export function botStateLine(customer) {
   const words = customer?.bot_state_words;
   if (!words) return null;
-  return { state: `With the bot: ${words}`, note: 'The bot keeps answering them. A reply from the desk does not pause it.' };
+  return { state: `With the bot: ${words}`, note: 'The bot keeps answering; replying here does not pause it.' };
 }
 
 /** Two messages from one sender further apart than this are two runs. */

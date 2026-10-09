@@ -173,7 +173,7 @@ test('where the customer is with the bot is said in the conversation - and that 
   assert.equal(convo.botStateLine({}), null);
   assert.deepEqual(convo.botStateLine({ bot_state_words: 'Booking — giving the chassis number' }), {
     state: 'With the bot: Booking — giving the chassis number',
-    note: 'The bot keeps answering them. A reply from the desk does not pause it.',
+    note: 'The bot keeps answering; replying here does not pause it.',
   });
 });
 
