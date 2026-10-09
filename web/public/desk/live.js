@@ -13,29 +13,63 @@
 export const SCOPES = ['bookings', 'customers', 'history', 'messages', 'outbox', 'problems', 'requests', 'shipments', 'team'];
 
 /**
- * The scopes each view of ?resource=console reads. A view that is not here
- * (search, preview, document_url) is fetched when it is asked for, never
- * polled, and never answered "not modified".
+ * The areas each list of ?resource=console reads. A view that is in neither
+ * this nor RECORD_SCOPES (search, preview, document_url) is fetched when it is
+ * asked for, never polled, and never answered "not modified".
  */
 export const VIEW_SCOPES = {
   inbox: ['bookings', 'customers', 'outbox', 'problems', 'requests', 'team'],
   counts: ['bookings', 'customers', 'outbox', 'problems', 'requests', 'team'],
-  'case:booking': ['bookings', 'customers', 'history', 'outbox', 'shipments', 'team'],
-  'case:request': ['bookings', 'customers', 'history', 'requests', 'team'],
   'case:mrn': ['bookings', 'customers', 'history', 'team'],
   document: ['bookings', 'history', 'team'],
   chats: ['bookings', 'customers', 'messages', 'problems'],
-  chat: ['bookings', 'customers', 'messages', 'problems', 'requests', 'team'],
   shipments: ['customers', 'shipments'],
-  shipment: ['bookings', 'customers', 'shipments', 'team'],
   settings: ['team'],
+  // As areas, for a page that cannot name its record (and as the fallback).
+  'case:booking': ['bookings', 'customers', 'history', 'outbox', 'shipments', 'team'],
+  'case:request': ['bookings', 'customers', 'history', 'requests', 'team'],
+  chat: ['bookings', 'customers', 'messages', 'problems', 'requests', 'team'],
+  shipment: ['bookings', 'customers', 'shipments', 'team'],
 };
+
+/**
+ * The conversation a chat id belongs to, as the database's desk_chat_key()
+ * names it: the channel the chat id says - "wa:…" is WhatsApp, a whole number
+ * Telegram - whatever label it was stored with; another id keeps its label.
+ */
+export function chatKey(channel, chatId) {
+  const id = String(chatId ?? '');
+  if (!id) return null;
+  const ch = id.startsWith('wa:') ? 'whatsapp' : /^-?\d+$/.test(id) ? 'telegram' : (channel || 'web');
+  return `chat:${ch}:${id}`;
+}
+
+/**
+ * The pages that show one record depend on that record's own version
+ * (booking:<ref>, chat:<channel>:<chat id>, …) rather than on a whole area:
+ * a case open on one booking is not fetched again because another moved.
+ * Each also follows 'team' (who may do what, the required papers). What such
+ * a page shows of other records - the customer panel on a case, a duplicate
+ * chassis on another booking - waits for its five-minute refresh.
+ */
+const RECORD_SCOPES = {
+  'case:booking': (q) => (q.ref ? [`booking:${q.ref}`, 'team'] : null),
+  'case:request': (q) => (q.ref ? [`request:${q.ref}`, 'team'] : null),
+  chat: (q) => (q.channel && q.chat_id ? [chatKey(q.channel, q.chat_id), 'team'] : null),
+  shipment: (q) => (q.id ? [`shipment:${q.id}`, 'team'] : null),
+};
+
+/** Whether a scope is one of the areas, rather than one record's key. */
+export const isArea = (scope) => SCOPES.includes(scope);
 
 /** The key VIEW_SCOPES knows a request by: the case view is three views. */
 export const viewKey = (view, query = {}) => (view === 'case' ? `case:${query.type}` : view);
 
 /** The scopes a request reads, or null when it is not one the desk polls. */
-export const scopesOf = (view, query = {}) => VIEW_SCOPES[viewKey(view, query)] ?? null;
+export function scopesOf(view, query = {}) {
+  const k = viewKey(view, query);
+  return RECORD_SCOPES[k]?.(query) ?? VIEW_SCOPES[k] ?? null;
+}
 
 /**
  * How often a view is worked out again on the server even when nothing it

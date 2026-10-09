@@ -8,7 +8,7 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, channelIcon, timeEl, ago, when, emptyState, errorState, skeleton, debounce, add, fill,
-  VIEW_SCOPES,
+  VIEW_SCOPES, scopesOf,
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -288,7 +288,7 @@ function renderShipment({ main, signal = null }, id) {
   }
 
   load();
-  return { refresh: () => load({ quiet: true }), scopes: VIEW_SCOPES.shipment };
+  return { refresh: () => load({ quiet: true }), scopes: scopesOf('shipment', { id }) };
 }
 
 const field = (label, input, id) => h('div', { class: 'field' }, h('label', { class: 'label', for: id }, label), input);

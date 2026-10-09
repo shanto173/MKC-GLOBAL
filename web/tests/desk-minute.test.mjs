@@ -163,3 +163,23 @@ test('a chat message elsewhere does not refetch the inbox', async () => {
   await pass(20_000);
   assert.equal(screen.loads, loadsBefore);
 });
+
+test('a case page open while colleagues work on other bookings: a minute of small reads, and the case is not fetched', async () => {
+  ui.primeLive(await ui.api({ view: 'pulse' }));
+  const page = { loads: 0 };
+  const load = async () => { page.loads += 1; await ui.api({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }); return true; };
+  await load();
+  ui.subscribe(ui.scopesOf('case', { type: 'booking', ref: 'MKY-BKG-1' }), load);
+  ui.startLive();
+  const rec = countCalls(db);
+  for (let i = 0; i < 4; i++) {
+    activity.bump('bookings');
+    activity.bump(`booking:MKY-BKG-${5 + i}`);
+    await pass(15_000);
+  }
+  assert.equal(page.loads, 1, 'only its first load');
+  assert.ok(rec.count <= 7, `${rec.count} calls:\n${rec.lines().join('\n')}`);
+  activity.bump('booking:MKY-BKG-1');
+  await pass(20_000);
+  assert.equal(page.loads, 2, 'and once when it moves itself');
+});

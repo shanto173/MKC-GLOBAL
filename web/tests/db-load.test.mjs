@@ -337,3 +337,54 @@ test('a search finds a shipment the first page does not show, and is filtered in
   assert.deepEqual(out.body.rows.map((s) => s.customer_name), ['Old Customer Ltd']);
   assert.ok(rec.lines().some((l) => /select shipments \[.*or\(…\)/.test(l)), rec.lines().join('\n'));
 });
+
+// ---------------------------------------------------------------------------
+// A page that shows one record follows that record
+// ---------------------------------------------------------------------------
+
+test('a case is not worked out again when another booking moves; it is when its own does', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const first = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' });
+  assert.equal(first.status, 200);
+
+  await post({ action: 'take', booking_ref: 'MKY-BKG-0' });     // somebody else's case
+  const other = await counted(() => get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Sara', { 'if-none-match': first.headers.etag }));
+  assert.equal(other.out.status, 304);
+  assert.equal(other.rec.count, 1, other.rec.lines().join('\n'));
+
+  await post({ action: 'internal_note', booking_ref: 'MKY-BKG-1', body: 'Called the port.' });   // this one
+  const own = await get({ view: 'case', type: 'booking', ref: 'MKY-BKG-1' }, 'Sara', { 'if-none-match': first.headers.etag });
+  assert.equal(own.status, 200);
+  assert.ok(own.body.notes.some((n) => n.body === 'Called the port.'));
+});
+
+test('a conversation answers 304 until something happens in that chat', async () => {
+  setup({ activity: true });
+  await get({ view: 'me' });
+  const q = { view: 'chat', channel: 'whatsapp', chat_id: 'wa:201000000001' };
+  const first = await get(q);
+  assert.equal(first.status, 200);
+  // A message in another chat.
+  db._tables.chat_messages.push({ id: 7001, channel: 'whatsapp', chat_id: 'wa:201000000002', direction: 'in', author: 'client', kind: 'text', body: 'hi', status: 'received', created_at: new Date().toISOString() });
+  activity.bump('messages');
+  activity.bump('chat:whatsapp:wa:201000000002');
+  assert.equal((await get(q, 'Sara', { 'if-none-match': first.headers.etag })).status, 304);
+  // One in this chat.
+  db._tables.chat_messages.push({ id: 7002, channel: 'whatsapp', chat_id: 'wa:201000000001', direction: 'in', author: 'client', kind: 'text', body: 'hello?', status: 'received', created_at: new Date().toISOString() });
+  activity.bump('messages');
+  activity.bump('chat:whatsapp:wa:201000000001');
+  const after = await get(q, 'Sara', { 'if-none-match': first.headers.etag });
+  assert.equal(after.status, 200);
+  assert.ok(after.body.messages.some((m) => m.body === 'hello?'));
+});
+
+test('the pulse answers for the records it is asked about, in the same one read', async () => {
+  setup({ activity: true });
+  await post({ action: 'take', booking_ref: 'MKY-BKG-0' });
+  const { rec, out } = await counted(() => get({ view: 'pulse', watch: 'booking:MKY-BKG-0,booking:MKY-BKG-5,chat:whatsapp:wa:201000000000,not a key' }));
+  assert.equal(rec.count, 1);
+  assert.ok(Number(out.body.versions['booking:MKY-BKG-0']) >= 1, 'taken: it has a version');
+  assert.equal(out.body.versions['booking:MKY-BKG-5'], undefined, 'never written since: none yet');
+  assert.equal(out.body.versions['not a key'], undefined);
+});

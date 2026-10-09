@@ -20,10 +20,9 @@
 
 import {
   h, icon, api, post, toast, toastError, badge, avatar, timeEl, ago, when, emptyState, errorState, skeleton, actionButton,
-  dialog, draft, session, add, fill, lines, channelBadge, VIEW_SCOPES,
+  dialog, draft, session, add, fill, lines, channelBadge, scopesOf,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
-import { RHYTHM } from './live.js';
 import { openViewer } from './viewer.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
@@ -118,6 +117,10 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
         target,
         draftKey: `chat:${type}:${ref}`,
       });
+      // The conversation beside the case moves with every message in it, far
+      // more often than the case: it is refreshed on its own chat's version
+      // (public/desk/live.js), and the case on the case's.
+      if (where.chatId) subscribe?.(scopesOf('chat', { channel: where.channel, chat_id: where.chatId }), () => convo?.refresh());
     }
     if (changed) {
       // Not while somebody is typing in the page: a redraw would take the
@@ -794,12 +797,6 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
   }
 
   load();
-  // The conversation beside the case moves far more often than the case
-  // does - every message - so it is refreshed on its own areas, and the case
-  // on the case's (public/desk/live.js). 'messages' moves with every message
-  // in every chat, so the pane is fetched at most every 20 seconds, as
-  // before; sending from it reloads it at once (conversation.js).
-  subscribe?.(VIEW_SCOPES.chat, () => convo?.refresh(), { minGapMs: RHYTHM.fallbackMs });
   return {
     async refresh() {
       // A dialog open on this case is about the case as it was drawn; its
@@ -808,7 +805,8 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       if (document.querySelector('dialog[open]')) return false;
       return (await load({ quiet: true })) !== null;
     },
-    scopes: VIEW_SCOPES[`case:${type}`],
+    // This case's own version, not every booking's (public/desk/live.js).
+    scopes: scopesOf('case', { type, ref }),
     dispose() {
       watcher?.disconnect();
       sizer?.disconnect();

@@ -8,9 +8,9 @@
  * characters, not run. A test greps every desk file for the ways HTML gets in.
  */
 
-import { RHYTHM, SCOPES, pollDelay, changed } from './live.js';
+import { RHYTHM, SCOPES, pollDelay, changed, isArea } from './live.js';
 
-export { SCOPES, VIEW_SCOPES, scopesOf } from './live.js';
+export { SCOPES, VIEW_SCOPES, scopesOf, chatKey } from './live.js';
 
 // ---------------------------------------------------------------------------
 // Elements
@@ -429,10 +429,17 @@ export async function api(params, { method = 'GET', body = null, signal = null }
 
 /**
  * The desk used to fetch the whole of every screen every 20 seconds. Now it
- * asks the server for the pulse - the version of each area of the desk, one
- * cheap read - and fetches a screen again only when one of the areas that
- * screen shows has moved, or when it has not been fetched for MAX_AGE (what
- * it says about the time - "overdue", "done today" - moves without any write).
+ * asks the server for the pulse - the version of each area of the desk, and
+ * of each record an open screen shows (booking:<ref>, chat:<channel>:<id>…),
+ * in one cheap read - and fetches a screen again only when something it
+ * shows has moved, or when it has not been fetched for MAX_AGE (what it says
+ * about the time - "overdue", "done today" - moves without any write).
+ *
+ * Scopes are the areas (SCOPES) for lists and the record's own keys for a
+ * page that shows one - scopesOf(view, params) gives either, the same answer
+ * the server uses to decide "not modified":
+ *
+ *   subscribe(scopesOf('chat', { channel, chat_id }), () => convo.refresh());
  *
  * The rhythm (public/desk/live.js RHYTHM): every 15 seconds while the page is
  * visible and somebody is using it; every minute once nobody has touched it
@@ -529,9 +536,13 @@ async function check() {
     try {
       if (live.supported !== false || Date.now() - live.probedAt >= PULSE_RECHECK_MS) {
         live.probedAt = Date.now();
+        // The areas always; the records the open screens show by name
+        // (booking:…, chat:…), so a case is fetched again when it moves and
+        // not when another one does.
+        const watch = [...new Set([...live.subs].flatMap((s) => s.scopes).filter((k) => !isArea(k)))].slice(0, 20);
         let p;
         try {
-          p = await api({ view: 'pulse' });
+          p = await api({ view: 'pulse', watch: watch.join(',') });
         } catch (err) {
           // An older server, mid-deploy, does not know the view.
           if (err.status === 400 || err.status === 404) p = { supported: false };

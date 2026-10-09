@@ -35,7 +35,7 @@ const json = (status, body, headers = {}) => ({
 });
 globalThis.fetch = async (url, init = {}) => {
   const q = Object.fromEntries(new URL(url, 'http://desk').searchParams);
-  server.calls.push({ view: q.view, inm: init.headers?.['if-none-match'] ?? null });
+  server.calls.push({ view: q.view, inm: init.headers?.['if-none-match'] ?? null, watch: q.watch ?? null });
   if (init.signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
   if (server.delayMs) await new Promise((r) => setTimeout(r, server.delayMs));
   if (server.failing) return json(500, { error: 'boom' });
@@ -200,4 +200,22 @@ test('an older server without the pulse: every screen on the old timer, and the 
   assert.equal(views('pulse'), 1, 'asked once, then left for five minutes');
   await pass(300_000);
   assert.ok(views('pulse') >= 2, 'and asked again');
+});
+
+test('a page that shows one record asks after that record by name, and is fetched again when it moves - not when another does', async () => {
+  server.versions['booking:B1'] = 1;
+  server.versions['booking:B2'] = 1;
+  ui.primeLive({ supported: true, versions: { ...server.versions } });
+  const caseB1 = screen('case', ui.scopesOf('case', { type: 'booking', ref: 'B1' }));
+  ui.startLive();
+  server.versions['booking:B2'] += 1;
+  await pass(20_000);
+  assert.equal(caseB1.loads, 0, 'another booking moved');
+  assert.match(server.calls.filter((c) => c.view === 'pulse').at(-1).watch ?? '', /booking:B1/);
+  server.versions['booking:B1'] += 1;
+  await pass(20_000);
+  assert.equal(caseB1.loads, 1, 'its own booking moved');
+  assert.deepEqual(ui.scopesOf('chat', { channel: 'telegram', chat_id: 'wa:2010' }), ['chat:whatsapp:wa:2010', 'team'], 'a WhatsApp chat id is a WhatsApp chat, whatever it was labelled');
+  delete server.versions['booking:B1'];
+  delete server.versions['booking:B2'];
 });

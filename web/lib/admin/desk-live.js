@@ -32,7 +32,7 @@
 
 import { db } from '../supabase.js';
 import { fingerprint, isMissingTable } from './desk-shared.js';
-import { SCOPES, scopesOf, viewKey, VIEW_CLOCK } from '../../public/desk/live.js';
+import { SCOPES, scopesOf, viewKey, isArea, VIEW_CLOCK } from '../../public/desk/live.js';
 
 /** How long a database without desk_activity is believed to still lack it. */
 const UNSUPPORTED_RECHECK_MS = 300_000;
@@ -42,21 +42,34 @@ const BUILD = process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_
 
 let missing = null;   // { client, at } once desk_activity was seen not to exist
 
+/** At most this many records' keys in one pulse. */
+const MAX_WATCH = 20;
+const WATCHABLE = /^(booking|request|mrn|shipment|chat):[^,]{1,190}$/;
+
+/** The record keys a request asks about (?watch=booking:MKY-1,chat:whatsapp:wa:…), checked. */
+export function watchedKeys(raw) {
+  return [...new Set(String(raw ?? '').split(',').map((k) => k.trim()).filter((k) => WATCHABLE.test(k)))].slice(0, MAX_WATCH);
+}
+
 /**
- * The versions, read now. Never cached: a pulse read a moment before an
- * operator's own write would answer their next screen with the state before
- * it. { supported: false } when the table is not there (or holds no rows).
+ * The versions of the nine areas, and of the records named - read now, in
+ * one call. Never cached: a pulse read a moment before an operator's own
+ * write would answer their next screen with the state before it.
+ * { supported: false } when the table is not there (or holds no areas). A
+ * record nobody has written since the migration has no row, and no version:
+ * the same on every read, until its first write gives it one.
  */
-export async function readPulse() {
+export async function readPulse(keys = []) {
   const client = db();
   if (missing?.client === client && Date.now() - missing.at < UNSUPPORTED_RECHECK_MS) return { supported: false, versions: null };
-  const { data, error } = await client.from('desk_activity').select('scope, version');
+  const records = keys.filter((k) => !isArea(k));
+  const { data, error } = await client.from('desk_activity').select('scope, version').in('scope', [...SCOPES, ...records]);
   if (error) {
     if (isMissingTable(error)) missing = { client, at: Date.now() };
     else console.error('desk_activity read failed:', error.message);
     return { supported: false, versions: null };
   }
-  if (!data?.length) {
+  if (!data?.some((row) => isArea(row.scope))) {
     missing = { client, at: Date.now() };
     return { supported: false, versions: null };
   }
@@ -71,9 +84,9 @@ export function resetLiveForTests() {
   memo = null;
 }
 
-/** GET view=pulse */
+/** GET view=pulse&watch=booking:MKY-1,chat:whatsapp:wa:2010… */
 export async function pulseView(req, res) {
-  const pulse = await readPulse();
+  const pulse = await readPulse(watchedKeys(req.query?.watch));
   res.setHeader?.('Cache-Control', 'no-store');
   return res.status(200).json({ supported: pulse.supported, versions: pulse.versions, scopes: SCOPES, at: new Date().toISOString() });
 }
@@ -141,8 +154,9 @@ function notModified(res, etag) {
  * it, after it when only the answer's own hash can.
  */
 export async function conditionalView(view, req, res, who, run) {
-  if (!scopesOf(view, req.query)) return run(res);
-  const pulse = await readPulse();
+  const scopes = scopesOf(view, req.query);
+  if (!scopes) return run(res);
+  const pulse = await readPulse(scopes);
   req.deskPulse = pulse;
   const asked = req.headers?.['if-none-match'] ?? null;
   const tag = versionTag(view, req, who, pulse);
