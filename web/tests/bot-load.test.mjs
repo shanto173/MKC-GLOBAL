@@ -130,3 +130,20 @@ test('a Telegram message from a customer we know is at most 9 round trips (it wa
   await tg('menu', 1002);
   assert.ok(rec.count <= 9, `${rec.count} calls:\n${rec.lines().join('\n')}`);
 });
+
+test('a drain that found as many as it takes leaves the next turn to drain again, not to wait a minute', async () => {
+  await wa('menu', 'wamid.warm2');
+  const { drain } = await import('../lib/outbox.js');
+  db._tables.notification_outbox ??= [];
+  for (let i = 0; i < 7; i++) {
+    db._tables.notification_outbox.push({
+      id: 600 + i, chat_id: CHAT, channel: 'whatsapp', client_id: 7, event_type: 'operations_message', entity_type: 'chat', entity_id: CHAT,
+      payload: { text: `Note ${i}` }, status: 'pending', attempt_count: 0, idempotency_key: `many-${i}`,
+      available_at: new Date(Date.now() - 1000).toISOString(), created_at: new Date().toISOString(),
+    });
+  }
+  await drain({ limit: 5 });
+  assert.equal(db._tables.notification_outbox.filter((r) => r.id >= 600 && r.status === 'pending').length, 2, 'five of seven went');
+  await wa('menu', 'wamid.after');
+  assert.equal(db._tables.notification_outbox.filter((r) => r.id >= 600 && r.status === 'pending').length, 0, 'the next turn sent the rest');
+});

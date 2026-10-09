@@ -280,6 +280,10 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
     }
   }
 
+  // As many were due as it would take: there may be more, so the next turn
+  // drains again rather than leaving them for a minute (drainAfterTurn).
+  if (result.considered >= limit) queuedHere = true;
+
   // The chat log of what went out is written in the background; a drain run
   // from a cron route has nothing after it to wait for that, so it waits here.
   await flush();
@@ -405,6 +409,8 @@ export async function noteDeliveryStatus({ providerMessageId, status, code = nul
   await db().from('notification_outbox')
     .update({ ...patch, last_error: reason, updated_at: now.toISOString() })
     .eq('id', row.id);
+  // Put back to be sent: the next turn here drains, not the one a minute on.
+  if (patch.status === 'pending') queuedHere = true;
   logEvent('outbox_delivery_failed', { event_type: row.event_type, entity_id: row.entity_id, code, next: patch.status });
   return { ok: true, matched: true, ...patch };
 }
