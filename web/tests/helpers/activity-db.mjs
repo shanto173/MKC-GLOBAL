@@ -5,10 +5,13 @@
  * whenever a row it stands for is written - an area of the desk, or one
  * record (booking:<ref>, chat:<channel>:<chat id>, …). The fake has no
  * triggers, so this does the same after each write the fake runs - by the
- * same rules, and straight into the table's rows, so a test counting round
- * trips does not count the bumps (in Postgres they are part of the write,
- * not a call). Each key moves once per statement, as the trigger moves it
- * once per transaction.
+ * same rules (desk_activity_keys, desk_activity_touch), and straight into the
+ * table's rows, so a test counting round trips does not count the bumps (in
+ * Postgres they are part of the write, not a call). Each key moves once per
+ * statement, as the trigger moves it once per transaction.
+ *
+ * tests/desk-activity-sql.test.mjs runs the real trigger on a real Postgres
+ * and holds these rules to it.
  */
 
 import { chatKey } from '../../public/desk/live.js';
@@ -21,72 +24,74 @@ const same = (a, b, ignore) => {
 };
 const key = (prefix, value) => (value == null || value === '' ? null : `${prefix}:${value}`);
 
-/** The keys one row's change moves, as desk_activity_touch() decides them. */
-export function scopesFor(table, op, before, after, tables = {}) {
-  const nu = after ?? null;
-  const old = before ?? null;
-  const r = nu ?? old ?? {};
-  let keys;
+/** The keys one row stands for, as desk_activity_keys() works them out. */
+export function keysFor(table, r, tables = {}) {
+  if (!r) return [];
   switch (table) {
     case 'bookings':
-      if (op === 'update' && old?.status === 'draft' && nu?.status === 'draft') return [];
-      keys = ['bookings', key('booking', r.booking_ref), chatKey(r.channel, r.chat_id)];
-      break;
+      return ['bookings', key('booking', r.booking_ref), chatKey(r.channel, r.chat_id)];
     case 'booking_documents':
-      keys = ['bookings', key('booking', r.booking_ref)];
-      break;
+      return ['bookings', key('booking', r.booking_ref)];
     case 'mrn_requests':
-      keys = ['bookings', key('mrn', r.request_ref), key('booking', r.booking_ref)];
-      break;
+      return ['bookings', key('mrn', r.request_ref), key('booking', r.booking_ref)];
     case 'support_tickets':
-      keys = ['requests', key('request', r.ticket_ref), chatKey(r.channel, r.chat_id)];
-      break;
+      return ['requests', key('request', r.ticket_ref), chatKey(r.channel, r.chat_id)];
     case 'notification_outbox':
-      if (op === 'update' && old?.status === 'sent' && nu?.status === 'sent') return [];
-      keys = ['outbox', { booking: key('booking', r.entity_id), support_ticket: key('request', r.entity_id), shipment: key('shipment', r.entity_id) }[r.entity_type] ?? null];
-      break;
+      return ['outbox', { booking: key('booking', r.entity_id), support_ticket: key('request', r.entity_id), shipment: key('shipment', r.entity_id) }[r.entity_type] ?? null];
     case 'chat_messages':
-      keys = ['messages', chatKey(r.channel, r.chat_id), ...(nu?.status === 'failed' || old?.status === 'failed' ? ['problems'] : [])];
-      break;
+      return ['messages', chatKey(r.channel, r.chat_id), r.status === 'failed' ? 'problems' : null];
     case 'conversation_sessions':
-      keys = [chatKey(r.channel, r.chat_id)];
-      break;
+      return [chatKey(r.channel, r.chat_id)];
     case 'audit_logs': {
-      keys = ['history', ...(r.entity_type === 'problem' ? ['problems'] : [])];
-      const bookingOf = (fromTable, match) => r.metadata?.booking_ref ?? (tables[fromTable] ?? []).find(match)?.booking_ref ?? null;
-      if (r.entity_type === 'booking') keys.push(key('booking', r.entity_id));
-      else if (r.entity_type === 'booking_document') keys.push(key('booking', bookingOf('booking_documents', (d) => String(d.id) === String(r.entity_id))));
-      else if (r.entity_type === 'mrn_request') keys.push(key('mrn', r.entity_id), key('booking', bookingOf('mrn_requests', (m) => m.request_ref === r.entity_id)));
-      else if (r.entity_type === 'support_ticket') keys.push(key('request', r.entity_id));
-      else if (r.entity_type === 'shipment') keys.push(key('shipment', r.entity_id));
-      break;
+      const keys = ['history'];
+      const id = String(r.entity_id ?? '');
+      if (r.entity_type === 'problem') {
+        keys.push('problems');
+        if (id.startsWith('chat:')) keys.push(id);
+        else if (/^message:\d{1,18}$/.test(id)) {
+          const m = (tables.chat_messages ?? []).find((x) => String(x.id) === id.slice(8));
+          keys.push(m ? chatKey(m.channel, m.chat_id) : null);
+        }
+      } else if (r.entity_type === 'booking') keys.push(key('booking', id));
+      else if (r.entity_type === 'booking_document') {
+        const ref = r.metadata?.booking_ref ?? (/^\d{1,18}$/.test(id) ? (tables.booking_documents ?? []).find((d) => String(d.id) === id)?.booking_ref : null);
+        keys.push(key('booking', ref));
+      } else if (r.entity_type === 'mrn_request') {
+        const ref = r.metadata?.booking_ref ?? (tables.mrn_requests ?? []).find((m) => m.request_ref === id)?.booking_ref;
+        keys.push(key('mrn', id), key('booking', ref));
+      } else if (r.entity_type === 'support_ticket') keys.push(key('request', id));
+      else if (r.entity_type === 'shipment') keys.push(key('shipment', id));
+      return keys;
     }
     case 'internal_notes':
-      keys = ['history', r.booking_ref ? key('booking', r.booking_ref)
+      return ['history', r.booking_ref ? key('booking', r.booking_ref)
         : r.entity_type === 'support_ticket' ? key('request', r.entity_id)
           : r.entity_type === 'mrn_request' ? key('mrn', r.entity_id) : null];
-      break;
     case 'clients':
-      if (op === 'update' && same(old, nu, 'updated_at')) return [];
-      keys = ['customers', r.whatsapp_id ? chatKey('whatsapp', `wa:${r.whatsapp_id}`) : null, r.telegram_chat_id != null ? chatKey('telegram', String(r.telegram_chat_id)) : null];
-      break;
+      return ['customers', r.whatsapp_id ? chatKey('whatsapp', `wa:${r.whatsapp_id}`) : null, r.telegram_chat_id != null ? chatKey('telegram', String(r.telegram_chat_id)) : null];
     case 'shipments':
-      keys = ['shipments', key('shipment', r.shipment_id), key('booking', r.booking_ref)];
-      break;
+      return ['shipments', key('shipment', r.shipment_id), key('booking', r.booking_ref)];
     case 'shipment_events':
-      keys = ['shipments', key('shipment', r.shipment_id)];
-      break;
+      return ['shipments', key('shipment', r.shipment_id)];
     case 'ops_users':
-      if (op === 'update' && same(old, nu, 'last_seen')) return [];
-      keys = ['team'];
-      break;
     case 'bot_settings':
-      keys = ['team'];
-      break;
+      return ['team'];
     default:
       return [];
   }
-  return [...new Set(keys.filter(Boolean))];
+}
+
+/** The keys one row's change moves, as desk_activity_touch() decides them. */
+export function scopesFor(table, op, before, after, tables = {}) {
+  if (op === 'update') {
+    if (table === 'bookings' && before?.status === 'draft' && after?.status === 'draft') return [];
+    if (table === 'notification_outbox' && before?.status === 'sent' && after?.status === 'sent') return [];
+    if (table === 'clients' && same(before, after, 'updated_at')) return [];
+    if (table === 'ops_users' && same(before, after, 'last_seen')) return [];
+  }
+  // What the row stood for, and what it stands for now.
+  const keys = [...keysFor(table, after, tables), ...keysFor(table, before, tables)];
+  return [...new Set(keys.filter(Boolean))].sort();
 }
 
 /**
