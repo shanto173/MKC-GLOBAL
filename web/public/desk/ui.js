@@ -360,6 +360,7 @@ export const isOffline = () => offline;
  */
 const answers = new Map();
 const ANSWERS_KEPT = 40;
+const GET_TIMEOUT_MS = 30_000;
 
 /** Forgets every kept answer: on signing out, they are someone else's now. */
 export function forgetAnswers() { answers.clear(); }
@@ -378,6 +379,10 @@ export async function api(params, { method = 'GET', body = null, signal = null }
   if (method === 'GET' && session.name) qs.set('operator', session.name);
   const url = `/api/admin/ops?${qs}`;
   const kept = method === 'GET' ? answers.get(url) ?? null : null;
+  // A read that has not answered in 30 s is not going to: it is given up on,
+  // so the loop that asked can ask again. Actions are left to finish.
+  const late = method === 'GET' && typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(GET_TIMEOUT_MS) : null;
+  const both = signal && late ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, late]) : signal) : (signal ?? late);
 
   let res;
   try {
@@ -390,10 +395,12 @@ export async function api(params, { method = 'GET', body = null, signal = null }
       },
       body: body ? JSON.stringify({ ...body, operator: session.name }) : undefined,
       cache: 'no-store',
-      signal: signal ?? undefined,
+      signal: both ?? undefined,
     });
   } catch (err) {
-    if (signal?.aborted || err?.name === 'AbortError') throw Object.assign(new Error('Cancelled.'), { aborted: true });
+    if (signal?.aborted) throw Object.assign(new Error('Cancelled.'), { aborted: true });
+    if (late?.aborted) throw Object.assign(new Error('The server took too long to answer. Try again.'), { status: 504 });
+    if (err?.name === 'AbortError') throw Object.assign(new Error('Cancelled.'), { aborted: true });
     setOffline(true);
     throw Object.assign(new Error('You are offline. Nothing was sent — try again when the connection is back.'), { offline: true });
   }
@@ -499,13 +506,19 @@ export function subscribe(scopes, refresh, { maxAgeMs = RHYTHM.maxAgeMs, minGapM
   live.subs.add(sub);
   return {
     unsubscribe() { sub.closed = true; live.subs.delete(sub); },
-    now: () => runSub(sub, live.versions),
+    now: () => runSub(sub, live.versions, { queue: true }),
   };
 }
 
-function runSub(sub, versions) {
+/**
+ * Runs a subscription's refresh, one at a time. A tick that finds it still
+ * loading leaves it be: when it finishes it has caught up to the versions it
+ * started from, and the next tick sees anything newer. An explicit now()
+ * asked meanwhile runs once more after it.
+ */
+function runSub(sub, versions, { queue = false } = {}) {
   if (sub.closed) return Promise.resolve();
-  if (sub.running) { sub.again = true; return sub.running; }
+  if (sub.running) { if (queue) sub.again = true; return sub.running; }
   const against = versions ? { ...versions } : null;
   sub.running = (async () => {
     try {
@@ -551,7 +564,9 @@ async function check() {
         live.supported = p.supported === true;
         if (live.supported) live.versions = p.versions ?? null;
       }
-      await Promise.all([...live.subs].filter((s) => due(s)).map((s) => runSub(s, live.versions)));
+      // Not waited for: a screen that is slow to load must not hold up the
+      // next pulse. Each subscription has one refresh in flight at most.
+      for (const s of [...live.subs].filter((x) => due(x))) runSub(s, live.versions);
       live.errors = 0;
     } catch (err) {
       if (!err?.aborted) live.errors += 1;

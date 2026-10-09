@@ -37,7 +37,7 @@ globalThis.fetch = async (url, init = {}) => {
   const q = Object.fromEntries(new URL(url, 'http://desk').searchParams);
   server.calls.push({ view: q.view, inm: init.headers?.['if-none-match'] ?? null, watch: q.watch ?? null });
   if (init.signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-  if (server.delayMs) await new Promise((r) => setTimeout(r, server.delayMs));
+  if (server.delayMs && (!server.slowView || server.slowView === q.view)) await new Promise((r) => setTimeout(r, server.delayMs));
   if (server.failing) return json(500, { error: 'boom' });
   if (q.view === 'pulse') return server.supported ? json(200, { supported: true, versions: { ...server.versions } }) : json(400, { error: 'Unknown view "pulse"' });
   const etag = `W/"${q.view}-${server.versions.bookings}"`;
@@ -56,6 +56,7 @@ beforeEach(() => {
   server.failing = false;
   server.supported = true;
   server.delayMs = 0;
+  server.slowView = null;
   globalThis.document.hidden = false;
   ui.session.name = 'Sara';
   ui.session.secret = 's';
@@ -218,4 +219,18 @@ test('a page that shows one record asks after that record by name, and is fetche
   assert.deepEqual(ui.scopesOf('chat', { channel: 'telegram', chat_id: 'wa:2010' }), ['chat:whatsapp:wa:2010', 'team'], 'a WhatsApp chat id is a WhatsApp chat, whatever it was labelled');
   delete server.versions['booking:B1'];
   delete server.versions['booking:B2'];
+});
+
+test('a screen slow to load does not hold up the pulse', async () => {
+  ui.primeLive({ supported: true, versions: { ...server.versions } });
+  const inbox = screen('inbox', ['bookings']);
+  ui.startLive();
+  server.slowView = 'inbox';
+  server.delayMs = 45_000;
+  server.versions.bookings += 1;
+  await pass(60_000);
+  assert.ok(views('pulse') >= 3, `${views('pulse')} pulses while the inbox was loading`);
+  assert.equal(views('inbox'), 1, 'and the inbox asked for once, not again while it is still loading');
+  await pass(10_000);
+  assert.equal(inbox.loads, 1);
 });
