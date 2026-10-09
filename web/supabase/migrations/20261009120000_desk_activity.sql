@@ -25,7 +25,9 @@
 -- for its row (lock_timeout) and is skipped on any error, so a busy or broken
 -- signal costs the desk freshness - bounded by its 5-minute full refresh -
 -- and never costs the bot a write. Rows are bumped in name order, so two
--- transactions never wait on each other's counters the other way round.
+-- transactions never wait on each other's counters the other way round, and
+-- each scope at most once per transaction, so a statement that writes ten
+-- thousand rows costs one bump, not ten thousand.
 --
 -- Scopes, and what bumps them:
 --   bookings   bookings (not a draft being typed), booking_documents, mrn_requests
@@ -111,12 +113,23 @@ begin
       return null;
   end case;
 
-  foreach s in array (select array_agg(x order by x) from unnest(scopes) as x) loop
-    update desk_activity set version = version + 1, changed_at = now() where scope = s;
+  -- Every list above is written in name order, so two transactions never
+  -- wait on each other's rows the other way round.
+  foreach s in array scopes loop
+    -- Once per scope per transaction. The trigger is per row, and a statement
+    -- that writes ten thousand rows (a clean-up, a backfill) would otherwise
+    -- update this one row ten thousand times inside one transaction - each
+    -- update slower than the last, as the row's versions pile up. The marker
+    -- is transaction-local (set_config(..., true)) and gone at commit.
+    continue when current_setting('desk_activity.' || s, true) = 'bumped';
+    begin
+      update desk_activity set version = version + 1, changed_at = now() where scope = s;
+      perform set_config('desk_activity.' || s, 'bumped', true);
+    exception when others then
+      -- lock_not_available after 250 ms, or anything else: the write goes on.
+      null;
+    end;
   end loop;
-  return null;
-exception when others then
-  -- lock_not_available after 250 ms, or anything else: the write goes on.
   return null;
 end
 $func$;
