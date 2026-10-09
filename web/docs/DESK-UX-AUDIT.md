@@ -83,3 +83,45 @@ Before is under `shots/before/`, after under `shots/after/`. They are kept outsi
 |---|---|---|---|
 | T1 | **One long scroll** with a row of pill links at the top that scroll away. | `settings-w1440` | A sticky **section nav** on the left on wide screens; sections as calm cards with a section header. |
 | T2 | **The team table is wide and grey.** Role selects are 260 px wide; "Seen 5 wk ago" is the same weight for an active colleague and a switched-off account. | `settings-w1440` | Avatars with initials, narrower selects, and a status badge for "Active" and "Switched off". |
+
+## Second pass: the owner's brief (9 October 2026)
+
+The owner's brief, `docs/DESK-REDESIGN-PROMPT.md`, asks that a new colleague can open any screen and answer: what is this, what needs my attention, who is responsible, what should I do next, and will this message the customer. This pass (branch `desk-redesign-2`, on top of `release-2026-10-09`) measured the desk against it and changed what fell short. The findings above are kept as they were; some of their fixes have since been renamed (for example **Take it** is now **Assign to me**, **Problems** is **Issues**, **Set aside** is **Dismiss issue**; see "Words" in `DESK-DESIGN-SYSTEM.md`).
+
+**Screenshots.** Headless Edge against the local copy of the desk (the real `public/desk` files and API on the in-memory database, brand-chat seed, nothing outbound). Sizes: `w1536v` is 1536×750 (1920×1080 at 125%, in a browser), `w1440` is 1440×900, `w1280` is 1280×800 at 125%, `phone` is 390 px. Before is `shots/chat-before/`, after `shots/chat-after/`; the walk-through is `shots/tasks/`; kept in the session scratchpad (`redesign2/`), not in the repo.
+
+### What was already there
+
+Most of the brief was already built: the four destinations; the logo and name; a Next step card with one primary and the reason beside a disabled one; a document checklist from the server; the customer's answer beside the request; the viewer with the file and its reading side by side; the composer's restrictions from the server (normal, template, STOP, blocked, not connected, no chat); delivery ticks; files both ways; version conflicts and retry keys; shipments' late badges and message preview; search by the last six of a chassis.
+
+### What fell short, and what changed
+
+| # | Observed | Seen in | Change |
+|---|---|---|---|
+| B1 | **The chat looked poor**: bot, staff and notifications in three different fills; every failure a red box, the same reason repeated under each; the header wrapped to two or three rows; a disabled box under the closed-window banner. | `chat-before/chats-sinai-closed-phone`, `case-cairo-convo-w1536v` | WhatsApp's cues, calm: theirs white left, ours light green right, small tails on a run's first bubble, one quiet failure line said once, a one-row header, the banner in the box's place. Transcript 377 → 497 px on a phone with a closed window. |
+| B2 | **The words were the desk's, not the brief's**: Needs us, Take it, Set aside, Problems, Looks right, "Received, not checked". | `release-1009/inbox-after-w1536` | The brief's words throughout; "verified" for a person's decision on a paper, never for receipt. |
+| B3 | **Guidance lived in tooltips**: where the customer is with the bot was a hover on the name; nothing said what Set aside did. | code | A line under the newest message ("The bot keeps answering; replying here does not pause it."); Dismiss issue asks first and says what it does not do. |
+| B4 | **Blank owners**: issue, MRN and waiting rows had an empty Owner column. | `inbox-w1536` | "Anyone on the team" or "Unassigned". |
+| B5 | **Terms unexplained**: VIN, MRN, ACID, EUR.1, CMR. | – | Info dots and a glossary, one editable list. |
+| B6 | **"Saved, and the customer was told"** after a shipment update - a send is not delivery. | `shipments` | "Update saved; notification sent. Sent is not proof it was delivered or read." and the box says the channel and language. |
+| B7 | **Settings could lose work**: saving one card redrew the others; leaving asked nothing; two cards said who changed them. | code | Unsaved changes tag, a question before leaving, other cards kept, every card's last change, saved against the versions it was drawn from. |
+| B8 | **An MRN looked obtained here**: "Issue the MRN". | inbox | "Record the MRN once it is issued", and the dialog says the desk only records it. |
+
+### Defects the walk-through found
+
+| Defect | Fix |
+|---|---|
+| The message preview said "Sent on WhatsApp." for a customer who had written STOP (or was blocked), then the save reported it failed. | The preview says "Nothing will be sent" with the reason, window open or not. |
+| Asked for something that was not a missing document, a booking's case said "Customer's turn" while the inbox listed it under Needs attention as "Confirm the booking". | The next action is the customer's until they answer (`workflow.js`, a booking-rule change, flagged for review). |
+| An unassigned call-back still said "Take this call-back". | "Assign to me". |
+
+### Verified
+
+The brief's thirteen tasks, the three roles and a concurrent edit, driven through the desk at 1440×900 (`redesign2/tasks13.mjs`, 35 checks): find and claim a booking; verify a matching document; a wrong VIN and an unreadable file; request missing information and see the waiting state; record an MRN, verify the papers and confirm; resolve a call-back; reply; a closed window and an opted-out chat; a refused attachment, then a good one; a shipment update with and without notification; search by chassis and back to the queue as it was; save a setting; an agent's, a supervisor's and a read-only colleague's limits; a change refused because a colleague changed the case first. The earlier walk-throughs still pass (the release check, the functional check, and the end-to-end scenario with its database-load counts).
+
+### Not done, and why
+
+- **A shared "read" state for chats** and **a pause-bot control**: neither exists in the backend, and the brief forbids faking them. Unread stays per browser.
+- **A visible shipping reference**: the booking rules ask for it only when a booking has no reference, which never happens today, and it is stored only in a task and the audit. Whether MKY needs the carrier's number as a real field is the owner's question.
+- **Sentences such as "Couldn't read the MRN — check it by eye"** keep "check", as the verb of a task.
+- **Search groups, sign-in and the read-only case** were inspected, not redesigned: they already met the brief.

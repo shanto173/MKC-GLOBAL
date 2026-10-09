@@ -14,10 +14,10 @@ Who it is for: the operations team of three to ten people, all day, on laptops a
 
 1. **One primary action per view.**
    - The Next step card has exactly one filled button.
-   - In the viewer, the primary button follows the evidence. A paper that does not match the booking makes "Ask for a new one" the primary.
+   - In the viewer, the primary button follows the evidence. A paper that does not match the booking makes "Request replacement" the primary.
    - When the primary scrolls out of view, a copy appears in the case header on a desktop, or in the bottom bar on a phone. Two copies are never on screen at once.
 2. **Status is always a word, an icon and a colour, never colour alone.** A badge reads "Waiting for the customer" with a clock, in amber. A person who cannot tell amber from green still reads the word and sees the clock.
-3. **Newest urgency first.** The server sorts the inbox: problems, then urgent, then overdue, then high priority, then oldest first. The design makes that order visible:
+3. **Newest urgency first.** The server sorts the inbox: issues, then urgent, then overdue, then high priority, then oldest first. The design makes that order visible:
    - the stripe on the left of each row;
    - the age, which turns amber, then red;
    - the Urgent badge, and the word OVERDUE under the age.
@@ -39,6 +39,30 @@ Who it is for: the operations team of three to ten people, all day, on laptops a
    - A conversation line is laid out on its own, so an Arabic line runs right to left and the English line under it runs left to right.
    - File names are isolated left to right, the way a file manager shows them.
    - The desk's own chrome stays English and left to right.
+8. **Guidance is never only a tooltip.** What a person needs to decide is on the page: a disabled button says why beside it, a term has an info dot that opens on a tap, where the customer is with the bot is a line under the newest message, and Dismiss issue says what it does before it does it. A tooltip may repeat it, never hold it alone.
+
+## Words
+
+The words are the owner's (`docs/DESK-REDESIGN-PROMPT.md`). A person reads them; the API's keys behind them (`needs_us`, `problems`, `mine`, `take`, `dismiss_problem`) did not change, so URLs, bookmarks and the pulse kept working.
+
+| Say | Not | Where |
+|---|---|---|
+| Needs attention · Waiting for customer · Completed today | Needs us · Waiting on customer · Done today | Inbox tabs (phone: Attention · Waiting · Completed) |
+| Bookings · Call-back requests · MRN applications · Issues | Call-backs · MRN · Problems | Inbox filter, sidebar shortcut |
+| Assigned to me | Mine | Its own shortcut, apart from the kinds of work |
+| Assign to me · Unassign · Assign to me instead | Take it · Put back · Take it over | Rows, case header, a call-back's Next step |
+| Unassigned · Assigned to you · Assigned to Sara · Anyone on the team | Nobody has this yet · You have this · Sara has this · (blank) | Owner column and control |
+| Retry sending · Dismiss issue | Retry · Set aside | Issue rows, failed messages |
+| Review documents · Request missing information · Request the Invoice · Request information · Record shipping reference · Confirm booking | Check the documents · Ask for … · Ask the customer for something · Record the booking reference | The case's buttons |
+| Received — not verified yet · Verified by Sara · 0 of 3 verified · Review | Received, not checked · Checked by Sara · 0 of 3 checked · Check | Documents. Received or read by the bot is never "verified"; only a person's decision is. |
+| Mark as verified · Mark as verified anyway · Request replacement | Looks right · Looks right anyway · Ask for a new one | The document viewer |
+| Document · New document | Paper · New paper | Row kind and status |
+| Send the reply-request template | Send the "please reply" template | A closed WhatsApp window |
+| Internal — customer cannot see this | Never sent to the customer | Internal notes |
+| Booking (Call-back, Application) · Conversation | Case · Chat | The phone's switch |
+| Record the MRN once it is issued | Issue the MRN | The desk records an MRN; it does not obtain one |
+
+The terms of the trade (VIN, MRN, ACID, EUR.1, CMR, Brief) are explained in one place, `public/desk/glossary.js`; see "Info dot" below.
 
 ## Tokens
 
@@ -151,7 +175,7 @@ Each component lists its classes, its JavaScript helper if it has one, and its v
 |---|---|---|
 | Primary | `.btn-primary` | The one action of the view. Filled brand blue. |
 | Secondary | `.btn` (or `.btn-secondary`) | Other actions. White with a border. The default. |
-| Ghost | `.btn-ghost` | Low-weight actions: "Set aside", "Cancel", pager, "…". |
+| Ghost | `.btn-ghost` | Low-weight actions: "Dismiss issue", "Cancel", pager, "…". |
 | Danger | `.btn-danger` | The confirm button of a destructive dialog. Filled red. |
 | Danger ghost | `.btn-ghost.btn-danger-ghost` | A destructive action offered next to others: "Reject request", "Remove". |
 | Icon only | `.btn-icon` | Needs `aria-label` and `title`, for example "More actions". |
@@ -205,11 +229,11 @@ The words come from the server (`workflow.js` and `lib/admin`). The desk only ch
 | | `issued` | MRN issued | green | check |
 | | `rejected` | Rejected | red | alert |
 | | `cancelled` | Cancelled | gray | minus |
-| Document | `received`, `pending_verification` | Received, not checked | blue | eye (checklist) / dot |
-| | `verified` | Checked, or Checked by *name* | green | check |
+| Document | `received`, `pending_verification` | Received — not verified yet | blue | eye (checklist) / dot |
+| | `verified` | Verified, or Verified by *name* | green | check |
 | | `replacement_requested` | New copy asked for — *reason* | amber | refresh |
 | | `rejected` | Rejected | red | alert |
-| | (chassis differs) | Chassis differs from the booking | red | alert |
+| | (chassis differs) | The chassis number differs from the booking | red | alert |
 | | (bot could not read) | The bot couldn't read it — check it by eye | red | alert |
 | | (still reading) | Arrived, still being read | gray | clock |
 | | (none yet) | Not received | amber | clock |
@@ -222,18 +246,18 @@ The words come from the server (`workflow.js` and `lib/admin`). The desk only ch
 | | `sent` | Sent | – | ✓ |
 | | `delivered` | Delivered | – | ✓✓ |
 | | `read` | Read | brand | ✓✓ |
-| | `failed` | Not delivered, plus the reason in words and Retry | red block | alert |
+| | `failed` | Not delivered, plus the reason in words (once) and Retry sending | red line under the bubble | alert |
 | Turn | `ops` / `client` / `none` | Our turn / Customer's turn / Nothing to do | blue / amber / green | person |
 | Inbox flags | priority `urgent` / `high` | Urgent / High | red / amber | alert |
 | | overdue (server SLA) | OVERDUE, under the age | red text | alert (on the age) |
 | | outside office hours | After hours | tag | clock |
 | | call-back opened at the tap, nothing said yet (`undescribed`) | Not described yet | tag (inbox), gray badge (case) | note |
-| Problem | a message that failed | Not delivered | red | alert |
+| Issue | a message that failed | Not delivered | red | alert |
 | | a chat whose number WhatsApp does not know | Not on WhatsApp | red | alert |
 | | waiting for a template, or the customer wrote STOP | Held | amber | lock |
 | | a paper the bot could not read | Unreadable | red | alert |
 | | a paper sent with no booking open | No booking | amber | file |
-| | a paper sent after its booking was decided | New paper | amber | file |
+| | a paper sent after its booking was decided | New document | amber | file |
 | Document | set aside: a correct one was already on file | Set aside (in the viewer) | gray | minus |
 | Customer | `opted_out_at` | Wrote STOP | red | alert (badge) / lock (chat list) |
 | | `is_blocked` | Blocked | red | lock |
@@ -263,11 +287,11 @@ The inbox row is a grid. The header (`.list-head`) and every row share fixed col
 | # | Column | Content |
 |---|---|---|
 | 1 | Stripe | `.row-mark.mark-{red,amber,blue,green,gray}`. Urgency: red for a problem, urgent or overdue; amber for high priority or waiting; blue for ours; green for done. |
-| 2 | Kind | `.row-kind`: truck (booking), phone (call-back), stamp (MRN), triangle (problem). The word is in the link for screen readers. |
+| 2 | Kind | `.row-kind`: truck (booking), phone (call-back), stamp (MRN application), triangle (issue), file (document). The word is in the link for screen readers. |
 | 3 | What needs doing | The sentence, in 15 px semibold. It is a link stretched over the whole row. A reference in it never breaks at its hyphens (`.ref-whole`). Under it, the detail on one line, clamped, with the full text on hover. |
 | 4 | Customer | Channel icon and name, then the reference in mono, or the kind of work when there is no reference. |
 | 5 | Status | One status badge (see "Row status" below), then Urgent or High, then the After hours tag. |
-| 6 | Owner | Avatar and name, "You", or the **Take it** button (`.row-take`) when nobody has it and it is ours to do. |
+| 6 | Owner | Avatar and name, "You", or the **Assign to me** button (`.row-take`) when nobody has it and it is ours to do. Never blank: an issue or an MRN application, which are not assigned to one person, says "Anyone on the team" (`ownerNote()`); a waiting or completed row nobody had says "Unassigned". |
 | 7 | Age | Clock icon and "12 min", toned by the age thresholds below, with **OVERDUE** in red under it when the server says so. Right aligned. |
 
 #### Row status
@@ -279,26 +303,28 @@ Every row comes from the server with `status: { label, tone, meaning }`. `rowSta
 
   | Server label | Badge |
   |---|---|
-  | Waiting for the customer, Waiting for Client | Waiting on customer |
+  | Waiting for the customer, Waiting for Client | Waiting on customer (the badge; the tab is "Waiting for customer") |
   | New — nobody has it yet | New |
   | In Progress | In progress |
   | Approved — record the number | Approved |
 
-- The icon comes from the tone, except where the tone's icon would say the wrong thing: Held has a lock, and No booking and New paper (papers) have a file.
-- A problem row's stripe and kind tile follow its badge: red for something that failed, amber for something held or a paper that wants a look.
+- The icon comes from the tone, except where the tone's icon would say the wrong thing: Held has a lock, and No booking and New document have a file.
+- An issue row's stripe and kind tile follow its badge: red for something that failed, amber for something held or a paper that wants a look.
 - An MRN application row names the customer and their channel (`who`, `channel`), like every other row, with its booking in the detail line.
 
-#### Problem rows
+#### Issue rows
 
-| Problem (`problem.type`) | Row |
+| Issue (`problem.type`) | Row |
 |---|---|
-| One failed message (`message`, `outbox`) | The sentence, the reason in words, then **Retry** (when it can be sent again) and **Set aside**. |
-| A chat's failures (`chat`) | One row per chat, whatever the count. Under the sentence: the last error in words (`problem.last_error`), or, for a number WhatsApp does not know, which number. Then a line of facts (`.row-facts`): how many, when the last was tried (`problem.last_attempt`), and what `problem.reason` means for the reader: `not_on_whatsapp`, sending again won't help; `failed`, send them again from the chat; `needs_template` and `opted_out`, held, and when they go. Then **Set aside**, which sends `problem_id: 'chat:<channel>:<chat_id>'` and sets aside the chat's failures so far; a new failure brings the row back. |
-| A paper (`document`) | Unreadable, No booking or New paper, and **Set aside** (`document:<id>`). A No booking row opens the customer's chat with the paper in the viewer. A New paper row opens the booking with the paper in the viewer. |
+| One failed message (`message`, `outbox`) | The sentence, the reason in words, then **Retry sending** (when it can be sent again) and **Dismiss issue**. |
+| A chat's failures (`chat`) | One row per chat, whatever the count. Under the sentence: the last error in words (`problem.last_error`), or, for a number WhatsApp does not know, which number. Then a line of facts (`.row-facts`): how many, when the last was tried (`problem.last_attempt`), and what `problem.reason` means for the reader: `not_on_whatsapp`, sending again won't help; `failed`, send them again from the chat; `needs_template` and `opted_out`, held, and when they go. Then **Dismiss issue**, which sends `problem_id: 'chat:<channel>:<chat_id>'` and dismisses the chat's failures so far; a new failure brings the row back. |
+| A paper (`document`) | Unreadable, No booking or New document, and **Dismiss issue** (`document:<id>`). A No booking row opens the customer's chat with the paper in the viewer. A New document row opens the booking with the paper in the viewer. |
 
-Buttons inside a row (Take it, Retry, Set aside) sit above the stretched link (`z-index: 1`), so they stay their own targets.
+**Dismiss issue asks first** (a dialog), and says what it does and does not do (`dismissWords()`): it removes the alert from the Inbox; a message stays undelivered and is not sent again; a file is kept, not deleted and not marked as verified. It looks like a fix and is not one.
 
-**Take it** sends the version the row was drawn from: every row carries its record's `version`, so nothing is read first. The row can be one pulse tick old (15 seconds while the desk is in use, a minute once nobody has touched it for three). If a colleague took the case, or changed it, in the meantime, the server refuses and names who did what ("Sara took this 1 min ago."), and the list redraws. A stale row never takes a case from a colleague.
+Buttons inside a row (Assign to me, Retry sending, Dismiss issue) sit above the stretched link (`z-index: 1`), so they stay their own targets.
+
+**Assign to me** sends the version the row was drawn from: every row carries its record's `version`, so nothing is read first. The row can be one pulse tick old (15 seconds while the desk is in use, a minute once nobody has touched it for three). If a colleague took the case, or changed it, in the meantime, the server refuses and names who did what ("Sara took this 1 min ago."), and the list redraws. A stale row never takes a case from a colleague.
 
 Column widths:
 
@@ -316,9 +342,9 @@ From 1101 down to 981 px the customer column goes, and the name moves into the d
 
 | Tab | Neutral | Amber | Red |
 |---|---|---|---|
-| Needs us | under 30 min | 30 min to 2 h | 2 h or more, or whenever the server says `overdue` (SLA from Settings: 2 h for a new request, 4 h under review) |
-| Waiting on customer | under 24 h | 24 h or more (time to chase) | never: it is not our delay |
-| Done today | always | – | – |
+| Needs attention | under 30 min | 30 min to 2 h | 2 h or more, or whenever the server says `overdue` (SLA from Settings: 2 h for a new request, 4 h under review) |
+| Waiting for customer | under 24 h | 24 h or more (time to chase) | never: it is not our delay |
+| Completed today | always | – | – |
 
 A red age also gets an alert icon and the screen-reader words "waiting too long", or "overdue" when the server says so (then OVERDUE is also written under the age). Amber says "getting late".
 
@@ -351,10 +377,11 @@ How it behaves:
 
 ### Tabs and segmented filter: `.tabs` / `.tab`, `.seg` / `.seg-item`
 
-- **Tabs** switch between lists of the same kind of thing: Needs us, Waiting on customer and Done today. They are underlined, with a count pill (`.tab-count`) that turns brand when active. On a phone they show short labels (`.short`), while screen readers still hear the long ones.
-- **The segmented filter** narrows the current list: All, Bookings, MRN, Call-backs, Problems, Mine. It is a grey track, and the active item is a raised white segment.
+- **Tabs** switch between lists of the same kind of thing: Needs attention, Waiting for customer and Completed today. They are underlined, with a count pill (`.tab-count`) that turns brand when active. On a phone they show short labels (`.short`), while screen readers still hear the long ones.
+- **The segmented filter** narrows the current list by kind of work: All, Bookings, Call-back requests, MRN applications, Issues. It is a grey track, and the active item is a raised white segment.
+- **Assigned to me** is a second track of its own (`.seg-own`) at the right of the bar: ownership, apart from the kinds of work. The API takes one filter at a time, so choosing it shows all of your work, of every kind; choosing it again turns it off.
   - Each item has a count. A zero count drops to regular weight (`.is-zero`).
-  - A non-zero Problems count is a red pill (`.is-alert`).
+  - A non-zero Issues count is a red pill (`.is-alert`).
   - The current item has `aria-current`.
   - On a phone the track scrolls sideways rather than wrapping.
 - Shipments uses the segmented filter for On the way, Delivered and All, each with its count (`counts: { active, delivered, all }` from the server, whichever filter is shown).
@@ -367,7 +394,14 @@ How it behaves:
 
 ### Conversation header: `.convo-head`
 
-One line, wrapping only where the column is narrow: the avatar (32 px, with the channel mark), the name (15 px semibold, truncated; its tooltip holds the WhatsApp profile name and where the customer is with the bot), the channel and language tags (22 px), the phone as a `tel:` link, the WhatsApp profile name when the line has room (980 px of column and wider), the **window chip**, and the Chats page's booking and request chips (`.pill-sm`, two shown, the rest behind "+N").
+One row, never wrapping, as a chat app's header (`flex-wrap: nowrap`; a test holds it):
+
+- on a phone, the way back (`.convo-back`, "All chats") first;
+- the avatar (36 px, with the channel mark);
+- `.convo-id`: the name (15 px semibold, truncated), and under it `.convo-sub`: the channel, the language ("No language chosen yet" when they have not), the phone as a `tel:` link, and the WhatsApp profile name when there is room (980 px of column and wider);
+- `.convo-end`, at the end: Wrote STOP / Blocked, the **window chip**, and on the Chats page the customer's bookings and open requests (`.pill-sm`, two shown, the rest behind "+N").
+
+A narrower column drops what is said elsewhere instead of wrapping: under 720 px the bookings are one button with a count (`.refs-menu`, the list behind it); under 560 px (the case page's column, a laptop at 125%, a phone) the channel and language leave the line - the avatar's mark is the channel, the composer's placeholder the language - and the window chip says only its hours ("23 h left"). Hidden from sight, never from a screen reader: those words are visually hidden, not `display: none`.
 
 The **window chip** (`.window-chip`) is the WhatsApp window's state while free text can go: green "Window open · 23 h left", amber "Window closes in 2 h" under three hours, grey "Window not known". Closed, STOP and blocked are not a chip: they are the composer's banner, because each comes with what can still be done.
 
@@ -375,9 +409,9 @@ The **window chip** (`.window-chip`) is the WhatsApp window's state while free t
 
 One line that grows. Top to bottom:
 
-1. The **banner**, only when nothing can be typed: window closed (amber, with the "please reply" template button), opted out or blocked (red), anything else (grey), read-only role (grey, slim). A WhatsApp window that cannot be read gets one quiet line.
+1. The **banner**, only when nothing can be typed - and then it takes the box's place (`.banner-composer`): window closed (amber: "The WhatsApp window has closed. … Send the approved reply-request template. You can type a normal reply after the customer responds.", with **Send the reply-request template**), opted out or blocked (red), anything else (grey), read-only role (grey, slim). The box is only hidden: what was typed stays, and the banner says "What you typed is kept for then." A WhatsApp window that cannot be read gets one quiet line.
 2. The **tray** (`.tray`), when files are attached: one chip per file (`.tray-item`) with a preview (a thumbnail for a photo, a tile for a paper), the name isolated left to right, the type and size, and Remove. While sending, the line under the name says "Uploading 62%" with a 3 px bar, then "Sending…", "Uploaded", or why the file cannot go, in red, with the chip red. Under the chips: "Also file a copy on MKY-BKG-… as an MKY document" (a check box, with a booking picker when the customer has several) and where the typed words go ("with the first file"). In a narrow column the chips are a strip that scrolls sideways.
-3. The **composer box** (`.composer-box`): attach (paperclip), saved replies (an icon that opens a menu upward), a borderless textarea (15 px, `dir="auto"`, one line, growing to six, then scrolling) and Send, all on one row. Send says "Send file" or "Send 3 files" when files are attached, and "Sending…" while it works. Ctrl+Enter sends (the textarea's tooltip and `aria-keyshortcuts` say so); Enter is a new line. In a column under 560 px, Send is its icon.
+3. The **composer box** (`.composer-box`): attach (paperclip), saved replies (an icon that opens a menu upward), a borderless textarea (15 px, `dir="auto"`, one line, growing to six - four on a phone - then scrolling) and Send, all on one row. Send says "Send file" or "Send 3 files" when files are attached, and "Sending…" while it works. Ctrl+Enter sends (the textarea's tooltip and `aria-keyshortcuts` say so); Enter is a new line. In a column under 560 px, Send is its icon.
 4. The **error line**, when a send failed, in the server's words.
 
 Files come in three ways: the paperclip, dropped anywhere on the conversation (a dashed brand overlay, `.convo-drop`, says "Drop the files to attach them"), or pasted into the textarea. Each is checked before anything is uploaded against what the channel takes (`attach` from the server: PDF, JPG, PNG, Word, Excel; WhatsApp photos to 5 MB, documents to 100 MB; Telegram photos to 10 MB, documents to 50 MB; 50 MB at most; ten at a time; a 1024-character caption). The server checks again.
@@ -386,19 +420,22 @@ The box is built once and kept: a redraw (the window opening while somebody type
 
 ### Chat bubble: `.msg`, `.bubble`
 
+As WhatsApp shows it, kept calm: the transcript on a faint neutral (`--chat-bg`), no wallpaper.
+
 | Who | Side | Fill |
 |---|---|---|
-| Customer (`.msg-in`) | left | white with a border |
-| Bot (`.msg-bot`) | right | grey |
-| Staff (`.msg-staff`) | right | brand-50, the name in brand |
-| Notification (`.msg-system`) | right | warm grey |
+| Customer (`.msg-in`) | left | white (`--bubble-theirs`) |
+| Everything MKY sends: the bot, a colleague, a notification (`.msg-out`) | right | light green (`--bubble-ours`, #dcf2d4) |
 
 Details:
 
-- Each bubble has a corner cut toward its side.
-- The meta row holds who sent it (except the customer), the time, and the delivery tick in words.
+- One colour for all of ours; the author label on every bubble says who: **Bot**, the colleague's name (dark green), or **Notification**.
+- Messages from one sender in a row are a **run** (`runStarts()` in `conversation.js`): close together, and only the first (`.run-start`) has the small tail on its side and the space above it. A new sender (each colleague is their own), a pause of more than ten minutes, a tapped button or a new day starts a new run.
+- No borders: a 1 px shadow lifts each bubble off the background.
+- The meta row holds who sent it (except the customer), the time, and the delivery tick in words (✓ Sent, ✓✓ Delivered, ✓✓ Read in brand).
 - A tapped button is a dashed pill, not a bubble.
-- A failed message gets a red block under the bubble: "Not delivered." with the reason in words, and Retry or "Sent again". Outside the WhatsApp window, or after STOP, Retry is disabled with "Once they write" beside it, because it would only be refused again.
+- A failed message (`.is-failed`) is a red edge on the bubble and **one quiet line** under it (`.bubble-fail`): "Not delivered — *the reason*", and **Retry sending** or "Sent again". The reason is said once (`failureReasons()`): the next failure with the same reason, before the customer writes again, says "Not delivered — same reason as above." Retry is offered only where it can work: outside the WhatsApp window, or after STOP, there is no button, only "It can be sent again once they write." (said once too).
+- Under the newest message, a quiet note (`.bot-state`) says where the customer is with the bot ("With the bot: Booking — giving the chassis number"), and the thing people get wrong: "The bot keeps answering; replying here does not pause it." There is no pausing it, and no control pretends there is.
 - Long messages clamp at 12 lines, fading out, and have "Show all".
 - A web address in a message is a link (`.msg-link`) that opens in a new tab; it is laid out left to right inside an Arabic line.
 - Day separators are pills (`.day`). "Show earlier messages" at the top loads 60 more, keeping the reader's place.
@@ -419,7 +456,7 @@ What there is to show of a file comes from the server (`message.file`); the link
 | A contact card | A chip with the name and each number as a `tel:` link. |
 | Nothing kept | The kind of file and a grey line saying why: "Not kept: 38 MB, more than the 16 MB the desk keeps of a chat file…", "WhatsApp would not hand the file over…", "Animated stickers are not kept.", "Made and sent by the bot; no copy is kept here." A file gone from storage says "The file is missing from storage." where the photo would be. |
 
-Under a paper, one line says what it became: its kind in capitals, its state in its tone ("Received, not checked", "Checked by Sara", "Set aside", "The bot couldn't read it"), its booking ("On MKY-BKG-…", or "On no booking"), and "A newer copy came later" in amber. A file MKY sent and filed says "Filed on MKY-BKG-… as an MKY document". The caption goes under it all as text.
+Under a paper, one line says what it became: its kind in capitals, its state in its tone ("Received — not verified yet", "Verified by Sara", "Set aside", "The bot couldn't read it"), its booking ("On MKY-BKG-…", or "On no booking"), and "A newer copy came later" in amber. A file MKY sent and filed says "Filed on MKY-BKG-… as an MKY document". The caption goes under it all as text.
 
 ### File preview: `openFilePreview()` in `viewer.js`
 
@@ -430,12 +467,12 @@ A file from a conversation that is not a paper to check, opened large in an XL d
 One row per required paper:
 
 - a 32 px status circle (`.check-icon.tone-*`: check, eye, alert, refresh or clock);
-- the paper's name (15 px semibold);
+- the paper's name (15 px semibold), with its info dot (VIN, MRN, ACID, EUR.1, Brief);
 - the state in words, coloured by tone;
 - the file name, left to right, truncated;
-- one button: secondary **Check** (eye icon) when the paper needs eyes, ghost **View** when it is done. Missing papers have no button.
+- one button: secondary **Review** (eye icon) when the paper needs eyes, ghost **View** when it is done. Missing papers have no button.
 
-The card's header carries a segmented progress meter (`.progress`), one segment per paper in its tone, with the words "1 of 3 checked".
+The card's header carries a segmented progress meter (`.progress`), one segment per paper in its tone, with the words "1 of 3 verified".
 
 ### Dialog: `.dialog`
 
@@ -474,7 +511,7 @@ A toast may carry **one action**: `toast(message, tone, { action: { label, run }
 
 - It is an outlined button under the words (`.toast-action`), for the one thing a person may want to do about what the toast says.
 - Pressing it runs once and closes the toast. A toast with an action stays 15 s.
-- Used by "Ask for a new one" when the paper was already put right: "Set aside — a correct Invoice is already on file; the customer wasn't asked", with **Ask anyway**.
+- Used by "Request replacement" when the paper was already put right: "Set aside — a correct Invoice is already on file; the customer wasn't asked", with **Ask anyway**.
 
 ### Banner and callout: `.banner`, `.callout`
 
@@ -532,6 +569,16 @@ On a phone every row becomes a stacked card with "Label: value" lines.
 - `.menu-up` opens upward, used by Saved replies above the composer. `.menu-right`, or `.menu-flip` added automatically when a menu would leave the screen, aligns the menu right.
 - Clicking outside or pressing Escape closes any open menu.
 
+### Info dot: `details.info` (`infoDot()` in `glossary.js`)
+
+A 16 px "i" in a circle beside a term of the trade (VIN, MRN, ACID, EUR.1, CMR, Brief), with a hit area larger than the dot. A tap or a click opens its one line (`.info-pop`: the term in bold, then the line); a mouse resting on it opens it too, and a click then keeps it open. Escape and a click elsewhere close it, as any menu. It sits beside a label, never inside one, so a tap never ticks a box.
+
+The lines live in one place, `public/desk/glossary.js` (`GLOSSARY`), for the owner to edit. They say what each document is, never what the law requires. The whole list is in the account menu (**Glossary**, for every role and screen size) and on the Settings page.
+
+### Unsaved changes: `.unsaved-tag`
+
+An amber pill with a pencil, "Unsaved changes", beside a Settings card's Save button from the first edit until it is saved. Leaving the page with one asks first, naming the cards ("You have unsaved changes in Office hours and contact numbers. Leave without saving them?", `unsavedWords()` in `ui.js`): the router asks the screen's `unsaved()` on every navigation and on Sign out, and the browser asks before the tab closes.
+
 ## Layout patterns
 
 ### App shell
@@ -539,11 +586,11 @@ On a phone every row becomes a stacked card with "Label: value" lines.
 - **Sidebar** (224 px, sticky, full height):
   - the brand: the logo tile (48×38), "MKY Global Forwarding" in 14 px bold, and "OPERATIONS DESK" as a 12 px eyebrow under it;
   - the navigation: Inbox, Chats, Shipments, Settings (administrators only);
-  - the Inbox count, which is red while there are problems;
-  - two shortcuts under Inbox, "Assigned to me" and "Problems", with their counts;
+  - the Inbox count, which is red while there are issues;
+  - two shortcuts under Inbox, "Assigned to me" and "Issues", with their counts;
   - a hint at the foot: "Press / to search".
 - **Rail.** At 1360 px and below the sidebar becomes a 76 px rail: icon over a 12 px label, with the count on the icon. The logo tile grows to 54×42 and the words go (the link keeps them as its label). A laptop at 1280×800 and 125% gets 150 px back for the work.
-- **Top bar** (56 px, sticky, translucent): the search field (up to 680 px), then the **account menu** on the right. The menu shows an avatar and name; open, it holds the name, role and Sign out.
+- **Top bar** (56 px, sticky, translucent): the search field (up to 680 px), then the **account menu** on the right. The menu shows an avatar and name; open, it holds the name, role, **Glossary** and Sign out.
 - **Content**: 20 by 24 px padding, at most 1760 px wide.
 - **Phone** (760 px and below):
   - the sidebar is replaced by a fixed bottom tab bar with counts;
@@ -552,8 +599,8 @@ On a phone every row becomes a stacked card with "Label: value" lines.
 
 ### Inbox
 
-1. Page head: title, a one-line purpose, and "Updated hh:mm".
-2. Tabs, then the segmented filter.
+1. Page head: title, its purpose - "Requests and issues that need your team." (each destination has one, `PURPOSE` in `ui.js`), with a link to Chats - and "Updated hh:mm".
+2. Tabs, then the kinds-of-work filter and, at the right, Assigned to me.
 3. One list card with the column header and rows, then "Show more" when there are more.
 
 At 1920 px the list fills the content width, and the extra goes to the customer and status columns (280 and 240 px). There is no list-and-preview split; see "Left out" below.
@@ -563,11 +610,11 @@ At 1920 px the list fills the content width, and the extra goes to the customer 
 - **Sticky case header**, across the full width under the top bar:
   - line 1: "← Inbox", the reference in 18 px mono, the status badge, the turn badge and priority;
   - line 2: the facts (vehicle · chassis · route · came in);
-  - right side: the owner control (avatar, "Sara has this", Take it over / Take it / Put back), and the copy of the primary action once the Next step card has scrolled out of view.
+  - right side: the owner control (avatar, "Assigned to Sara", Assign to me instead / Assign to me / Unassign), and the copy of the primary action once the Next step card has scrolled out of view.
 
   `case.js` measures the header and sets `--case-head-h`, so the conversation can stick under it.
 - **Two columns**: `minmax(0, 1fr)` for the work and `clamp(360px, 32vw, 600px)` for the conversation. In the rail layout it is `clamp(340px, 34vw, 460px)`.
-  - The left column stacks, 16 px apart: Next step, warnings, what we asked, documents, MRN, details, internal notes, history (the last 6, then "Show all"). The documents card lists the required papers, then "Other files", then "Sent by MKY": the papers MKY sent from the conversation and filed here, with who sent them and when. They are never one of the customer's papers and have nothing to check; the viewer says so instead of "Looks right".
+  - The left column stacks, 16 px apart: Next step, warnings, what we asked, documents, MRN, details, internal notes, history (the last 6, then "Show all"). The documents card lists the required papers, then "Other files", then "Sent by MKY": the papers MKY sent from the conversation and filed here, with who sent them and when. They are never one of the customer's papers and have nothing to verify; the viewer says so instead of "Mark as verified".
   - A file sent from a booking's conversation can be filed on that booking; the case is read again after any send.
   - The right column is the conversation card, sticky, filling the rest of the screen's height. Its header, transcript, banner and composer are always in view.
 - **The Next step card** is the anchor:
@@ -580,27 +627,30 @@ At 1920 px the list fills the content width, and the extra goes to the customer 
 - **Per kind.**
   - An MRN application's conversation, and the Customer line of its card, use the application's own channel (`mrn.channel`). An application with no booking used to fall back to Telegram.
   - A call-back the customer has not described yet (`request.undescribed`) says so in a gray callout where their words would be, with a "Not described yet" badge on the card.
+  - An MRN application, and a booking whose MRN MKY is getting, say while the number is missing that approving the application and recording the issued MRN are separate steps; the Record the MRN dialog says the desk only records the number - it does not apply for it or obtain it (`MRN_WORDS`).
+  - The shipping reference dialog asks for the carrier's booking number and says which is the customer's request reference (MKY-BKG-…), offering it in one click; it no longer fills it in. (The booking rules reach that step only for a booking with no reference.)
 - **980 px and below**: one column, the conversation 640 px tall, the header not sticky.
-- **Phone**: a sticky **Case / Chat** switch under the header.
-  - "Chat" hides the work and shrinks the header to the reference and its badges. The conversation fills the rest of the screen above the tab bar, with the composer in reach without scrolling.
-  - "Case" shows the work, with the primary action in a bottom bar once the Next step card scrolls away. That bar has a "Chat" button that switches panes.
+- **Phone**: a sticky **Booking / Conversation** switch under the header (Call-back / Conversation, Application / Conversation).
+  - "Conversation" hides the work and shrinks the header to the reference and its badges. The conversation fills the rest of the screen above the tab bar, with the composer in reach without scrolling.
+  - "Booking" shows the work, with the primary action in a bottom bar once the Next step card scrolls away. That bar has a "Conversation" button that switches panes.
 
 ### Document viewer
 
 - A full-height dialog.
 - **Header**: the paper and the reference, the pager (Previous · 2 of 3 · Next; ← and → also work), and close.
 - **Left** (1.3 fr): the PDF drawn by pdf.js on canvases at the screen's pixel density, with a file bar under it (file name, "Open in a new tab").
-- **Right**: a scrolling panel (status badge and arrival time, mismatch callout, the reading table with Matches / Differs per field, or the type-in form for an unreadable paper) and a **pinned footer** with the decision. The footer shows the primary first, which follows the evidence. "Ask for a new one" replaces the panel with reasons, a note, the exact message preview, and Send / Back.
+- **Right**: a scrolling panel (status badge and arrival time, the mismatch callout naming each difference - "The chassis number on this Invoice differs from the booking: the Invoice says …, the booking says …" (`mismatchWords()`) - the reading table with Matches / Differs per field and an info dot beside VIN, MRN, ACID and EUR.1, or the type-in form for an unreadable paper) and a **pinned footer** with the decision: **Mark as verified** and **Request replacement**. The footer shows the primary first, which follows the evidence. "Request replacement" replaces the panel with reasons, a note, the exact message preview in the customer's language, and Send request to customer / Back.
 - **980 px and below**: the file goes above the panel. On a phone the footer stays pinned to the bottom.
-- **One paper on its own.** A paper sent with no booking open is opened from the customer's chat (`#/chats/<channel>/<chat>?doc=<id>`) and read through `view=document`. It is held to nothing, so there is no Matches / Differs column. There is no pager. "Ask for a new one" is offered disabled, with the reason: ask in the conversation beside it.
-- **Set aside.** "Ask for a new one" on a paper the customer has already put right does not ask them. The server sets it aside (`set_aside: true`, `replaced_by`), and the viewer moves to the paper that replaced it. The toast offers **Ask anyway** (`ask_anyway: true`). Otherwise the toast says whether the customer was told, in the server's words.
+- **One paper on its own.** A paper sent with no booking open is opened from the customer's chat (`#/chats/<channel>/<chat>?doc=<id>`) and read through `view=document`. It is held to nothing, so there is no Matches / Differs column. There is no pager. "Request replacement" is offered disabled, with the reason: ask in the conversation beside it.
+- **Set aside.** "Request replacement" on a paper the customer has already put right does not ask them. The server sets it aside (`set_aside: true`, `replaced_by`), and the viewer moves to the paper that replaced it. The toast offers **Ask anyway** (`ask_anyway: true`). Otherwise the toast says whether the customer was told, in the server's words.
 
 ### Chats
 
 - The page is exactly the window's height: the list and the conversation scroll inside it, never the page.
 - **List** (300–380 px): a search field, then rows of avatar, name, time, last message (a file says "Photo", "Voice note", "File: quote.pdf", "Location"), failed / STOP badges and the unread dot. Unread rows come first.
 - **Pane**: the conversation component, its header carrying the customer's bookings and open requests as small chips. With `?doc=<id>`, that paper opens in the document viewer over it.
-- **Phone**: the list and the pane are separate routes, with "← All chats". The channel's word goes from the header (the avatar's mark says it; a screen reader still hears it).
+- **Page head**: "Read customer messages and reply." with a link to the Inbox for work that needs doing.
+- **Phone**: the list and the pane are separate routes; the way back is the arrow at the start of the conversation's one header row.
 
 The conversation is laid out by its own width (a container query on `.convo`), the same component in the Chats pane and in the case page's column. Its transcript gets every pixel the header and composer do not take:
 
@@ -613,11 +663,15 @@ The conversation is laid out by its own width (a container query on `.convo`), t
 | 1920×1080 | 640 px | 875 px |
 | Phone, 390 px | 336 px | 503 px |
 
+After the second pass (one-row header, the banner in the box's place, tighter phone composer), measured on the same pages: 1536×750 Chats 541 px, case column 466 px; 1280×800 at 125% Chats 591 px; phone Chats 594 px, a closed window 497 px (377 px before).
+
 ### Settings
 
-- A 200 px sticky **section nav**: Team, Hours and phone, Documents, WhatsApp, Saved replies, each with an icon. The section in view is marked.
-- Sections are cards with an icon, a title and one calm sentence on what the section does.
-- Each section saves on its own. Errors appear beside the field they belong to.
+- A 200 px sticky **section nav**: Team and access, Office hours and contact numbers, Required documents, WhatsApp messaging, Saved replies, Glossary, each with an icon. The section in view is marked.
+- Sections are cards with an icon, a title and what the section does for staff and customers, with an example where one helps: what happens outside office hours; who provides the MRN decides which document list applies; templates are written and approved in WhatsApp Manager, not here, and nothing here lengthens WhatsApp's 24 hours.
+- Team and access lists what each role can do (`ROLE_CAN` from the server, beside the `PERMISSIONS` it enforces).
+- Each section saves on its own, against the versions it was drawn from, so a colleague's change in the meantime is refused, not overwritten. Errors appear beside the field they belong to. Beside Save: "Unsaved changes" while there are, and "Last changed by Sara 2 h ago" for the whole section (`lastChange()`).
+- Saving one section leaves another's unsaved edits where they are; leaving the page with unsaved edits asks first.
 - **1360 px and below**: the nav becomes a row of links above the cards.
 
 ## Accessibility checklist

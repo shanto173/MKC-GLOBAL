@@ -138,7 +138,7 @@ Booking desk, customs documentation, a supervisor; two to ten people; mostly a l
 | **Show the consequence before it happens** | Any action that messages a customer shows the exact message, in the customer's language, before sending. Irreversible actions say so. |
 | **Familiar shapes** | The conversation looks like a chat: customer left, us right, bot messages marked "Bot". |
 | **Never colour alone** | Every status chip has a word; blue = ours to do, amber = waiting on the customer, green = done, red = something is wrong. |
-| **Prevent errors rather than report them** | Buttons that cannot work are disabled with the reason on hover ("Two documents are not checked yet"). Double-clicks are ignored (each action carries an idempotency key). |
+| **Prevent errors rather than report them** | Buttons that cannot work are disabled with the reason beside them, not only on hover ("Two documents are not verified yet"). Double-clicks are ignored (each action carries an idempotency key). |
 | **Nothing typed is ever lost** | Message drafts and notes are kept per case in the browser until sent. |
 | **Stay true when others act** | Lists refresh every 20 s and on focus. An action on something another person just changed is refused with who and when: "Sara confirmed this 1 min ago — refreshed." |
 | **Readable in both scripts** | Customer text is shown with `dir="auto"` per line; Arabic renders right-to-left. |
@@ -149,8 +149,8 @@ Booking desk, customs documentation, a supervisor; two to ten people; mostly a l
 ┌──────────┬────────────────────────────────────────────────────────────┐
 │ MKY Desk │  🔍 Search chassis, reference, name, phone…      (/)       │
 │          ├────────────────────────────────────────────────────────────┤
-│ Inbox  7 │  Needs us (7)   Waiting on customer (4)   Done today (12)  │
-│ Chats    │  [All] [Bookings] [MRN] [Call-backs] [Problems]   [Mine]   │
+│ Inbox  7 │  Needs attention (7)  Waiting for customer (4)  Completed today (12) │
+│ Chats    │  [All] [Bookings] [Call-back requests] [MRN applications] [Issues]  [Assigned to me] │
 │ Shipments│ ────────────────────────────────────────────────────────── │
 │ Settings │  🔴 Message failed — couldn't reach +20 100 555… · 5 min   │
 │          │  🔵 Check 3 documents and confirm · Delta Trans · 2 h      │
@@ -175,7 +175,7 @@ Booking desk, customs documentation, a supervisor; two to ten people; mostly a l
 ├───────────────────────────────────────────────┤                          │
 │ DOCUMENTS                                     │  ── window open 21 h ── │
 │ ✅ Invoice      checked by Sara        [View] │  ┌────────────────────┐  │
-│ ⚪ MRN          received, not checked  [View] │  │ Write in Arabic…   │  │
+│ ⚪ MRN          received, not verified [View] │  │ Write in Arabic…   │  │
 │ ⚠ Brief       chassis differs!        [View] │  └────────────────────┘  │
 │                                               │  Saved replies ▾  [Send] │
 │ DETAILS (click to correct)                    │                          │
@@ -184,7 +184,7 @@ Booking desk, customs documentation, a supervisor; two to ten people; mostly a l
 └───────────────────────────────────────────────┴──────────────────────────┘
 ```
 
-Document viewer: the file on the left, what the bot read on the right (chassis, MRN, invoice number…) with mismatches against the booking highlighted, and two buttons: **Looks right** / **Ask for a new one** (reason: unreadable · wrong vehicle · wrong document · expired · other) → message preview in the customer's language → Send.
+Document viewer: the file on the left, what the bot read on the right (chassis, MRN, invoice number…) with mismatches against the booking highlighted, and two buttons: **Mark as verified** / **Request replacement** (reason: unreadable · wrong vehicle · wrong document · expired · other) → message preview in the customer's language → Send.
 
 **Chats**: every conversation, newest first, unread first; WhatsApp and Telegram together, with a channel icon. Opening one shows the same conversation panel and the customer's bookings.
 
@@ -198,9 +198,9 @@ Document viewer: the file on the left, what the bot read on the right (chassis, 
 |---|---|
 | Two people act on the same case | The second is refused with who/when; the page refreshes. |
 | Customer writes while you type | The new message appears; your draft stays. |
-| WhatsApp window closed | Composer explains and offers the "please reply" template; the free-text box is disabled. |
+| WhatsApp window closed | The banner takes the box's place: "Send the approved reply-request template. You can type a normal reply after the customer responds.", with the template button. What was typed is kept. |
 | Window closes while you type | Send is refused with the same explanation; draft kept. |
-| Message failed (Meta error) | Shown under the message in red with the reason in words, a Retry, and it appears in Inbox → Problems. |
+| Message failed (Meta error) | One red line under the message with the reason in words (once for a run of the same), Retry sending where it can work, and it appears in Inbox → Issues. |
 | Customer opted out | Composer disabled: "Wrote STOP on …". Replies to their own new messages still work. |
 | Document unreadable / bot read nothing | Viewer says so; the person can type the values. |
 | Signed file link expired | The viewer fetches a fresh one. |
