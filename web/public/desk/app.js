@@ -3,13 +3,22 @@
  *
  * Plain ES modules, no framework and no build step: the files in this folder
  * are what the browser runs. Each screen is a function that draws into <main>
- * and returns { refresh, dispose }; this file decides which one is showing and
- * calls its refresh every 20 seconds and whenever the window regains focus, so
- * what a person sees is never more than a moment behind what a colleague did.
+ * and returns { refresh, scopes?, dispose }; this file decides which one is
+ * showing, and subscribes its refresh to the areas of the desk it shows
+ * (ui.js subscribe): it is fetched again when one of them changes - asked
+ * about every 15 seconds, at once when the window comes back - so what a
+ * person sees is never more than a moment behind what a colleague did, and
+ * a desk where nothing is happening costs one small read per tick.
+ *
+ * A screen that names no scopes is refreshed when anything changes. Each
+ * screen is given a `signal` that aborts its requests when it is left, and
+ * `subscribe` for parts of it with their own scopes (the case page's
+ * conversation); both end with the screen.
  */
 
 import {
   h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill,
+  subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES,
 } from './ui.js';
 import { renderInbox } from './inbox.js';
 import { renderCase } from './case.js';
@@ -18,8 +27,6 @@ import { renderShipments } from './shipments.js';
 import { renderSettings } from './settings.js';
 import { renderSearch } from './search.js';
 
-const POLL_MS = 20_000;
-
 const NAV = [
   { key: 'inbox', label: 'Inbox', icon: 'inbox', href: '#/inbox' },
   { key: 'chats', label: 'Chats', icon: 'chats', href: '#/chats' },
@@ -27,9 +34,10 @@ const NAV = [
   { key: 'settings', label: 'Settings', icon: 'settings', href: '#/settings', needs: 'settings' },
 ];
 
-let screen = null;         // the screen showing: { refresh?, dispose? }
+let screen = null;         // the screen showing: { refresh?, scopes?, dispose?, providesCounts? }
 let counts = { needs_us: 0, problems: 0, mine: 0 };
-let ticking = false;
+let leaving = null;        // aborts the showing screen's requests, ends its subscriptions
+let countsSub = null;
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -43,16 +51,29 @@ export function parseRoute(hash = location.hash) {
   return { page: parts[0] || 'inbox', parts: parts.slice(1), query: Object.fromEntries(new URLSearchParams(queryPart)) };
 }
 
-function render() {
-  const route = parseRoute();
+/** Leaves the showing screen: its requests are aborted and its subscriptions end. */
+function leave() {
+  leaving?.end();
+  leaving = null;
   screen?.dispose?.();
   screen = null;
+}
+
+function render() {
+  const route = parseRoute();
+  leave();
   const main = $('#main');
   clear(main);
   drawNav(route.page, route.query);
   if (route.page !== 'search') $('#q').value = '';
 
-  const ctx = { route, main, refreshCounts };
+  const aborter = new AbortController();
+  const subs = [];
+  leaving = { end() { aborter.abort(); for (const s of subs) s.unsubscribe(); } };
+  const ctx = {
+    route, main, refreshCounts, setCounts, signal: aborter.signal,
+    subscribe: (scopes, fn, opts) => { const s = subscribe(scopes, fn, opts); subs.push(s); return s; },
+  };
   const pages = {
     inbox: renderInbox, case: renderCase, chats: renderChats, shipments: renderShipments,
     settings: renderSettings, search: renderSearch,
@@ -60,6 +81,10 @@ function render() {
   const page = pages[route.page];
   if (!page) { location.replace('#/inbox'); return; }
   screen = page(ctx) ?? null;
+  // The screen's own refresh, on the areas it shows - every area when it
+  // does not say.
+  const shown = screen;
+  if (shown?.refresh) ctx.subscribe(shown.scopes ?? null, () => shown.refresh());
   // A new screen is a new place: move focus there so a keyboard or screen
   // reader user starts at its top, not wherever the old screen left them.
   main.focus({ preventScroll: true });
@@ -133,25 +158,29 @@ document.addEventListener('keydown', (e) => {
 
 /** "(3) MKY Desk": the browser tab says when something is waiting, from any screen. */
 async function refreshCounts() {
+  let fresh;
   try {
-    counts = await api({ view: 'counts' });
+    fresh = await api({ view: 'counts' });
   } catch {
-    return;
+    return false;
   }
-  document.title = counts.needs_us ? `(${counts.needs_us}) MKY Desk` : 'MKY Desk';
-  const route = parseRoute();
-  drawNav(route.page, route.query);
+  setCounts(fresh);
+  return true;
 }
 
-async function tick() {
-  if (ticking || document.hidden || $('#app').hidden) return;
-  ticking = true;
-  try {
-    await refreshCounts();
-    await screen?.refresh?.();
-  } finally {
-    ticking = false;
-  }
+/**
+ * The numbers, from wherever they came: view=counts, or the inbox's own
+ * answer (its `nav`), which carries them so the inbox screen does not have to
+ * ask twice. Redrawn only when they changed - the menu stays as it is.
+ */
+function setCounts(fresh) {
+  if (!fresh) return;
+  const same = fresh.needs_us === counts.needs_us && fresh.problems === counts.problems && fresh.mine === counts.mine;
+  counts = { needs_us: fresh.needs_us ?? 0, problems: fresh.problems ?? 0, mine: fresh.mine ?? 0 };
+  document.title = counts.needs_us ? `(${counts.needs_us}) MKY Desk` : 'MKY Desk';
+  if (same) return;
+  const route = parseRoute();
+  drawNav(route.page, route.query);
 }
 
 // ---------------------------------------------------------------------------
@@ -186,16 +215,25 @@ async function signIn({ quiet = false } = {}) {
   button.disabled = true;
   button.textContent = 'Signing in…';
   try {
-    const me = await api({ view: 'me' });
+    // The pulse alongside: the first screen's subscriptions then know the
+    // versions it was loaded against. A server without one says so, or
+    // refuses the view; either way the desk works.
+    const [me, pulse] = await Promise.all([api({ view: 'me' }), api({ view: 'pulse' }).catch(() => null)]);
     if (me.bootstrap) return offerBootstrap();
     Object.assign(session, me);
     safeSet(SKEY, session.secret);
     safeSet(NKEY, session.name);
     $('#signin').hidden = true;
     $('#app').hidden = false;
+    primeLive(pulse);
     if (!location.hash) location.replace('#/inbox');
     render();
-    refreshCounts();
+    // The sidebar's numbers, on the inbox's areas - except while the inbox
+    // itself is showing, whose answer carries them.
+    countsSub?.unsubscribe();
+    countsSub = subscribe(VIEW_SCOPES.counts, () => (screen?.providesCounts ? true : refreshCounts()));
+    if (!screen?.providesCounts) refreshCounts();
+    startLive();
   } catch (err) {
     if (err.data?.setup) return showNotConfigured(err.data.setup);
     const message = err.status === 401 ? 'That desk password was not accepted.'
@@ -230,8 +268,10 @@ function offerBootstrap() {
 function signOut() {
   safeSet(SKEY, null);
   session.secret = '';
-  screen?.dispose?.();
-  screen = null;
+  leave();
+  stopLive();
+  countsSub = null;
+  forgetAnswers();
   document.title = 'MKY Desk';
   showSignIn('');
   $('#secret').value = '';
@@ -280,12 +320,10 @@ document.addEventListener('keydown', (e) => {
 
 on('offline', (offline) => { $('#offline').hidden = !offline; });
 on('unauthorised', (message) => { if (!$('#app').hidden) { signOut(); showSignIn(message); } });
-window.addEventListener('online', tick);
+// Coming back online, getting focus and the tab being shown again are
+// handled by the live loop in ui.js (startLive).
 window.addEventListener('offline', () => { $('#offline').hidden = false; });
 window.addEventListener('hashchange', () => { if (!$('#app').hidden) render(); });
-window.addEventListener('focus', tick);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
-setInterval(tick, POLL_MS);
 
 if (session.secret && session.name) {
   signIn({ quiet: true });

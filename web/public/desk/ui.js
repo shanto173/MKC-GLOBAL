@@ -8,6 +8,10 @@
  * characters, not run. A test greps every desk file for the ways HTML gets in.
  */
 
+import { RHYTHM, SCOPES, pollDelay, changed } from './live.js';
+
+export { SCOPES, VIEW_SCOPES, scopesOf } from './live.js';
+
 // ---------------------------------------------------------------------------
 // Elements
 // ---------------------------------------------------------------------------
@@ -349,38 +353,258 @@ function setOffline(v) {
 export const isOffline = () => offline;
 
 /**
+ * The last answer to each GET, with the ETag the server gave it. The next
+ * time the same thing is asked for, the ETag goes with it; when the server
+ * says 304 (nothing it shows has changed) the answer kept here is returned -
+ * the very same object, so a screen can tell nothing changed by comparing.
+ */
+const answers = new Map();
+const ANSWERS_KEPT = 40;
+
+/** Forgets every kept answer: on signing out, they are someone else's now. */
+export function forgetAnswers() { answers.clear(); }
+
+/**
  * One call to the desk's API. The secret travels in a header, never the URL:
  * a query string lands in server logs and browser history.
+ *
+ * `signal` aborts it: a screen that has been left does not finish loading
+ * into a page nobody is looking at. An aborted call throws an error with
+ * `aborted: true`, which is not "offline" and is not worth showing.
  */
-export async function api(params, { method = 'GET', body = null } = {}) {
+export async function api(params, { method = 'GET', body = null, signal = null } = {}) {
   const qs = new URLSearchParams({ resource: 'console' });
   for (const [k, v] of Object.entries(params ?? {})) if (v != null && v !== '') qs.set(k, String(v));
   if (method === 'GET' && session.name) qs.set('operator', session.name);
+  const url = `/api/admin/ops?${qs}`;
+  const kept = method === 'GET' ? answers.get(url) ?? null : null;
 
   let res;
   try {
-    res = await fetch(`/api/admin/ops?${qs}`, {
+    res = await fetch(url, {
       method,
       headers: {
         'x-admin-secret': session.secret,
         ...(body ? { 'content-type': 'application/json' } : {}),
+        ...(kept ? { 'if-none-match': kept.etag } : {}),
       },
       body: body ? JSON.stringify({ ...body, operator: session.name }) : undefined,
       cache: 'no-store',
+      signal: signal ?? undefined,
     });
-  } catch {
+  } catch (err) {
+    if (signal?.aborted || err?.name === 'AbortError') throw Object.assign(new Error('Cancelled.'), { aborted: true });
     setOffline(true);
     throw Object.assign(new Error('You are offline. Nothing was sent — try again when the connection is back.'), { offline: true });
   }
   setOffline(false);
+
+  if (res.status === 304 && kept) return kept.data;
 
   const data = await res.json().catch(() => ({ error: 'The server sent something we could not read.' }));
   if (res.status === 401) {
     for (const fn of listeners.unauthorised) fn('That desk password was not accepted. Sign in again.');
   }
   if (!res.ok) throw Object.assign(new Error(data.error || 'That did not work.'), { status: res.status, data });
+
+  if (method === 'GET') {
+    const etag = res.headers?.get?.('etag');
+    answers.delete(url);
+    if (etag) {
+      answers.set(url, { etag, data });
+      if (answers.size > ANSWERS_KEPT) answers.delete(answers.keys().next().value);
+    }
+  } else {
+    // An action changes what other screens show (the counts, a colleague's
+    // view of the same case): look again shortly, once this screen has
+    // reloaded itself.
+    poke(1000);
+  }
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Keeping the screen true: one cheap question, then only what changed
+// ---------------------------------------------------------------------------
+
+/**
+ * The desk used to fetch the whole of every screen every 20 seconds. Now it
+ * asks the server for the pulse - the version of each area of the desk, one
+ * cheap read - and fetches a screen again only when one of the areas that
+ * screen shows has moved, or when it has not been fetched for MAX_AGE (what
+ * it says about the time - "overdue", "done today" - moves without any write).
+ *
+ * The rhythm (public/desk/live.js RHYTHM): every 15 seconds while the page is
+ * visible and somebody is using it; every minute once nobody has touched it
+ * for three; not at all while the tab is hidden; at once when it comes back,
+ * gets focus or comes back online, and a second after the operator's own
+ * action. Each wait is spread ±15% so ten desks do not ask in step, and
+ * doubles after each failure, up to two minutes.
+ *
+ * A server without the pulse (an older database) is asked for every screen on
+ * the old 20-second timer, with the same discipline; it is asked about the
+ * pulse again every five minutes, so the desk catches up when the migration
+ * lands.
+ *
+ *   const sub = subscribe(['bookings', 'requests'], async () => { …load…; return ok; });
+ *   sub.now();          // refresh it now, through the same one-at-a-time guard
+ *   sub.unsubscribe();  // when the screen goes
+ *
+ * `refresh` may return false to say it did not load (it is tried again on the
+ * next tick, rather than counted as caught up). Only one refresh of a
+ * subscription is ever in flight; one asked for meanwhile runs once after it.
+ */
+const live = {
+  running: false,
+  subs: new Set(),
+  versions: null,       // the last pulse's versions
+  supported: null,      // null until asked; false: the server has no pulse
+  probedAt: 0,
+  timer: null,
+  checking: null,       // the check in flight
+  again: false,
+  errors: 0,
+  lastInput: Date.now(),
+};
+
+const PULSE_RECHECK_MS = 300_000;
+
+/** Subscribes a refresh to the scopes it shows. See above. */
+export function subscribe(scopes, refresh, { maxAgeMs = RHYTHM.maxAgeMs } = {}) {
+  const sub = {
+    scopes: Array.isArray(scopes) && scopes.length ? scopes : SCOPES,
+    refresh,
+    maxAgeMs,
+    // What the screen was loaded against: the last pulse before it loaded.
+    // Anything that moved after that is fetched on the next tick.
+    seen: live.versions ? { ...live.versions } : null,
+    lastRun: Date.now(),
+    running: null,
+    again: false,
+    closed: false,
+  };
+  live.subs.add(sub);
+  return {
+    unsubscribe() { sub.closed = true; live.subs.delete(sub); },
+    now: () => runSub(sub, live.versions),
+  };
+}
+
+function runSub(sub, versions) {
+  if (sub.closed) return Promise.resolve();
+  if (sub.running) { sub.again = true; return sub.running; }
+  const against = versions ? { ...versions } : null;
+  sub.running = (async () => {
+    try {
+      const ok = await sub.refresh();
+      if (ok !== false) { sub.seen = against; sub.lastRun = Date.now(); }
+    } catch { /* a screen says its own errors */ }
+  })().finally(() => {
+    sub.running = null;
+    if (sub.again && !sub.closed) { sub.again = false; runSub(sub, live.versions); }
+  });
+  return sub.running;
+}
+
+/** Whether a subscription must be refreshed on this tick. */
+function due(sub, now = Date.now()) {
+  if (sub.closed) return false;
+  if (live.supported !== true) return true;
+  return changed(sub.scopes, sub.seen, live.versions) || now - sub.lastRun >= sub.maxAgeMs;
+}
+
+async function check() {
+  clearTimeout(live.timer);
+  if (!live.running) return;
+  if (live.checking) { live.again = true; return; }
+  if (typeof document !== 'undefined' && document.hidden) return;   // the tab coming back resumes it
+  live.checking = (async () => {
+    try {
+      if (live.supported !== false || Date.now() - live.probedAt >= PULSE_RECHECK_MS) {
+        live.probedAt = Date.now();
+        let p;
+        try {
+          p = await api({ view: 'pulse' });
+        } catch (err) {
+          // An older server, mid-deploy, does not know the view.
+          if (err.status === 400 || err.status === 404) p = { supported: false };
+          else throw err;
+        }
+        live.supported = p.supported === true;
+        if (live.supported) live.versions = p.versions ?? null;
+      }
+      await Promise.all([...live.subs].filter((s) => due(s)).map((s) => runSub(s, live.versions)));
+      live.errors = 0;
+    } catch (err) {
+      if (!err?.aborted) live.errors += 1;
+    }
+  })().finally(() => {
+    live.checking = null;
+    if (live.again) { live.again = false; check(); } else schedule();
+  });
+}
+
+function schedule(ms = null) {
+  clearTimeout(live.timer);
+  if (!live.running) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  const wait = ms ?? pollDelay({ idleForMs: Date.now() - live.lastInput, errors: live.errors, supported: live.supported });
+  live.timer = setTimeout(check, wait);
+}
+
+/** Asks again soon: after an action, on focus, coming back online. */
+export function poke(delayMs = 0) {
+  if (!live.running) return;
+  if (live.checking) { live.again = true; return; }
+  schedule(delayMs);
+}
+
+/** The pulse read at sign-in, so the first screen's subscriptions know what they were loaded against. */
+export function primeLive(pulse) {
+  if (!pulse) return;
+  live.supported = pulse.supported === true;
+  live.probedAt = Date.now();
+  live.versions = live.supported ? pulse.versions ?? null : null;
+}
+
+let wired = false;
+function wire() {
+  if (wired || typeof document === 'undefined') return;
+  wired = true;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(live.timer); else poke(0); });
+  window.addEventListener('focus', () => poke(0));
+  window.addEventListener('online', () => poke(0));
+  const touched = () => {
+    const wasIdle = Date.now() - live.lastInput >= RHYTHM.idleAfterMs;
+    live.lastInput = Date.now();
+    if (wasIdle) poke(300);   // somebody is back: catch up now, not in a minute
+  };
+  for (const e of ['pointerdown', 'keydown', 'wheel', 'touchstart']) window.addEventListener(e, touched, { passive: true, capture: true });
+}
+
+/** Starts asking. Called once the operator is signed in. */
+export function startLive() {
+  wire();
+  live.running = true;
+  live.errors = 0;
+  schedule();
+}
+
+/** Stops asking, and forgets every subscription: on signing out. */
+export function stopLive() {
+  live.running = false;
+  clearTimeout(live.timer);
+  for (const s of live.subs) s.closed = true;
+  live.subs.clear();
+  live.versions = null;
+  live.supported = null;
+}
+
+/** What the loop knows, for the tests and for a curious developer at the console. */
+export const liveState = () => ({
+  running: live.running, supported: live.supported, versions: live.versions,
+  subscriptions: live.subs.size, errors: live.errors, idleForMs: Date.now() - live.lastInput,
+});
 
 export const post = (body) => api({}, { method: 'POST', body });
 

@@ -15,7 +15,7 @@
 
 import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelIcon, avatar, timeEl, age,
-  emptyState, errorState, skeleton, session, add, fill,
+  emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES,
 } from './ui.js';
 
 const TABS = [
@@ -169,11 +169,12 @@ export function problemId(problem) {
 
 const href = (tab, filter) => `#/inbox?tab=${tab}${filter && filter !== 'all' ? `&filter=${filter}` : ''}`;
 
-export function renderInbox({ route, main, refreshCounts }) {
+export function renderInbox({ route, main, setCounts = () => {}, signal = null }) {
   const tab = TABS.some(([k]) => k === route.query.tab) ? route.query.tab : 'needs_us';
   const filter = FILTERS.some(([k]) => k === route.query.filter) ? route.query.filter : 'all';
   let limit = 50;
   let data = null;
+  let drawnFrom = null;    // the answer last drawn: a 304 gives the same object back
 
   const updated = h('p', { class: 'page-meta', 'aria-live': 'polite' });
   const tabsEl = h('nav', { class: 'tabs', 'aria-label': 'Whose move' });
@@ -190,14 +191,29 @@ export function renderInbox({ route, main, refreshCounts }) {
     h('div', { class: 'inbox-bar' }, chipsEl),
     listEl);
 
+  /** Loads the list; false when it could not (the next tick tries again). */
   async function load({ quiet = false } = {}) {
     try {
-      data = await api({ view: 'inbox', tab, filter, limit });
+      data = await api({ view: 'inbox', tab, filter, limit }, { signal });
     } catch (err) {
+      if (err.aborted) return false;
       if (!quiet) fill(listEl, errorState(err, () => load()));
-      return;
+      return false;
     }
+    // The sidebar's numbers come with the list: no second request for them.
+    if (data.nav) setCounts(data.nav);
+    stamp();
+    // Nothing changed since it was drawn: the rows stay as they are.
+    if (data === drawnFrom) return true;
+    drawnFrom = data;
     draw();
+    return true;
+  }
+
+  /** "Updated 14:05": when the list was last known to be true, changed or not. */
+  function stamp() {
+    updated.textContent = '';
+    add(updated, `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`);
   }
 
   function draw() {
@@ -217,9 +233,6 @@ export function renderInbox({ route, main, refreshCounts }) {
         'aria-label': `${label}, ${n}`,
       }, label, h('span', { class: 'seg-count', 'aria-hidden': 'true' }, String(n)));
     }));
-
-    updated.textContent = '';
-    add(updated, `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`);
 
     clear(listEl);
     if (!data.items.length) {
@@ -319,8 +332,8 @@ export function renderInbox({ route, main, refreshCounts }) {
   /**
    * "Take it" from the list, with the version the row was drawn from - the
    * server gives every row its record's version, so nothing is read first.
-   * The row can be up to 20 seconds old: if a colleague took it, or anything
-   * else changed, in the meantime, the server refuses and says who did what,
+   * The row can be a tick old (15 seconds; a minute on an idle desk): if a
+   * colleague took it, or anything else changed, in the meantime, the server refuses and says who did what,
    * and the list redraws. Nobody's case is taken from them by a stale row.
    */
   async function takeIt(button, item) {
@@ -335,7 +348,6 @@ export function renderInbox({ route, main, refreshCounts }) {
         if (c.header?.assigned_to) {
           toast(`${c.header.assigned_to} has just taken this.`, 'info');
           await load({ quiet: true });
-          refreshCounts();
           return;
         }
         version = c.version;
@@ -343,10 +355,9 @@ export function renderInbox({ route, main, refreshCounts }) {
       await post({ action: 'take', ...target, version });
       toast('It is yours now.');
       await load({ quiet: true });
-      refreshCounts();
     } catch (err) {
       toastError(err);
-      if (err.data?.stale) { await load({ quiet: true }); refreshCounts(); return; }
+      if (err.data?.stale) { await load({ quiet: true }); return; }
       button.disabled = false;
     }
   }
@@ -388,7 +399,6 @@ export function renderInbox({ route, main, refreshCounts }) {
       await post(body);
       toast(ok);
       await load({ quiet: true });
-      refreshCounts();
     } catch (err) {
       toastError(err);
       button.disabled = false;
@@ -396,5 +406,11 @@ export function renderInbox({ route, main, refreshCounts }) {
   }
 
   load();
-  return { refresh: () => load({ quiet: true }) };
+  return {
+    refresh: () => load({ quiet: true }),
+    // Fetched again when one of these moves (public/desk/live.js).
+    scopes: VIEW_SCOPES.inbox,
+    // The list carries the sidebar's numbers (setCounts above).
+    providesCounts: true,
+  };
 }

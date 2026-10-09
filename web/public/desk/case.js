@@ -20,7 +20,7 @@
 
 import {
   h, icon, api, post, toast, toastError, badge, avatar, timeEl, ago, when, emptyState, errorState, skeleton, actionButton,
-  dialog, draft, session, add, fill, lines, channelBadge,
+  dialog, draft, session, add, fill, lines, channelBadge, VIEW_SCOPES,
 } from './ui.js';
 import { mountConversation } from './conversation.js';
 import { openViewer } from './viewer.js';
@@ -39,7 +39,7 @@ const DETAIL_LABELS = {
 };
 const HISTORY_SHOWN = 6;
 
-export function renderCase({ route, main, refreshCounts }) {
+export function renderCase({ route, main, refreshCounts, signal = null, subscribe = null }) {
   const [type, ref] = route.parts;
   if (!['booking', 'request', 'mrn'].includes(type) || !ref) {
     add(main, emptyState('There is nothing to show here.', null, h('a', { class: 'btn', href: '#/inbox' }, 'Back to the inbox'), { icon: 'inbox' }));
@@ -89,8 +89,9 @@ export function renderCase({ route, main, refreshCounts }) {
   async function load({ quiet = false, own = false } = {}) {
     let fresh;
     try {
-      fresh = await api({ view: 'case', type, ref });
+      fresh = await api({ view: 'case', type, ref }, { signal });
     } catch (err) {
+      if (err.aborted) return null;
       if (!quiet) fill(root, errorState(err, err.status === 404 || err.status === 403 ? null : () => load()));
       return null;
     }
@@ -792,12 +793,19 @@ export function renderCase({ route, main, refreshCounts }) {
   }
 
   load();
+  // The conversation beside the case moves far more often than the case
+  // does - every message - so it is refreshed on its own areas, and the case
+  // on the case's (public/desk/live.js).
+  subscribe?.(VIEW_SCOPES.chat, () => convo?.refresh());
   return {
     async refresh() {
-      if (document.querySelector('dialog[open]')) return convo?.refresh();
-      await load({ quiet: true });
-      await convo?.refresh();
+      // A dialog open on this case is about the case as it was drawn; its
+      // action carries that version and is refused if it moved. Not now,
+      // then: the next tick, once the dialog has closed.
+      if (document.querySelector('dialog[open]')) return false;
+      return (await load({ quiet: true })) !== null;
     },
+    scopes: VIEW_SCOPES[`case:${type}`],
     dispose() {
       watcher?.disconnect();
       sizer?.disconnect();
