@@ -55,14 +55,14 @@ before, about 4 after**, most of them one-row reads.
   BUFFERS)` of SELECTs only. Nothing was written.
 * **At scale, on a real Postgres.** The live tables hold a few dozen rows, so
   their plans say little about next year. Every migration was applied to PGlite
-  (Postgres 17 in WASM, in the scratchpad) with a year of data - 5,000 clients,
+  (Postgres in WebAssembly) with a year of data - 5,000 clients,
   10,000 bookings, 30,000 papers, 200,000 messages, 50,000 notifications,
   100,000 audit rows, 8,000 shipments - and the hot reads were planned and timed
   before and after the indexes. PGlite is slower than the real server; the
   ratios and the plan shapes are what carry over.
 * **In a browser.** The desk was served locally against the fake database with
   the triggers emulated, and driven in headless Edge for three minutes while
-  every request it made was logged (section 8.3).
+  every request it made was logged (section 8.4).
 
 ---
 
@@ -129,7 +129,7 @@ given, with nothing it shows changed since.
 |---|---:|---:|---:|---|
 | `me` (once per sign-in) | 5 | 4 | - | team list cached; message-log probe remembered |
 | `counts` | 22 | 14 | 1 | shares the inbox's rows |
-| `inbox` | 23, and +1 per failing chat, +3 per loose paper, +3 per MRN application without a name | 14 at any size | 1 | four rounds of parallel reads; names batched |
+| `inbox` | 23, and +1 per failing chat, +3 per loose paper, +3 per MRN application without a name | 14 here; at most 18 with every kind of row, at any size | 1 | four rounds of parallel reads; names batched |
 | `case` (booking) | 11 | 10 | 1 | its own booking's version |
 | `case` (request) | 7 | 6 | 1 | its own request's version |
 | `chat` (conversation) | 7 | 6 | 1 | its own chat's version |
@@ -219,10 +219,19 @@ Trade-offs and why:
   bump, not an error.
 * **Once per row per transaction.** Found on PGlite: a per-row trigger
   updating one counter row turned a 200,000-row insert into minutes, as the
-  row's dead versions piled up inside the transaction. A transaction-local
-  marker now limits each key to one bump per transaction. 20,000 messages in
-  one statement: 778 ms with the trigger, 243 ms without (PGlite); a single
-  row's write pays microseconds.
+  row's dead versions piled up inside the transaction. Transaction-local
+  markers now limit each key to one bump per transaction. They are spread
+  over 64 settings rather than one per record: a setting, once made, lives as
+  long as the database connection, and PostgREST keeps its connections for
+  days. 20,000 messages in one statement: about 1.1 s with the trigger,
+  0.23 s without (PGlite, WebAssembly); a single row's write pays
+  microseconds.
+* **Both sides of an update.** An update moves the keys of the row as it was
+  and as it is: a paper re-filed from one booking to another changes both
+  cases.
+* **It cannot fail a write.** The keys are worked out from the row as jsonb
+  (a column a table lacks is null, not an error), every cast is guarded by
+  its pattern, and the bump itself is inside an exception block.
 * **Hot rows.** The `messages` area is moved by every message and receipt, so
   concurrent bot turns queue for it for the length of their (single-statement)
   transactions - milliseconds, at our rate a few per minute. It would matter at
@@ -315,7 +324,9 @@ cannot): at today's table sizes the build blocks writes for milliseconds.
   without a booking name, each awaited in turn. Now: round 1, what is open,
   decided and set aside; round 2, papers, versions and failures, together;
   round 3, the bookings behind them, in two reads; round 4, every customer name
-  still missing, from at most four reads (`customersFor`). 14 calls at any size.
+  still missing, from at most four reads (`customersFor`). 14 to 18 calls
+  whatever the size. A list of ids is split into reads of 150, side by side,
+  so no `in.(…)` filter outgrows the URL.
   The output is item-for-item what it was, compared on seeded desks of 7, 30
   and 61 customers against the previous code.
 * **Reads bounded by what is shown, not "the newest N".** Call-backs were the
@@ -426,10 +437,14 @@ busy minute, and the desk total to ~19.
 | Anything on a screen, after a change | one tick: 15 s active, 60 s idle | the pulse rhythm (before: 20 s) |
 | The same, after the operator's own action | none: the screen reloads itself | |
 | Time-dependent words ("overdue", "done today", "4 min ago") | 5 min | the ETag's clock bucket and the maximum age |
-| WhatsApp's window on an open conversation | 1 min | its own clock bucket; sending re-checks it on the server anyway |
+| WhatsApp's window on an open conversation (the switch to "template only") | 2 min | the pane is asked again every 2 minutes; the countdown is drawn in the browser; sending re-checks it on the server anyway |
+| A refresh that failed (a 5xx, a timeout, a body cut off) | one tick | it is not counted as caught up, even when the screen's code does not say it failed |
+| A read of the inbox that failed | one tick | the list is shown without it, marked partial: never shared, never given an ETag, asked for again |
 | What a case shows of other records (the customer panel, another booking on the same chassis) | 5 min | a case follows its own record's version |
 | Someone switched off or a role changed, on another instance | 30 s | the team cache (the desk secret is still the gate) |
 | A bump skipped (its row busy for 250 ms) | until the next change, or 5 min | never at the expense of the write |
+| A client changed that is tied to its chat only through the session (no WhatsApp id or Telegram chat id on the row) - blocked, opted out | 5 min on its conversation | a client row moves the chats its ids name; the composer's refusal is re-checked on the server when sending |
+| The Chats list (chats.js), when only a session changed | 20 s at most | it names no scopes, so it follows every area, at most every 20 s, as before |
 | Before the migration | 20 s, as before | |
 
 Nothing is cached past a write it depends on: versions are transactional, an
@@ -449,6 +464,7 @@ do $$ declare t text; begin
     execute format('drop trigger if exists desk_activity on public.%I', t);
   end loop; end $$;
 drop function if exists desk_activity_touch();
+drop function if exists desk_activity_keys(text, jsonb);
 drop function if exists desk_chat_key(text, text);
 drop table if exists desk_activity;
 ```
@@ -459,7 +475,7 @@ drop table if exists desk_activity;
 
 ### 8.1 Tests
 
-533 tests (495 before), all passing. The ones that hold the numbers:
+544 tests (495 before), all passing. The ones that hold the numbers:
 
 * `tests/db-load.test.mjs` - the team read once for many requests; the inbox
   the same number of reads whatever the number of failing chats; a refresh
@@ -483,7 +499,17 @@ drop table if exists desk_activity;
   chat message elsewhere fetches nothing; a case page is not fetched while
   colleagues work other bookings.
 
-The triggers themselves were checked on PGlite, rule by rule (32 kinds of
+* `tests/desk-activity-sql.test.mjs` - the migrations applied to a real
+  Postgres (PGlite, a pinned dev dependency, in-process): each kind of write
+  moves exactly the versions it should, and the fake database's emulation of
+  the trigger (which the other desk tests run on) moves the same ones for the
+  same rows, write for write; a rolled-back write moves nothing; 20,000 rows
+  in one statement move each key once.
+* `tests/fixtures/inbox-golden.json` - what the old inbox (`6993e5c`) returned
+  for three busy seeded desks at a fixed moment; the new one must return the
+  same, item for item.
+
+The triggers were also checked by hand on PGlite, rule by rule (36 kinds of
 write, each moving exactly the expected rows), plus rollback, the bulk insert and
 once-per-transaction.
 
@@ -492,7 +518,19 @@ once-per-transaction.
 See sections 1 and 4. The "before" numbers were counted on `6993e5c` with the
 same seeded desk; the bot's on the same seed as `tests/bot-load.test.mjs`.
 
-### 8.3 In a browser
+### 8.3 Reviewed
+
+An independent read-only review of the branch found, and the branch then
+fixed: an answer cut off mid-body could be kept and served back on a 304; a
+failed conversation refresh counted as caught up; a partly failed inbox could
+be shared and tagged like a whole one; a re-filed paper moved only its new
+booking; a set-aside failure did not move its conversation; the trigger's
+markers grew one setting per record on long-lived connections; a malformed
+audit id could fail a write; a full end-of-turn drain left the rest for a
+minute; long id lists in one URL; an MRN row named differently from before;
+shipments kept rows that had left the filter. Each has a test.
+
+### 8.4 In a browser
 
 Headless Edge on the local desk, three minutes:
 
