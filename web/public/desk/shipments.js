@@ -36,6 +36,31 @@ export function etaParts(eta, tone, now = new Date(), status = '') {
   return { date, rel, late: !done && days < 0 ? -days : 0 };
 }
 
+/**
+ * What saving an update did, in words that keep three things apart: the
+ * update saved, the notification sent (WhatsApp or Telegram accepted it), and
+ * delivered - which a send never proves (the brief, section 9).
+ * @returns {[string, string]} the words and the toast's tone
+ */
+export function savedWords(r, tell) {
+  if (r?.unchanged) return ['Nothing changed, so nothing was saved.', 'info'];
+  if (!tell) return ['Update saved. The customer was not notified.', 'ok'];
+  const told = r?.customer_told;
+  if (!told) return ['Update saved; notification failed: there is no chat to send it to.', 'bad'];
+  if (told.ok && told.status === 'queued') return ['Update saved; the notification is waiting to be sent. It will be tried again automatically.', 'info'];
+  if (told.ok) return ['Update saved; notification sent. Sent is not proof it was delivered or read - the conversation shows ✓✓ when it is.', 'ok'];
+  return [`Update saved; notification failed: ${told.words ?? 'it did not go through.'}`, 'bad'];
+}
+
+const CHANNEL = { whatsapp: 'WhatsApp', telegram: 'Telegram' };
+const LANGUAGE = { ar: 'Arabic', en: 'English' };
+
+/** The "Notify customer" box says where and in which language the message goes. */
+export function notifyLabel(customer) {
+  if (!customer?.channel || !CHANNEL[customer.channel]) return 'Notify customer (no chat linked, so it cannot be sent)';
+  return `Notify customer on ${CHANNEL[customer.channel]}, in ${LANGUAGE[customer.language] ?? 'Arabic and English'}`;
+}
+
 export function renderShipments(ctx) {
   const [id] = ctx.route.parts;
   return id ? renderShipment(ctx, id) : renderList(ctx);
@@ -215,13 +240,15 @@ function renderShipment({ main, signal = null }, id) {
     const vessel = h('input', { class: 'input', id: 'ship-vessel', value: s.vessel ?? '', disabled: !can });
     const location = h('input', { class: 'input', id: 'ship-location', placeholder: 'e.g. Port Said', disabled: !can });
     const note = h('textarea', { class: 'input', id: 'ship-note', rows: '2', dir: 'auto', disabled: !can, placeholder: 'What happened, in a sentence the customer understands' });
-    const tell = h('input', { type: 'checkbox', id: 'ship-tell', checked: true, disabled: !can });
     const customer = data.customer;
+    // No chat to write to: nothing can be sent, so the box is not offered ticked.
+    const reachable = Boolean(customer?.channel && customer?.chat_id !== null);
+    const tell = h('input', { type: 'checkbox', id: 'ship-tell', checked: reachable, disabled: !can || !reachable });
 
     const pv = previewBox(() => (tell.checked ? {
       kind: 'shipment_update', shipment_id: s.shipment_id,
       status: status.value !== s.status ? status.value : '', eta: eta.value !== (s.eta ?? '') ? eta.value : '', note: note.value.trim(),
-    } : null), { empty: 'The customer will not be told.' });
+    } : null), { empty: 'The customer will not be notified. The update is only recorded here.' });
 
     const el = h('form', { class: 'card ship-form', novalidate: true },
       h('div', { class: 'card-head' }, h('h2', {}, icon('ship', { size: 16 }), 'Update the shipment')),
@@ -232,10 +259,14 @@ function renderShipment({ main, signal = null }, id) {
         field('Vessel', vessel, 'ship-vessel'),
         field('Where (for the history)', location, 'ship-location')),
       field('Note', note, 'ship-note'),
-      h('label', { class: 'check', for: 'ship-tell' }, tell, h('span', {},
-        'Tell the customer', h('span', { class: 'muted small' }, customer?.channel ? ` · on ${customer.channel === 'whatsapp' ? 'WhatsApp' : 'Telegram'}` : ' · no chat linked'))),
+      h('label', { class: 'check', for: 'ship-tell' }, tell, h('span', {}, notifyLabel(customer))),
       pv.el,
       h('div', { class: 'form-actions' }, h('button', { class: 'btn btn-primary', type: 'submit', disabled: !can }, 'Save update')));
+    // The button says what it will do: save, or save and send.
+    const submitWords = () => (tell.checked ? 'Save update and notify customer' : 'Save update');
+    const submit = el.querySelector('button[type=submit]');
+    submit.textContent = submitWords();
+    tell.addEventListener('change', () => { submit.textContent = submitWords(); });
 
     let key = newKey();
     for (const input of [status, eta, vessel, location, note, tell]) {
@@ -258,17 +289,15 @@ function renderShipment({ main, signal = null }, id) {
       button.textContent = 'Saving…';
       try {
         const r = await post(body);
-        if (r.unchanged) toast('Nothing changed, so nothing was saved.', 'info');
-        else if (!tell.checked) toast('Saved.');
-        else if (r.customer_told?.ok) toast('Saved, and the customer was told.');
-        else toast(`Saved, but the customer was NOT told: ${r.customer_told?.words ?? 'no chat to send to.'}`, 'bad', { timeout: 15000 });
+        const [words, tone] = savedWords(r, tell.checked);
+        toast(words, tone, tone === 'bad' ? { timeout: 15000 } : {});
         data = null;
         await load();
       } catch (err) {
         if (err.data?.stale) { toast(err.message, 'info'); data = null; await load(); return; }
         toastError(err);
       } finally {
-        if (button.isConnected) { button.disabled = !can; button.textContent = 'Save update'; }
+        if (button.isConnected) { button.disabled = !can; button.textContent = submitWords(); }
       }
     });
     pv.now();

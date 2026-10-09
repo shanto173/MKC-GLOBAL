@@ -200,6 +200,30 @@ test('Dismiss issue says, before it is pressed, what it does and what it does no
 });
 
 // ---------------------------------------------------------------------------
+// Shipments (section 9): saved is not notified, and sent is not delivered
+// ---------------------------------------------------------------------------
+
+test('after saving a shipment update the desk says whether the customer was notified - and never that it was delivered', async () => {
+  const { savedWords, notifyLabel } = await import('../public/desk/shipments.js');
+  assert.deepEqual(savedWords({ unchanged: true }, true), ['Nothing changed, so nothing was saved.', 'info']);
+  assert.deepEqual(savedWords({ ok: true }, false), ['Update saved. The customer was not notified.', 'ok']);
+  const [sent, sentTone] = savedWords({ ok: true, customer_told: { ok: true, status: 'sent' } }, true);
+  assert.equal(sentTone, 'ok');
+  assert.match(sent, /^Update saved; notification sent\./);
+  assert.match(sent, /not proof it was delivered or read/);
+  assert.deepEqual(savedWords({ ok: true, customer_told: { ok: true, status: 'queued' } }, true),
+    ['Update saved; the notification is waiting to be sent. It will be tried again automatically.', 'info']);
+  assert.deepEqual(savedWords({ ok: true, customer_told: { ok: false, status: 'needs_template', words: 'WhatsApp needs a template.' } }, true),
+    ['Update saved; notification failed: WhatsApp needs a template.', 'bad']);
+  assert.deepEqual(savedWords({ ok: true, customer_told: null }, true), ['Update saved; notification failed: there is no chat to send it to.', 'bad']);
+
+  assert.equal(notifyLabel({ channel: 'whatsapp', language: 'ar' }), 'Notify customer on WhatsApp, in Arabic');
+  assert.equal(notifyLabel({ channel: 'telegram', language: null }), 'Notify customer on Telegram, in Arabic and English');
+  assert.equal(notifyLabel({ channel: null }), 'Notify customer (no chat linked, so it cannot be sent)');
+  assert.match(src('shipments.js'), /'Save update and notify customer'/);
+});
+
+// ---------------------------------------------------------------------------
 // The words of the trade (section 5): one place, shown where they appear
 // ---------------------------------------------------------------------------
 
