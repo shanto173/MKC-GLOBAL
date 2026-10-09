@@ -43,6 +43,125 @@ function pdfjs() {
 }
 
 /**
+ * A PDF drawn by pdf.js into `box`, one canvas per page, at the screen's own
+ * pixel density (see drawPdf in openViewer for why not the browser's viewer).
+ * `stale()` says this drawing has been overtaken; `expired()` is called once
+ * when the link answers 4xx. Falls back to the browser's own viewer.
+ */
+async function renderPdf(box, url, { label = 'PDF', stale = () => !box.isConnected, expired = null } = {}) {
+  let pdf = null;
+  try {
+    const [lib, bytes] = await Promise.all([pdfjs(), fetch(url).then(async (res) => {
+      if (!res.ok) throw Object.assign(new Error(`The file link answered ${res.status}.`), { status: res.status });
+      return new Uint8Array(await res.arrayBuffer());
+    })]);
+    if (stale()) return;
+    pdf = await lib.getDocument({ data: bytes, isEvalSupported: false }).promise;
+    const pages = Math.min(pdf.numPages, MAX_PAGES);
+    const dpr = window.devicePixelRatio || 1;
+    for (let n = 1; n <= pages; n++) {
+      const page = await pdf.getPage(n);
+      if (stale()) return;
+      const width = Math.max(200, box.clientWidth - 24);
+      const fit = width / page.getViewport({ scale: 1 }).width;
+      const viewport = page.getViewport({ scale: fit * dpr });
+      const canvas = h('canvas', {
+        class: 'viewer-page', width: Math.floor(viewport.width), height: Math.floor(viewport.height),
+        role: 'img', 'aria-label': `Page ${n} of ${pdf.numPages}`,
+      });
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      if (stale()) return;
+      if (n === 1) fill(box, canvas); else add(box, canvas);
+    }
+    if (pdf.numPages > pages) {
+      add(box, h('p', { class: 'muted small viewer-more' }, `Showing the first ${pages} of ${pdf.numPages} pages. Open it in a new tab for the rest.`));
+    }
+  } catch (err) {
+    if (stale()) return;
+    if (err?.status >= 400 && err.status < 500 && expired) { expired(); return; }
+    box.replaceWith(h('iframe', { class: 'viewer-pdf', src: url, title: label }));
+  } finally {
+    pdf?.destroy().catch(() => null);
+  }
+}
+
+/**
+ * A file from a conversation that is not a paper to check: a photo, a voice
+ * note's companion picture, a file the desk sent, a paper the bot did not
+ * take. Large, with a pager through the conversation's other files, "Open in
+ * a new tab", and - for a paper the bot read - the way into the document
+ * viewer.
+ *
+ * @param {{title: string, items: Array<{ref: string, name: string|null, mime: string|null, kind: string,
+ *          size_words?: string|null, paper?: object|null, caption?: string|null}>, index: number,
+ *          link: (ref: string) => Promise<{url: string, mime_type?: string}>, onOpenPaper?: Function}} ctx
+ */
+export function openFilePreview(ctx) {
+  let index = Math.max(0, ctx.index ?? 0);
+  let turn = 0;
+  const stage = h('div', { class: 'preview-stage' });
+  const bar = h('div', { class: 'viewer-file-bar' });
+  const nav = h('div', { class: 'viewer-nav', role: 'group', 'aria-label': 'Files in this conversation' });
+  const dlg = dialog({ title: ctx.title ?? 'File', body: h('div', { class: 'preview-body' }, stage, bar), size: 'xl', actions: [], extra: nav });
+  dlg.el.classList.add('dialog-preview');
+  dlg.el.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') step(1);
+    if (e.key === 'ArrowLeft') step(-1);
+  });
+  const step = (d) => { const next = index + d; if (next >= 0 && next < ctx.items.length) { index = next; draw(); } };
+
+  async function draw(retried = false) {
+    const mine = ++turn;
+    const item = ctx.items[index];
+    dlg.el.querySelector('.dialog-title').textContent = item.paper?.label && item.paper.label !== 'File' ? `${item.paper.label} · ${ctx.title}` : ctx.title;
+    nav.hidden = ctx.items.length <= 1;
+    fill(nav,
+      h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: index <= 0, onclick: () => step(-1), title: 'Previous (←)' }, icon('left', { size: 14 }), 'Previous'),
+      h('span', { class: 'viewer-count' }, `${index + 1} of ${ctx.items.length}`),
+      h('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: index >= ctx.items.length - 1, onclick: () => step(1), title: 'Next (→)' }, 'Next', icon('right', { size: 14 })));
+    fill(stage, h('p', { class: 'viewer-loading' }, 'Opening the file…'));
+    fill(bar);
+    let link;
+    try {
+      link = await ctx.link(item.ref, { fresh: retried });
+    } catch (err) {
+      if (mine !== turn) return;
+      fill(stage, h('div', { class: 'viewer-nofile' }, icon('imageOff', { size: 32 }), h('p', {}, err.message),
+        h('button', { class: 'btn', type: 'button', onclick: () => draw(true) }, icon('refresh', { size: 15 }), 'Try again')));
+      return;
+    }
+    if (mine !== turn) return;
+    const mime = String(link.mime_type ?? item.mime ?? '');
+    const again = () => { if (!retried) draw(true); else fill(stage, h('div', { class: 'viewer-nofile' }, h('p', {}, 'The file would not open.'))); };
+    if (item.kind === 'image' || /^image\//.test(mime)) {
+      const img = h('img', { class: 'preview-img', src: link.url, alt: item.caption ? `Photo: ${item.caption}` : `Photo ${index + 1} of ${ctx.items.length}`, decoding: 'async' });
+      img.addEventListener('error', again, { once: true });
+      // Fitted to the screen; a click shows it at its own size, to read a plate or a stamp.
+      img.addEventListener('click', () => stage.classList.toggle('is-zoomed'));
+      fill(stage, img);
+    } else if (mime === 'application/pdf' || item.kind === 'pdf') {
+      const box = h('div', { class: 'viewer-pages', role: 'region', tabindex: '0', 'aria-label': `${item.name ?? 'File'} (PDF)` }, h('p', { class: 'viewer-loading' }, 'Opening the file…'));
+      fill(stage, box);
+      renderPdf(box, link.url, { label: item.name ?? 'PDF', stale: () => mine !== turn || !box.isConnected, expired: again });
+    } else {
+      fill(stage, h('div', { class: 'viewer-nofile' }, icon('fileText', { size: 32 }),
+        h('p', {}, 'This kind of file cannot be shown here. Open it in a new tab to download it.')));
+    }
+    stage.classList.remove('is-zoomed');
+    fill(bar,
+      h('span', { class: 'file-name' }, icon('file', { size: 14 }), h('bdi', { dir: 'ltr', title: item.name ?? '' }, item.name ?? 'File'),
+        item.size_words ? h('span', { class: 'muted' }, ` · ${item.size_words}`) : null),
+      h('span', { class: 'preview-actions' },
+        item.paper?.reviewable && ctx.onOpenPaper
+          ? h('button', { class: 'btn btn-sm', type: 'button', onclick: () => { dlg.close(); ctx.onOpenPaper(item.paper.id); } }, icon('eye', { size: 14 }), 'Open in the document viewer')
+          : null,
+        h('a', { class: 'btn btn-sm btn-ghost', href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 14 }), 'Open in a new tab')));
+  }
+  draw();
+  return dlg;
+}
+
+/**
  * @param {{caseRef: string, docId: number, getData: () => object, reload: () => Promise<object>,
  *          onStale: Function, refreshCounts: Function}} ctx
  */
@@ -170,46 +289,13 @@ export function openViewer(ctx) {
    */
   async function drawPdf(box, doc, url) {
     const turn = ++drawing;
-    const stale = () => turn !== drawing || doc.id !== docId || !box.isConnected;
-    let pdf = null;
-    try {
-      const [lib, bytes] = await Promise.all([pdfjs(), fetch(url).then(async (res) => {
-        if (!res.ok) throw Object.assign(new Error(`The file link answered ${res.status}.`), { status: res.status });
-        return new Uint8Array(await res.arrayBuffer());
-      })]);
-      if (stale()) return;
-      pdf = await lib.getDocument({ data: bytes, isEvalSupported: false }).promise;
-      const pages = Math.min(pdf.numPages, MAX_PAGES);
-      const dpr = window.devicePixelRatio || 1;
-      for (let n = 1; n <= pages; n++) {
-        const page = await pdf.getPage(n);
-        if (stale()) return;
-        // Fitted to the width there is, and drawn with as many device pixels
-        // as the screen has for it; CSS then shows it at that width.
-        const width = Math.max(200, box.clientWidth - 24);
-        const fit = width / page.getViewport({ scale: 1 }).width;
-        const viewport = page.getViewport({ scale: fit * dpr });
-        const canvas = h('canvas', {
-          class: 'viewer-page', width: Math.floor(viewport.width), height: Math.floor(viewport.height),
-          role: 'img', 'aria-label': `Page ${n} of ${pdf.numPages}`,
-        });
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        if (stale()) return;
-        // The first page replaces "Opening the file…" as soon as it is drawn.
-        if (n === 1) fill(box, canvas); else add(box, canvas);
-      }
-      if (pdf.numPages > pages) {
-        add(box, h('p', { class: 'muted small viewer-more' }, `Showing the first ${pages} of ${pdf.numPages} pages. Open it in a new tab for the rest.`));
-      }
-    } catch (err) {
-      if (stale()) return;
-      // A link that died between being handed out and being read: once more, fresh.
-      if (err?.status >= 400 && err.status < 500 && !retriedUrl) { expired(doc); return; }
-      box.replaceWith(h('iframe', { class: 'viewer-pdf', src: url, title: `${doc.label} (PDF)` }));
-    } finally {
-      // The pages are pixels on canvases now; the parsed file is not needed.
-      pdf?.destroy().catch(() => null);
-    }
+    // Fitted to the width there is, at the screen's pixel density; a link that
+    // died between being handed out and being read is fetched once more, fresh.
+    return renderPdf(box, url, {
+      label: `${doc.label} (PDF)`,
+      stale: () => turn !== drawing || doc.id !== docId || !box.isConnected,
+      expired: retriedUrl ? null : () => expired(doc),
+    });
   }
 
   // -- what the bot read, and the decision ---------------------------------------
@@ -228,7 +314,8 @@ export function openViewer(ctx) {
         h('p', {}, h('strong', {}, mismatch.every((c) => (c.against ?? 'the booking') === 'the booking') ? 'Does not match the booking. ' : 'Does not match. '),
           mismatch.map((c) => `${c.label}: the document says ${c.document}, ${c.against ?? 'the booking'} says ${c.booking}.`).join(' '))) : null,
       doc.reading ? h('div', { class: 'callout callout-gray' }, h('p', {}, 'The bot is still reading this file. Look again in a moment.')) : null,
-      doc.unreadable ? typeIn(doc, actions) : readTable(doc),
+      doc.sent_by_mky ? h('p', { class: 'muted' }, 'A paper MKY sent the customer. The bot does not read MKY’s own papers.')
+        : doc.unreadable ? typeIn(doc, actions) : readTable(doc),
       doc.typed_by ? h('p', { class: 'muted small' }, `Values typed by ${doc.typed_by}.`) : null);
     fill(foot, decision(doc, actions));
     info.scrollTop = 0;
@@ -297,6 +384,11 @@ export function openViewer(ctx) {
    * supports.
    */
   function decision(doc, actions) {
+    // A paper MKY sent the customer: ours, nothing to check or ask for.
+    if (doc.sent_by_mky) {
+      return h('div', { class: 'viewer-decided is-aside' }, icon('send', { size: 16 }),
+        h('p', {}, `Sent to the customer${doc.sent_by ? ` by ${doc.sent_by}` : ''} ${when(doc.uploaded_at)}, from the conversation. It is MKY’s own paper, so there is nothing to check.`));
+    }
     if (doc.status === 'replacement_requested') {
       return h('div', { class: 'viewer-decided' }, icon('refresh', { size: 16 }),
         h('p', {}, `A new copy was asked for${doc.rejection_reason ? `: ${doc.rejection_reason}` : '.'}`));

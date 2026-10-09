@@ -126,6 +126,17 @@ const ICONS = {
   checkCircle: ['M22 11.08V12a10 10 0 1 1-5.93-9.14', 'M22 4 12 14.01l-3-3'],
   template: ['M4 4h16v16H4z', 'M8 9h8', 'M8 13h8', 'M8 17h5'],
   hours: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7v5l3 2'],
+  // Files in a conversation.
+  paperclip: ['m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'],
+  image: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4z', 'm21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21'],
+  imageOff: ['M2 2l20 20', 'M10.41 10.41a2 2 0 1 1-2.83-2.83', 'M13.5 13.5 6 21', 'M18 12l3 3', 'M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59', 'M21 15V5a2 2 0 0 0-2-2H9'],
+  mic: ['M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z', 'M19 10v2a7 7 0 0 1-14 0v-2', 'M12 19v3'],
+  video: ['m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.94a.5.5 0 0 0-.78-.42L16 11', 'M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z'],
+  mapPin: ['M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0', 'M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+  download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'],
+  smile: ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M8 14s1.5 2 4 2 4-2 4-2', 'M9 9h.01', 'M15 9h.01'],
+  fileText: ['M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z', 'M14 2v6h6', 'M16 13H8', 'M16 17H8', 'M10 9H8'],
+  upload: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M17 8l-5-5-5 5', 'M12 3v12'],
 };
 
 /** Icons drawn filled rather than outlined. */
@@ -397,6 +408,34 @@ export async function api(params, { method = 'GET', body = null } = {}) {
 }
 
 export const post = (body) => api({}, { method: 'POST', body });
+
+/**
+ * Puts one file at a signed upload address the server handed out (storage's
+ * own, not this API's: a file never passes through the 4.5 MB API, and the
+ * desk never holds a storage key). XMLHttpRequest rather than fetch, because
+ * only it reports upload progress. Resolves when storage has the whole file.
+ */
+export function uploadFile(url, file, { onProgress = null, contentType = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('content-type', contentType || file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-upsert', 'true');
+    xhr.upload.addEventListener('progress', (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); });
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) { setOffline(false); return resolve(); }
+      reject(Object.assign(new Error(`The upload was refused (${xhr.status}). Try again.`), { status: xhr.status }));
+    });
+    const lost = () => {
+      const offlineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (offlineNow) setOffline(true);
+      reject(Object.assign(new Error(offlineNow ? 'You are offline. The file was not uploaded — try again when the connection is back.' : 'The upload stopped. Try again.'), { offline: offlineNow }));
+    };
+    xhr.addEventListener('error', lost);
+    xhr.addEventListener('timeout', lost);
+    xhr.send(file);
+  });
+}
 
 /** A key for one intended action; repeated on a retry so the server sends once. */
 export function newKey() {

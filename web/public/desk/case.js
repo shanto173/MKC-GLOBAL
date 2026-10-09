@@ -115,6 +115,13 @@ export function renderCase({ route, main, refreshCounts }) {
         chatId: where.chatId,
         target,
         draftKey: `chat:${type}:${ref}`,
+        // A file sent from a booking's conversation may be filed on it too;
+        // either way the case is read again, so its version and papers are current.
+        fileOn: () => (type === 'booking' && !['cancelled', 'rejected', 'expired'].includes(data?.booking?.status)
+          ? [{ booking_ref: ref, label: ref }] : []),
+        onSent: () => load({ quiet: true, own: true }),
+        // A paper on this case opens in this case's viewer; any other on its own.
+        openPaper: (id) => (data?.documents?.some((d) => d.id === id) ? openDoc(id) : openPaperAlone(id)),
       });
     }
     if (changed) {
@@ -314,7 +321,18 @@ export function renderCase({ route, main, refreshCounts }) {
       list.length ? h('ul', { class: 'checklist' }, list.map((c) => item(c))) : null,
       data.other_documents.length ? h('div', { class: 'other-docs' },
         h('h3', {}, 'Other files'),
-        h('ul', { class: 'checklist' }, data.other_documents.map((d) => item({ state: 'other', label: d.label, words: d.status_words, document_id: d.id, tone: 'gray' })))) : null);
+        h('ul', { class: 'checklist' }, data.other_documents.map((d) => item({ state: 'other', label: d.label, words: d.status_words, document_id: d.id, tone: 'gray' })))) : null,
+      // Papers MKY sent the customer from the conversation and filed here:
+      // ours, apart from theirs, never to check.
+      data.mky_documents?.length ? h('div', { class: 'other-docs' },
+        h('h3', {}, 'Sent by MKY'),
+        h('ul', { class: 'checklist' }, data.mky_documents.map((d) => h('li', { class: 'check-item check-mky is-openable' },
+          h('span', { class: 'check-icon tone-blue', 'aria-hidden': 'true' }, icon('send', { size: 15 })),
+          h('span', { class: 'check-main' },
+            h('bdi', { class: 'check-label', dir: 'ltr', title: d.file_name ?? '' }, d.file_name ?? d.label),
+            h('span', { class: 'check-words' }, `${d.status_words} · ${ago(d.uploaded_at)}`)),
+          h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => openDoc(d.id), 'aria-label': `View ${d.file_name ?? 'the file'}` },
+            icon('file', { size: 14 }), 'View'))))) : null);
   }
 
   /**
@@ -573,6 +591,25 @@ export function renderCase({ route, main, refreshCounts }) {
     });
   }
 
+  /** A paper from the conversation that is not on this case (another booking's, or none): read on its own. */
+  async function openPaperAlone(id) {
+    let paper;
+    try {
+      paper = await api({ view: 'document', id });
+    } catch (err) {
+      toastError(err);
+      return;
+    }
+    openViewer({
+      caseRef: paper.booking_ref ?? 'No booking',
+      docId: id,
+      getData: () => paper,
+      reload: async () => { paper = await api({ view: 'document', id }); return paper; },
+      onStale: async (err) => { toast(err.message, 'info', { timeout: 9000 }); paper = await api({ view: 'document', id }).catch(() => paper); },
+      refreshCounts,
+    });
+  }
+
   function askDialog(prefill) {
     const version = data.version;
     const ta = h('textarea', { class: 'input', rows: '4', dir: 'auto', 'aria-describedby': 'ask-hint' });
@@ -801,6 +838,7 @@ export function renderCase({ route, main, refreshCounts }) {
     dispose() {
       watcher?.disconnect();
       sizer?.disconnect();
+      convo?.dispose();
       document.querySelectorAll('dialog[open]').forEach((d) => d.close());
     },
   };

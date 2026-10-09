@@ -53,7 +53,7 @@ function paperOut(d, docs) {
   let words;
   let tone;
   if (d.deleted_at) [words, tone] = ['Removed from the case', 'gray'];
-  else if (d.doc_type === 'mky') [words, tone] = ['Filed on the booking', 'gray'];
+  else if (d.doc_type === 'mky') [words, tone] = [null, 'gray'];
   else if (d.extracted?.pending === true) [words, tone] = ['Still being read', 'gray'];
   else if (d.status === 'rejected') [words, tone] = ['Set aside', 'gray'];
   else if (d.status === 'replacement_requested') [words, tone] = ['New copy asked for', 'amber'];
@@ -72,6 +72,8 @@ function paperOut(d, docs) {
     status_words: words,
     tone,
     note: newer && d.status !== 'rejected' ? 'A newer copy came later' : null,
+    // One of ours, filed on the booking from the conversation.
+    mky: d.doc_type === 'mky',
     // The viewer opens a paper the bot read; a photo it did not take for a
     // paper, or one of ours, is just a file to look at.
     reviewable: !['other', 'mky'].includes(d.doc_type),

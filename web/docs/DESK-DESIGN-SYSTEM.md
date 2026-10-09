@@ -365,21 +365,24 @@ How it behaves:
 - The top bar's field shows a `/` key hint until it is focused. Pressing `/` anywhere outside a field focuses it.
 - In-page fields (Chats, Shipments) are `<label class="search-field">` with the icon and the input.
 
+### Conversation header: `.convo-head`
+
+One line, wrapping only where the column is narrow: the avatar (32 px, with the channel mark), the name (15 px semibold, truncated; its tooltip holds the WhatsApp profile name and where the customer is with the bot), the channel and language tags (22 px), the phone as a `tel:` link, the WhatsApp profile name when the line has room (980 px of column and wider), the **window chip**, and the Chats page's booking and request chips (`.pill-sm`, two shown, the rest behind "+N").
+
+The **window chip** (`.window-chip`) is the WhatsApp window's state while free text can go: green "Window open · 23 h left", amber "Window closes in 2 h" under three hours, grey "Window not known". Closed, STOP and blocked are not a chip: they are the composer's banner, because each comes with what can still be done.
+
 ### Composer: `.composer`
 
-Top to bottom:
+One line that grows. Top to bottom:
 
-1. The **channel banner**:
-   - window open: quiet line, "WhatsApp window open · 23 h left";
-   - fewer than 3 h left: amber banner;
-   - window closed: amber banner with the "please reply" template button;
-   - opted out or blocked: red banner;
-   - can't send for another reason: grey banner;
-   - Telegram: quiet line, "Telegram · no time limit".
-2. The **composer box** (`.composer-box`): a borderless textarea (15 px, `dir="auto"`) and a row with Saved replies, the Ctrl+Enter hint (`kbd`) and Send. The box takes the focus ring as a whole. It is disabled, grey, when nothing can be sent.
-3. The **error line**, when a send failed, in the server's words.
+1. The **banner**, only when nothing can be typed: window closed (amber, with the "please reply" template button), opted out or blocked (red), anything else (grey), read-only role (grey, slim). A WhatsApp window that cannot be read gets one quiet line.
+2. The **tray** (`.tray`), when files are attached: one chip per file (`.tray-item`) with a preview (a thumbnail for a photo, a tile for a paper), the name isolated left to right, the type and size, and Remove. While sending, the line under the name says "Uploading 62%" with a 3 px bar, then "Sending…", "Uploaded", or why the file cannot go, in red, with the chip red. Under the chips: "Also file a copy on MKY-BKG-… as an MKY document" (a check box, with a booking picker when the customer has several) and where the typed words go ("with the first file"). In a narrow column the chips are a strip that scrolls sideways.
+3. The **composer box** (`.composer-box`): attach (paperclip), saved replies (an icon that opens a menu upward), a borderless textarea (15 px, `dir="auto"`, one line, growing to six, then scrolling) and Send, all on one row. Send says "Send file" or "Send 3 files" when files are attached, and "Sending…" while it works. Ctrl+Enter sends (the textarea's tooltip and `aria-keyshortcuts` say so); Enter is a new line. In a column under 560 px, Send is its icon.
+4. The **error line**, when a send failed, in the server's words.
 
-On a phone the hint and the bot-state lines are hidden, and Send keeps its place on the right.
+Files come in three ways: the paperclip, dropped anywhere on the conversation (a dashed brand overlay, `.convo-drop`, says "Drop the files to attach them"), or pasted into the textarea. Each is checked before anything is uploaded against what the channel takes (`attach` from the server: PDF, JPG, PNG, Word, Excel; WhatsApp photos to 5 MB, documents to 100 MB; Telegram photos to 10 MB, documents to 50 MB; 50 MB at most; ten at a time; a 1024-character caption). The server checks again.
+
+The box is built once and kept: a redraw (the window opening while somebody types) changes the banner and what is enabled, never the box, so the words, the cursor and the attached files stay.
 
 ### Chat bubble: `.msg`, `.bubble`
 
@@ -395,10 +398,32 @@ Details:
 - Each bubble has a corner cut toward its side.
 - The meta row holds who sent it (except the customer), the time, and the delivery tick in words.
 - A tapped button is a dashed pill, not a bubble.
-- A failed message gets a red block under the bubble: "Not delivered." with the reason in words, and Retry or "Sent again".
-- Long messages clamp at 12 lines and have "Show all".
-- File messages (document, image, video, audio) show a **file chip** (`.file-chip`): a file icon and the file name in a left-to-right `<bdi>`. The caption, if any, goes under it as text.
-- Day separators are pills (`.day`).
+- A failed message gets a red block under the bubble: "Not delivered." with the reason in words, and Retry or "Sent again". Outside the WhatsApp window, or after STOP, Retry is disabled with "Once they write" beside it, because it would only be refused again.
+- Long messages clamp at 12 lines, fading out, and have "Show all".
+- A web address in a message is a link (`.msg-link`) that opens in a new tab; it is laid out left to right inside an Arabic line.
+- Day separators are pills (`.day`). "Show earlier messages" at the top loads 60 more, keeping the reader's place.
+
+The transcript is keyed: a refresh moves no message that did not change, so a voice note keeps playing while ticks update around it.
+
+#### Files in a message
+
+What there is to show of a file comes from the server (`message.file`); the link to it is fetched only when it scrolls into view and lasts ten minutes (`view=chat_files`).
+
+| What | Shown as |
+|---|---|
+| A photo | A thumbnail in the photo's own shape, at most 260×280 px, filled when in view (`.media-thumb`). Over 1.5 MB, a 640 px copy is shown. A click opens it large. Photos a customer sent together (within two minutes, uncaptioned after the first) are one album: a grid of up to four with "+N", and "3 photos". |
+| A paper (PDF, Word, Excel…) | A **file chip** (`.file-chip`): a tile (red for a PDF, blue otherwise), the name in a left-to-right `<bdi>`, and "PDF · 40 KB". A paper the bot read opens in the document viewer; anything else in the file preview. |
+| A voice note, audio, a video | "Voice note · 0:07 · 219 KB" over the browser's player (`<audio>`, `<video>`), its source set when in view. |
+| A sticker | The picture, or its emoji and "Sticker" when it was not kept. |
+| A location | A chip with a pin, the place and its address, and "Open in Google Maps". |
+| A contact card | A chip with the name and each number as a `tel:` link. |
+| Nothing kept | The kind of file and a grey line saying why: "Not kept: 38 MB, more than the 16 MB the desk keeps of a chat file…", "WhatsApp would not hand the file over…", "Animated stickers are not kept.", "Made and sent by the bot; no copy is kept here." A file gone from storage says "The file is missing from storage." where the photo would be. |
+
+Under a paper, one line says what it became: its kind in capitals, its state in its tone ("Received, not checked", "Checked by Sara", "Set aside", "The bot couldn't read it"), its booking ("On MKY-BKG-…", or "On no booking"), and "A newer copy came later" in amber. A file MKY sent and filed says "Filed on MKY-BKG-… as an MKY document". The caption goes under it all as text.
+
+### File preview: `openFilePreview()` in `viewer.js`
+
+A file from a conversation that is not a paper to check, opened large in an XL dialog: the file on a dark stage (`--n-800`), a photo fitted to the screen (a click shows it at its own size), a PDF drawn page by page as in the document viewer. A pager goes through the conversation's other files (← and → too). The bar under it holds the name and size, "Open in a new tab", and, for a paper the bot read, "Open in the document viewer".
 
 ### Document card and checklist item: `.checklist`, `.check-item`
 
@@ -542,7 +567,8 @@ At 1920 px the list fills the content width, and the extra goes to the customer 
 
   `case.js` measures the header and sets `--case-head-h`, so the conversation can stick under it.
 - **Two columns**: `minmax(0, 1fr)` for the work and `clamp(360px, 32vw, 600px)` for the conversation. In the rail layout it is `clamp(340px, 34vw, 460px)`.
-  - The left column stacks, 16 px apart: Next step, warnings, what we asked, documents, MRN, details, internal notes, history (the last 6, then "Show all").
+  - The left column stacks, 16 px apart: Next step, warnings, what we asked, documents, MRN, details, internal notes, history (the last 6, then "Show all"). The documents card lists the required papers, then "Other files", then "Sent by MKY": the papers MKY sent from the conversation and filed here, with who sent them and when. They are never one of the customer's papers and have nothing to check; the viewer says so instead of "Looks right".
+  - A file sent from a booking's conversation can be filed on that booking; the case is read again after any send.
   - The right column is the conversation card, sticky, filling the rest of the screen's height. Its header, transcript, banner and composer are always in view.
 - **The Next step card** is the anchor:
   - a 4 px stripe in the turn's tone;
@@ -571,9 +597,21 @@ At 1920 px the list fills the content width, and the extra goes to the customer 
 
 ### Chats
 
-- **List** (300–380 px): a search field, then rows of avatar, name, time, last message, failed / STOP badges and the unread dot. Unread rows come first.
-- **Pane**: a strip of the customer's bookings and open requests, as pill links with badges, then the conversation component. With `?doc=<id>`, that paper opens in the document viewer over it.
-- **Phone**: the list and the pane are separate routes, with "← All chats".
+- The page is exactly the window's height: the list and the conversation scroll inside it, never the page.
+- **List** (300–380 px): a search field, then rows of avatar, name, time, last message (a file says "Photo", "Voice note", "File: quote.pdf", "Location"), failed / STOP badges and the unread dot. Unread rows come first.
+- **Pane**: the conversation component, its header carrying the customer's bookings and open requests as small chips. With `?doc=<id>`, that paper opens in the document viewer over it.
+- **Phone**: the list and the pane are separate routes, with "← All chats". The channel's word goes from the header (the avatar's mark says it; a screen reader still hears it).
+
+The conversation is laid out by its own width (a container query on `.convo`), the same component in the Chats pane and in the case page's column. Its transcript gets every pixel the header and composer do not take:
+
+| Screen | Transcript before | Transcript now |
+|---|---|---|
+| 1536×750 (1920×1080 at 125%, in a browser) | 326 px | 528 px |
+| 1536×864 | 424 px | 638 px |
+| 1280×800 at 125% | 376 px | 578 px |
+| 1366×768 | 344 px | 546 px |
+| 1920×1080 | 640 px | 875 px |
+| Phone, 390 px | 336 px | 507 px |
 
 ### Settings
 
