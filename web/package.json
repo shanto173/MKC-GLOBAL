@@ -28,7 +28,7 @@
     "guide": "node scripts/make-guide.mjs",
     "reread": "node scripts/reread-documents.mjs",
     "testdocs": "node scripts/make-test-docs.mjs",
-    "test": "node --test --experimental-test-module-mocks tests/flow.test.mjs tests/language.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs tests/pinned.test.mjs tests/server.test.mjs tests/channels.test.mjs tests/whatsapp.test.mjs tests/desk.test.mjs tests/users.test.mjs tests/llm.test.mjs tests/database.test.mjs",
+    "test": "node --test --experimental-test-module-mocks tests/flow.test.mjs tests/language.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs tests/pinned.test.mjs tests/server.test.mjs tests/channels.test.mjs tests/whatsapp.test.mjs tests/desk.test.mjs tests/users.test.mjs tests/llm.test.mjs tests/database.test.mjs tests/db-load.test.mjs tests/desk-live.test.mjs tests/bot-load.test.mjs tests/desk-minute.test.mjs tests/desk-activity-sql.test.mjs",
     "test:watch": "node --test --watch tests/flow.test.mjs tests/operations.test.mjs tests/extract.test.mjs tests/console.test.mjs",
     "outbox": "node scripts/drain-outbox.mjs",
     "docs:pdf": "node scripts/make-workflow-pdfs.mjs"
@@ -42,6 +42,7 @@
     "pdfkit": "^0.15.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.2.17",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0"
   }

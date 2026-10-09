@@ -1,0 +1,6943 @@
+{
+ "7": [
+  {
+   "id": "booking:MKY-BKG-2",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 2",
+   "detail": "Volvo FH · YV2RT40A8FB700002 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-2",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-2"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "vwa27js",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-1",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 1",
+   "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-1",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-1"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1uvjciy",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-0",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v32syac",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "document:1",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 1
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 1
+   }
+  },
+  {
+   "id": "document:3",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 3
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 3
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-3",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Booked 3",
+   "detail": "Volvo FH · YV2RT40A8FB700003",
+   "ref": "MKY-BKG-3",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-6",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Booked 6",
+   "detail": "Volvo FH · YV2RT40A8FB700006",
+   "ref": "MKY-BKG-6",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-3",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 3",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-3",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-6",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-6",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-0",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-0",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-X",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "+2019999",
+   "detail": "MKY-MRN-X",
+   "ref": "MKY-MRN-X",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-X"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Y",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Record the issued MRN number",
+   "who": "MRN application",
+   "detail": "MKY-MRN-Y",
+   "ref": "MKY-MRN-Y",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Y"
+   },
+   "channel": null,
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Approved — record the number",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1id21dt",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Z",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "MKY-BKG-NONAME",
+   "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
+   "ref": "MKY-MRN-Z",
+   "booking_ref": "MKY-BKG-NONAME",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Z"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-4",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4 · MKY-MRN-4",
+   "ref": "MKY-MRN-4",
+   "booking_ref": "MKY-BKG-4",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-4"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "document:8",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Co 0 sent a x.pdf with no booking open — look at it",
+   "who": "Co 0",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000",
+    "document_id": 8
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 8
+   }
+  },
+  {
+   "id": "document:31",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-4 was rejected — check it",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4",
+   "ref": "MKY-BKG-4",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-4",
+    "document_id": 31
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 31
+   }
+  },
+  {
+   "id": "message:7",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Co 0",
+   "who": "Co 0",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:43:00.000Z",
+   "problem": {
+    "type": "message",
+    "id": 7,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:43:00.000Z",
+    "first_failed": "2026-10-09T06:43:00.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "message:50",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 6",
+   "who": "Booked 6",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000006"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:54.000Z",
+   "problem": {
+    "type": "message",
+    "id": 50,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:54.000Z",
+    "first_failed": "2026-10-09T06:42:54.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  }
+ ],
+ "30": [
+  {
+   "id": "booking:MKY-BKG-8",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700008 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-8",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-8"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vkq3l9d",
+   "since": "2026-10-08T23:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-7",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 7",
+   "detail": "Volvo FH · YV2RT40A8FB700007 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-7",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-7"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1in8g4u",
+   "since": "2026-10-09T00:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-16",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700016 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-16",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-16"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1kwyklo",
+   "since": "2026-10-09T00:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-15",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 15",
+   "detail": "Volvo FH · YV2RT40A8FB700015 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v8qlovc",
+   "since": "2026-10-09T01:00:00.000Z"
+  },
+  {
+   "id": "document:108",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Booked 15",
+   "detail": "MKY-BKG-15 · The bot found no readable text",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15",
+    "document_id": 108
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 108
+   }
+  },
+  {
+   "id": "document:110",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Booked 15",
+   "detail": "MKY-BKG-15 · The bot found no readable text",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15",
+    "document_id": 110
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 110
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-14",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 14",
+   "detail": "Volvo FH · YV2RT40A8FB700014 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-14",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-14"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1u1qppp",
+   "since": "2026-10-09T02:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-23",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the MRN",
+   "who": "Booked 23",
+   "detail": "Volvo FH · YV2RT40A8FB700023 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-23",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-23"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1ra54vv",
+   "since": "2026-10-09T02:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-22",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the MRN",
+   "who": "Booked 22",
+   "detail": "Volvo FH · YV2RT40A8FB700022 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-22",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-22"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vy2i37q",
+   "since": "2026-10-09T03:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-21",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the MRN",
+   "who": "Booked 21",
+   "detail": "Volvo FH · YV2RT40A8FB700021 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-21",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-21"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vfkk9hk",
+   "since": "2026-10-09T04:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-2",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 2",
+   "detail": "Volvo FH · YV2RT40A8FB700002 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-2",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-2"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "vwa27js",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-29",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 29",
+   "detail": "Volvo FH · YV2RT40A8FB700029 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-29",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-29"
+   },
+   "channel": "telegram",
+   "assigned_to": "Sara",
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v10vc5y4",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-1",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 1",
+   "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-1",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-1"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1uvjciy",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-28",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 28",
+   "detail": "Volvo FH · YV2RT40A8FB700028 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-28",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-28"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1aje75l",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-0",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v32syac",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "document:1",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 1
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 1
+   }
+  },
+  {
+   "id": "document:3",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 3
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 3
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-9",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 9",
+   "detail": "Volvo FH · YV2RT40A8FB700009 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-9",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-9"
+   },
+   "channel": "telegram",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v16gix3k",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-3",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Booked 3",
+   "detail": "Volvo FH · YV2RT40A8FB700003",
+   "ref": "MKY-BKG-3",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-6",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Booked 6",
+   "detail": "Volvo FH · YV2RT40A8FB700006",
+   "ref": "MKY-BKG-6",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-18",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Rejected by Omar",
+   "who": "Booked 18",
+   "detail": "Volvo FH · YV2RT40A8FB700018",
+   "ref": "MKY-BKG-18",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-18"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Rejected",
+   "status": {
+    "label": "Rejected",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-24",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700024",
+   "ref": "MKY-BKG-24",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-27",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Booked 27",
+   "detail": "Volvo FH · YV2RT40A8FB700027",
+   "ref": "MKY-BKG-27",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-27"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-3",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 3",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-3",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-6",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-6",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-9",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 9",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-9",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-9"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-15",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 15",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-15",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-15"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-18",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-18",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-18"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-21",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 21",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-21",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-21"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-27",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 27",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-27",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-27"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-0",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-0",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-12",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-12",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-12"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-24",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-24",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-X",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "+2019999",
+   "detail": "MKY-MRN-X",
+   "ref": "MKY-MRN-X",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-X"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Y",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Record the issued MRN number",
+   "who": "MRN application",
+   "detail": "MKY-MRN-Y",
+   "ref": "MKY-MRN-Y",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Y"
+   },
+   "channel": null,
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Approved — record the number",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1id21dt",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Z",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "MKY-BKG-NONAME",
+   "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
+   "ref": "MKY-MRN-Z",
+   "booking_ref": "MKY-BKG-NONAME",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Z"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-4",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4 · MKY-MRN-4",
+   "ref": "MKY-MRN-4",
+   "booking_ref": "MKY-BKG-4",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-4"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-20",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 20",
+   "detail": "MKY-BKG-20 · MKY-MRN-20",
+   "ref": "MKY-MRN-20",
+   "booking_ref": "MKY-BKG-20",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-20"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-24",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer: information for the MRN",
+   "who": "tg24",
+   "detail": "MKY-BKG-24 · MKY-MRN-24",
+   "ref": "MKY-MRN-24",
+   "booking_ref": "MKY-BKG-24",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v12vqgp8",
+   "since": "2026-10-09T05:59:59.976Z"
+  },
+  {
+   "id": "document:8",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Co 0 sent a x.pdf with no booking open — look at it",
+   "who": "Co 0",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000",
+    "document_id": 8
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 8
+   }
+  },
+  {
+   "id": "document:72",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "tg9 sent an ACID with no booking open — look at it",
+   "who": "tg9",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7009",
+    "document_id": 72
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 72
+   }
+  },
+  {
+   "id": "document:136",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 18 sent a x.pdf with no booking open — look at it",
+   "who": "Cust 18",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000018",
+    "document_id": 136
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 136
+   }
+  },
+  {
+   "id": "document:200",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 27 sent an ACID with no booking open — look at it",
+   "who": "Cust 27",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000027",
+    "document_id": 200
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 200
+   }
+  },
+  {
+   "id": "document:31",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-4 was rejected — check it",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4",
+   "ref": "MKY-BKG-4",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-4",
+    "document_id": 31
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 31
+   }
+  },
+  {
+   "id": "document:73",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-10 was confirmed — check it",
+   "who": "Booked 10",
+   "detail": "MKY-BKG-10",
+   "ref": "MKY-BKG-10",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-10",
+    "document_id": 73
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 73
+   }
+  },
+  {
+   "id": "document:75",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-10 was confirmed — check it",
+   "who": "Booked 10",
+   "detail": "MKY-BKG-10",
+   "ref": "MKY-BKG-10",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-10",
+    "document_id": 75
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 75
+   }
+  },
+  {
+   "id": "document:80",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-11 was rejected — check it",
+   "who": "Booked 11",
+   "detail": "MKY-BKG-11",
+   "ref": "MKY-BKG-11",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-11",
+    "document_id": 80
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 80
+   }
+  },
+  {
+   "id": "document:82",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-11 was rejected — check it",
+   "who": "Booked 11",
+   "detail": "MKY-BKG-11",
+   "ref": "MKY-BKG-11",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-11",
+    "document_id": 82
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 82
+   }
+  },
+  {
+   "id": "document:94",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-13 was cancelled — check it",
+   "who": "Booked 13",
+   "detail": "MKY-BKG-13",
+   "ref": "MKY-BKG-13",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-13",
+    "document_id": 94
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 94
+   }
+  },
+  {
+   "id": "document:96",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-13 was cancelled — check it",
+   "who": "Booked 13",
+   "detail": "MKY-BKG-13",
+   "ref": "MKY-BKG-13",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-13",
+    "document_id": 96
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 96
+   }
+  },
+  {
+   "id": "document:122",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-17 was confirmed — check it",
+   "who": "Booked 17",
+   "detail": "MKY-BKG-17",
+   "ref": "MKY-BKG-17",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-17",
+    "document_id": 122
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 122
+   }
+  },
+  {
+   "id": "document:124",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-17 was confirmed — check it",
+   "who": "Booked 17",
+   "detail": "MKY-BKG-17",
+   "ref": "MKY-BKG-17",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-17",
+    "document_id": 124
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 124
+   }
+  },
+  {
+   "id": "document:129",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-18 was rejected — check it",
+   "who": "Booked 18",
+   "detail": "MKY-BKG-18",
+   "ref": "MKY-BKG-18",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-18",
+    "document_id": 129
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 129
+   }
+  },
+  {
+   "id": "document:145",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-20 was cancelled — check it",
+   "who": "Booked 20",
+   "detail": "MKY-BKG-20",
+   "ref": "MKY-BKG-20",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-20",
+    "document_id": 145
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 145
+   }
+  },
+  {
+   "id": "document:180",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-25 was rejected — check it",
+   "who": "Booked 25",
+   "detail": "MKY-BKG-25",
+   "ref": "MKY-BKG-25",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-25",
+    "document_id": 180
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 180
+   }
+  },
+  {
+   "id": "message:7",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Co 0",
+   "who": "Co 0",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:43:00.000Z",
+   "problem": {
+    "type": "message",
+    "id": 7,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:43:00.000Z",
+    "first_failed": "2026-10-09T06:43:00.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "message:50",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 6",
+   "who": "Booked 6",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000006"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:54.000Z",
+   "problem": {
+    "type": "message",
+    "id": 50,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:54.000Z",
+    "first_failed": "2026-10-09T06:42:54.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:telegram:7009",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 9 isn’t on WhatsApp — call them instead",
+   "who": "Booked 9",
+   "detail": "WhatsApp says this number has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7009"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:51.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "telegram:7009",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:51.000Z",
+    "first_failed": "2026-10-09T06:42:51.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000012",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "2 messages didn’t reach Cust 12",
+   "who": "Cust 12",
+   "detail": "Last: The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000012"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:48.000Z",
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000012",
+    "retryable": false,
+    "reason": "failed",
+    "count": 2,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:48.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000015",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 15 isn’t on WhatsApp — call them instead",
+   "who": "Booked 15",
+   "detail": "WhatsApp says +201000000015 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000015"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:45.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000015",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:45.000Z",
+    "first_failed": "2026-10-09T06:42:45.000Z"
+   }
+  },
+  {
+   "id": "message:135",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 18",
+   "who": "Booked 18",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000018"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:42.000Z",
+   "problem": {
+    "type": "message",
+    "id": 135,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:42.000Z",
+    "first_failed": "2026-10-09T06:42:42.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000021",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 21 isn’t on WhatsApp — call them instead",
+   "who": "Booked 21",
+   "detail": "WhatsApp says +201000000021 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000021"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:39.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000021",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:39.000Z",
+    "first_failed": "2026-10-09T06:42:39.000Z"
+   }
+  },
+  {
+   "id": "message:178",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach tg24",
+   "who": "tg24",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7024"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:36.000Z",
+   "problem": {
+    "type": "message",
+    "id": 178,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:36.000Z",
+    "first_failed": "2026-10-09T06:42:36.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000027",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 27 isn’t on WhatsApp — call them instead",
+   "who": "Booked 27",
+   "detail": "WhatsApp says +201000000027 has no WhatsApp account, so 2 messages could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000027"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:33.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000027",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 2,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:33.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "outbox:9007",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 7 wrote STOP",
+   "who": "Booked 7",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-7",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-7"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9007,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  },
+  {
+   "id": "outbox:9022",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 22 wrote STOP",
+   "who": "Booked 22",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-22",
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000022"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9022,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  }
+ ],
+ "61": [
+  {
+   "id": "booking:MKY-BKG-8",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700008 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-8",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-8"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vkq3l9d",
+   "since": "2026-10-08T23:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-35",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 35",
+   "detail": "Volvo FH · YV2RT40A8FB700035 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-35",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-35"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vtylgmx",
+   "since": "2026-10-08T23:00:00.000Z"
+  },
+  {
+   "id": "document:250",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Booked 35",
+   "detail": "MKY-BKG-35 · The bot found no readable text",
+   "ref": "MKY-BKG-35",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-35",
+    "document_id": 250
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 250
+   }
+  },
+  {
+   "id": "document:252",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Booked 35",
+   "detail": "MKY-BKG-35 · The bot found no readable text",
+   "ref": "MKY-BKG-35",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-35",
+    "document_id": 252
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 252
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-44",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 44",
+   "detail": "Volvo FH · YV2RT40A8FB700044 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-44",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-44"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "vh27nzi",
+   "since": "2026-10-08T23:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-7",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 7",
+   "detail": "Volvo FH · YV2RT40A8FB700007 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-7",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-7"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1in8g4u",
+   "since": "2026-10-09T00:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-16",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700016 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-16",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-16"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1kwyklo",
+   "since": "2026-10-09T00:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-43",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 43",
+   "detail": "Volvo FH · YV2RT40A8FB700043 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-43",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-43"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1r7qnaj",
+   "since": "2026-10-09T00:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-15",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 15",
+   "detail": "Volvo FH · YV2RT40A8FB700015 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v8qlovc",
+   "since": "2026-10-09T01:00:00.000Z"
+  },
+  {
+   "id": "document:108",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Booked 15",
+   "detail": "MKY-BKG-15 · The bot found no readable text",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15",
+    "document_id": 108
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 108
+   }
+  },
+  {
+   "id": "document:110",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Booked 15",
+   "detail": "MKY-BKG-15 · The bot found no readable text",
+   "ref": "MKY-BKG-15",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-15",
+    "document_id": 110
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 110
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-42",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 42",
+   "detail": "Volvo FH · YV2RT40A8FB700042 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-42",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-42"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v61z7ly",
+   "since": "2026-10-09T01:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-51",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Confirm the booking",
+   "who": "Booked 51",
+   "detail": "Volvo FH · YV2RT40A8FB700051 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-51",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-51"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v16p0ava",
+   "since": "2026-10-09T01:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-14",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 14",
+   "detail": "Volvo FH · YV2RT40A8FB700014 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-14",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-14"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1u1qppp",
+   "since": "2026-10-09T02:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-23",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the MRN",
+   "who": "Booked 23",
+   "detail": "Volvo FH · YV2RT40A8FB700023 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-23",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-23"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1ra54vv",
+   "since": "2026-10-09T02:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-50",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 50",
+   "detail": "Volvo FH · YV2RT40A8FB700050 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-50",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-50"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "void1ct",
+   "since": "2026-10-09T02:00:00.000Z"
+  },
+  {
+   "id": "document:357",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Booked 50",
+   "detail": "MKY-BKG-50 · The bot found no readable text",
+   "ref": "MKY-BKG-50",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-50",
+    "document_id": 357
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 357
+   }
+  },
+  {
+   "id": "document:359",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Booked 50",
+   "detail": "MKY-BKG-50 · The bot found no readable text",
+   "ref": "MKY-BKG-50",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-50",
+    "document_id": 359
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 359
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-22",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the MRN",
+   "who": "Booked 22",
+   "detail": "Volvo FH · YV2RT40A8FB700022 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-22",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-22"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vy2i37q",
+   "since": "2026-10-09T03:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-49",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Check 2 documents and confirm",
+   "who": "Booked 49",
+   "detail": "Volvo FH · YV2RT40A8FB700049 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-49",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-49"
+   },
+   "channel": "telegram",
+   "assigned_to": "Sara",
+   "priority": "high",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v15zgt7u",
+   "since": "2026-10-09T03:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-58",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the MRN",
+   "who": "Booked 58",
+   "detail": "Volvo FH · YV2RT40A8FB700058 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-58",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-58"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1wod39l",
+   "since": "2026-10-09T03:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-21",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the MRN",
+   "who": "Booked 21",
+   "detail": "Volvo FH · YV2RT40A8FB700021 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-21",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-21"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vfkk9hk",
+   "since": "2026-10-09T04:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-30",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "The customer replied — see what they sent",
+   "who": "Booked 30",
+   "detail": "Volvo FH · YV2RT40A8FB700030 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-30",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-30"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v186lu6e",
+   "since": "2026-10-09T04:00:00.000Z"
+  },
+  {
+   "id": "document:215",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Booked 30",
+   "detail": "MKY-BKG-30 · The bot found no readable text",
+   "ref": "MKY-BKG-30",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-30",
+    "document_id": 215
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 215
+   }
+  },
+  {
+   "id": "document:217",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Booked 30",
+   "detail": "MKY-BKG-30 · The bot found no readable text",
+   "ref": "MKY-BKG-30",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-30",
+    "document_id": 217
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 217
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-57",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the MRN",
+   "who": "Booked 57",
+   "detail": "Volvo FH · YV2RT40A8FB700057 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-57",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-57"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v9hnrmn",
+   "since": "2026-10-09T04:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-2",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 2",
+   "detail": "Volvo FH · YV2RT40A8FB700002 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-2",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-2"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "vwa27js",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-29",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 29",
+   "detail": "Volvo FH · YV2RT40A8FB700029 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-29",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-29"
+   },
+   "channel": "telegram",
+   "assigned_to": "Sara",
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v10vc5y4",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-56",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700056 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-56",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-56"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "urgent",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v9uqeug",
+   "since": "2026-10-09T05:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-1",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Invoice",
+   "who": "Booked 1",
+   "detail": "Volvo FH · YV2RT40A8FB700001 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-1",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-1"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1uvjciy",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-28",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 28",
+   "detail": "Volvo FH · YV2RT40A8FB700028 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-28",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-28"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "high",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1aje75l",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-37",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 37",
+   "detail": "Volvo FH · YV2RT40A8FB700037 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-37",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-37"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "high",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v1d5obn9",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-0",
+   "kind": "booking",
+   "tags": [
+    "bookings",
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the missing details: client information",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700000 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": true,
+   "status_words": "New request",
+   "status": {
+    "label": "New request",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v32syac",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "document:1",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the Invoice — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 1
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 1
+   }
+  },
+  {
+   "id": "document:3",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Couldn’t read the MRN — check it by eye",
+   "who": "Unknown customer",
+   "detail": "MKY-BKG-0 · The bot found no readable text",
+   "ref": "MKY-BKG-0",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-0",
+    "document_id": 3
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "Unreadable",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 3
+   }
+  },
+  {
+   "id": "booking:MKY-BKG-9",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer to send the Invoice",
+   "who": "Booked 9",
+   "detail": "Volvo FH · YV2RT40A8FB700009 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-9",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-9"
+   },
+   "channel": "telegram",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Waiting for the customer",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v16gix3k",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-36",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Ask for the Brief",
+   "who": "Booked 36",
+   "detail": "Volvo FH · YV2RT40A8FB700036 · Klaipeda → Alexandria",
+   "ref": "MKY-BKG-36",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-36"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "overdue": false,
+   "is_new": false,
+   "status_words": "Being checked",
+   "status": {
+    "label": "Being checked",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1wyuxss",
+   "since": "2026-10-09T07:00:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-3",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Booked 3",
+   "detail": "Volvo FH · YV2RT40A8FB700003",
+   "ref": "MKY-BKG-3",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-6",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Booked 6",
+   "detail": "Volvo FH · YV2RT40A8FB700006",
+   "ref": "MKY-BKG-6",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-18",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Rejected by Omar",
+   "who": "Booked 18",
+   "detail": "Volvo FH · YV2RT40A8FB700018",
+   "ref": "MKY-BKG-18",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-18"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Rejected",
+   "status": {
+    "label": "Rejected",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-24",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700024",
+   "ref": "MKY-BKG-24",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-27",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Booked 27",
+   "detail": "Volvo FH · YV2RT40A8FB700027",
+   "ref": "MKY-BKG-27",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-27"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-39",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Rejected by Omar",
+   "who": "Booked 39",
+   "detail": "Volvo FH · YV2RT40A8FB700039",
+   "ref": "MKY-BKG-39",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-39"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Rejected",
+   "status": {
+    "label": "Rejected",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-45",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Confirmed by Omar",
+   "who": "Booked 45",
+   "detail": "Volvo FH · YV2RT40A8FB700045",
+   "ref": "MKY-BKG-45",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-45"
+   },
+   "channel": "whatsapp",
+   "assigned_to": "Sara",
+   "priority": "normal",
+   "status_words": "Confirmed",
+   "status": {
+    "label": "Confirmed",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-48",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Cancelled by Omar",
+   "who": "Unknown customer",
+   "detail": "Volvo FH · YV2RT40A8FB700048",
+   "ref": "MKY-BKG-48",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-48"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Cancelled",
+   "status": {
+    "label": "Cancelled",
+    "tone": "gray",
+    "meaning": "neutral"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "booking:MKY-BKG-60",
+   "kind": "booking",
+   "tags": [
+    "bookings"
+   ],
+   "tab": "done",
+   "tone": "gray",
+   "sentence": "Rejected by Omar",
+   "who": "Booked 60",
+   "detail": "Volvo FH · YV2RT40A8FB700060",
+   "ref": "MKY-BKG-60",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-60"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status_words": "Rejected",
+   "status": {
+    "label": "Rejected",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-3",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 3",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-3",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-3"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-6",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-6",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-6"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-9",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 9",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-9",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-9"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-15",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 15",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-15",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-15"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-18",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-18",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-18"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-21",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 21",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-21",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-21"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-27",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 27",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-27",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-27"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-30",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-30",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-30"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-33",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 33",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-33",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-33"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-39",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 39",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-39",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-39"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-42",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-42",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-42"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-45",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 45",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-45",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-45"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-51",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 51",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-51",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-51"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-54",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Call back +20 100 000 0001",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-54",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-54"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-57",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "Resolved",
+   "who": "Tick 57",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-57",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-57"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": false,
+   "undescribed": false,
+   "status": {
+    "label": "Resolved",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v16xgwlb",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-0",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-0",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-0"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-12",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-12",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-12"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": true,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-24",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-24",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-36",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-36",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-36"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-48",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-48",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-48"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "request:MKY-T-60",
+   "kind": "callback",
+   "tags": [
+    "callbacks"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Reply in the chat — no phone number given",
+   "who": "Unknown customer",
+   "detail": "Booking · call me",
+   "ref": "MKY-T-60",
+   "link": {
+    "type": "request",
+    "ref": "MKY-T-60"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "after_hours": false,
+   "unowned": true,
+   "undescribed": false,
+   "status": {
+    "label": "New",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vbf0pk7",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-X",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "+2019999",
+   "detail": "MKY-MRN-X",
+   "ref": "MKY-MRN-X",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-X"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Y",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Record the issued MRN number",
+   "who": "MRN application",
+   "detail": "MKY-MRN-Y",
+   "ref": "MKY-MRN-Y",
+   "booking_ref": null,
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Y"
+   },
+   "channel": null,
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Approved — record the number",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v1id21dt",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-Z",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "MKY-BKG-NONAME",
+   "detail": "MKY-BKG-NONAME · MKY-MRN-Z",
+   "ref": "MKY-MRN-Z",
+   "booking_ref": "MKY-BKG-NONAME",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-Z"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "v17hqew1",
+   "since": "2026-10-09T06:00:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-4",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4 · MKY-MRN-4",
+   "ref": "MKY-MRN-4",
+   "booking_ref": "MKY-BKG-4",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-4"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-20",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 20",
+   "detail": "MKY-BKG-20 · MKY-MRN-20",
+   "ref": "MKY-MRN-20",
+   "booking_ref": "MKY-BKG-20",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-20"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-24",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer: information for the MRN",
+   "who": "tg24",
+   "detail": "MKY-BKG-24 · MKY-MRN-24",
+   "ref": "MKY-MRN-24",
+   "booking_ref": "MKY-BKG-24",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-24"
+   },
+   "channel": "telegram",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v12vqgp8",
+   "since": "2026-10-09T05:59:59.976Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-32",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "Cust 32",
+   "detail": "MKY-BKG-32 · MKY-MRN-32",
+   "ref": "MKY-MRN-32",
+   "booking_ref": "MKY-BKG-32",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-32"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vmf2izw",
+   "since": "2026-10-09T05:59:59.968Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-36",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 36",
+   "detail": "MKY-BKG-36 · MKY-MRN-36",
+   "ref": "MKY-MRN-36",
+   "booking_ref": "MKY-BKG-36",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-36"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-40",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "waiting",
+   "tone": "amber",
+   "sentence": "Waiting for the customer: information for the MRN",
+   "who": "+201000000040",
+   "detail": "MKY-BKG-40 · MKY-MRN-40",
+   "ref": "MKY-MRN-40",
+   "booking_ref": "MKY-BKG-40",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-40"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "Waiting for the customer",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": "v12vqgp8",
+   "since": "2026-10-09T05:59:59.960Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-48",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "needs_us",
+   "tone": "blue",
+   "sentence": "Issue the MRN",
+   "who": "Cust 48",
+   "detail": "MKY-BKG-48 · MKY-MRN-48",
+   "ref": "MKY-MRN-48",
+   "booking_ref": "MKY-BKG-48",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-48"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "New application",
+    "tone": "blue",
+    "meaning": "info"
+   },
+   "version": "vmf2izw",
+   "since": "2026-10-09T05:59:59.952Z"
+  },
+  {
+   "id": "mrn:MKY-MRN-52",
+   "kind": "mrn",
+   "tags": [
+    "mrn"
+   ],
+   "tab": "done",
+   "tone": "green",
+   "sentence": "MRN recorded: MRN1",
+   "who": "Booked 52",
+   "detail": "MKY-BKG-52 · MKY-MRN-52",
+   "ref": "MKY-MRN-52",
+   "booking_ref": "MKY-BKG-52",
+   "link": {
+    "type": "mrn",
+    "ref": "MKY-MRN-52"
+   },
+   "channel": "whatsapp",
+   "assigned_to": null,
+   "priority": "normal",
+   "status": {
+    "label": "MRN issued",
+    "tone": "green",
+    "meaning": "success"
+   },
+   "version": "v2ll8mc",
+   "since": "2026-10-09T06:59:00.000Z"
+  },
+  {
+   "id": "document:8",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Co 0 sent a x.pdf with no booking open — look at it",
+   "who": "Co 0",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000",
+    "document_id": 8
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 8
+   }
+  },
+  {
+   "id": "document:72",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "tg9 sent an ACID with no booking open — look at it",
+   "who": "tg9",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7009",
+    "document_id": 72
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 72
+   }
+  },
+  {
+   "id": "document:136",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 18 sent a x.pdf with no booking open — look at it",
+   "who": "Cust 18",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000018",
+    "document_id": 136
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 136
+   }
+  },
+  {
+   "id": "document:200",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 27 sent an ACID with no booking open — look at it",
+   "who": "Cust 27",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000027",
+    "document_id": 200
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 200
+   }
+  },
+  {
+   "id": "document:264",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 36 sent a x.pdf with no booking open — look at it",
+   "who": "Cust 36",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000036",
+    "document_id": 264
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 264
+   }
+  },
+  {
+   "id": "document:328",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "Cust 45 sent an ACID with no booking open — look at it",
+   "who": "Cust 45",
+   "detail": "x.pdf · Kept on no booking. It counts for a booking they start; or file it on one of theirs.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000045",
+    "document_id": 328
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:00:00.000Z",
+   "status": {
+    "label": "No booking",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 328
+   }
+  },
+  {
+   "id": "document:31",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-4 was rejected — check it",
+   "who": "Booked 4",
+   "detail": "MKY-BKG-4",
+   "ref": "MKY-BKG-4",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-4",
+    "document_id": 31
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 31
+   }
+  },
+  {
+   "id": "document:73",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-10 was confirmed — check it",
+   "who": "Booked 10",
+   "detail": "MKY-BKG-10",
+   "ref": "MKY-BKG-10",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-10",
+    "document_id": 73
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 73
+   }
+  },
+  {
+   "id": "document:75",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-10 was confirmed — check it",
+   "who": "Booked 10",
+   "detail": "MKY-BKG-10",
+   "ref": "MKY-BKG-10",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-10",
+    "document_id": 75
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 75
+   }
+  },
+  {
+   "id": "document:80",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-11 was rejected — check it",
+   "who": "Booked 11",
+   "detail": "MKY-BKG-11",
+   "ref": "MKY-BKG-11",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-11",
+    "document_id": 80
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 80
+   }
+  },
+  {
+   "id": "document:82",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-11 was rejected — check it",
+   "who": "Booked 11",
+   "detail": "MKY-BKG-11",
+   "ref": "MKY-BKG-11",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-11",
+    "document_id": 82
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 82
+   }
+  },
+  {
+   "id": "document:94",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-13 was cancelled — check it",
+   "who": "Booked 13",
+   "detail": "MKY-BKG-13",
+   "ref": "MKY-BKG-13",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-13",
+    "document_id": 94
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 94
+   }
+  },
+  {
+   "id": "document:96",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-13 was cancelled — check it",
+   "who": "Booked 13",
+   "detail": "MKY-BKG-13",
+   "ref": "MKY-BKG-13",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-13",
+    "document_id": 96
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 96
+   }
+  },
+  {
+   "id": "document:122",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-17 was confirmed — check it",
+   "who": "Booked 17",
+   "detail": "MKY-BKG-17",
+   "ref": "MKY-BKG-17",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-17",
+    "document_id": 122
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 122
+   }
+  },
+  {
+   "id": "document:124",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-17 was confirmed — check it",
+   "who": "Booked 17",
+   "detail": "MKY-BKG-17",
+   "ref": "MKY-BKG-17",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-17",
+    "document_id": 124
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 124
+   }
+  },
+  {
+   "id": "document:129",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-18 was rejected — check it",
+   "who": "Booked 18",
+   "detail": "MKY-BKG-18",
+   "ref": "MKY-BKG-18",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-18",
+    "document_id": 129
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 129
+   }
+  },
+  {
+   "id": "document:145",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-20 was cancelled — check it",
+   "who": "Booked 20",
+   "detail": "MKY-BKG-20",
+   "ref": "MKY-BKG-20",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-20",
+    "document_id": 145
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 145
+   }
+  },
+  {
+   "id": "document:180",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-25 was rejected — check it",
+   "who": "Booked 25",
+   "detail": "MKY-BKG-25",
+   "ref": "MKY-BKG-25",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-25",
+    "document_id": 180
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 180
+   }
+  },
+  {
+   "id": "document:222",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-31 was confirmed — check it",
+   "who": "Booked 31",
+   "detail": "MKY-BKG-31",
+   "ref": "MKY-BKG-31",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-31",
+    "document_id": 222
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 222
+   }
+  },
+  {
+   "id": "document:224",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-31 was confirmed — check it",
+   "who": "Booked 31",
+   "detail": "MKY-BKG-31",
+   "ref": "MKY-BKG-31",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-31",
+    "document_id": 224
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 224
+   }
+  },
+  {
+   "id": "document:229",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-32 was rejected — check it",
+   "who": "Cust 32",
+   "detail": "MKY-BKG-32",
+   "ref": "MKY-BKG-32",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-32",
+    "document_id": 229
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 229
+   }
+  },
+  {
+   "id": "document:231",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-32 was rejected — check it",
+   "who": "Cust 32",
+   "detail": "MKY-BKG-32",
+   "ref": "MKY-BKG-32",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-32",
+    "document_id": 231
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 231
+   }
+  },
+  {
+   "id": "document:243",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-34 was cancelled — check it",
+   "who": "Booked 34",
+   "detail": "MKY-BKG-34",
+   "ref": "MKY-BKG-34",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-34",
+    "document_id": 243
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 243
+   }
+  },
+  {
+   "id": "document:245",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-34 was cancelled — check it",
+   "who": "Booked 34",
+   "detail": "MKY-BKG-34",
+   "ref": "MKY-BKG-34",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-34",
+    "document_id": 245
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 245
+   }
+  },
+  {
+   "id": "document:273",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-38 was confirmed — check it",
+   "who": "Booked 38",
+   "detail": "MKY-BKG-38",
+   "ref": "MKY-BKG-38",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-38",
+    "document_id": 273
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 273
+   }
+  },
+  {
+   "id": "document:294",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-41 was cancelled — check it",
+   "who": "Booked 41",
+   "detail": "MKY-BKG-41",
+   "ref": "MKY-BKG-41",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-41",
+    "document_id": 294
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 294
+   }
+  },
+  {
+   "id": "document:329",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-46 was rejected — check it",
+   "who": "Booked 46",
+   "detail": "MKY-BKG-46",
+   "ref": "MKY-BKG-46",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-46",
+    "document_id": 329
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 329
+   }
+  },
+  {
+   "id": "document:331",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-46 was rejected — check it",
+   "who": "Booked 46",
+   "detail": "MKY-BKG-46",
+   "ref": "MKY-BKG-46",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-46",
+    "document_id": 331
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 331
+   }
+  },
+  {
+   "id": "document:343",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-48 was cancelled — check it",
+   "who": "Cust 48",
+   "detail": "MKY-BKG-48",
+   "ref": "MKY-BKG-48",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-48",
+    "document_id": 343
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 343
+   }
+  },
+  {
+   "id": "document:371",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-52 was confirmed — check it",
+   "who": "Booked 52",
+   "detail": "MKY-BKG-52",
+   "ref": "MKY-BKG-52",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-52",
+    "document_id": 371
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 371
+   }
+  },
+  {
+   "id": "document:373",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-52 was confirmed — check it",
+   "who": "Booked 52",
+   "detail": "MKY-BKG-52",
+   "ref": "MKY-BKG-52",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-52",
+    "document_id": 373
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 373
+   }
+  },
+  {
+   "id": "document:378",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Invoice after MKY-BKG-53 was rejected — check it",
+   "who": "Booked 53",
+   "detail": "MKY-BKG-53",
+   "ref": "MKY-BKG-53",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-53",
+    "document_id": 378
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:59:30.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 378
+   }
+  },
+  {
+   "id": "document:380",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New MRN after MKY-BKG-53 was rejected — check it",
+   "who": "Booked 53",
+   "detail": "MKY-BKG-53",
+   "ref": "MKY-BKG-53",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-53",
+    "document_id": 380
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 380
+   }
+  },
+  {
+   "id": "document:394",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-55 was cancelled — check it",
+   "who": "Booked 55",
+   "detail": "MKY-BKG-55",
+   "ref": "MKY-BKG-55",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-55",
+    "document_id": 394
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 394
+   }
+  },
+  {
+   "id": "document:422",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "amber",
+   "sentence": "New Brief after MKY-BKG-59 was confirmed — check it",
+   "who": "Booked 59",
+   "detail": "MKY-BKG-59",
+   "ref": "MKY-BKG-59",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-59",
+    "document_id": 422
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T03:00:00.000Z",
+   "status": {
+    "label": "New paper",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null,
+   "problem": {
+    "type": "document",
+    "id": 422
+   }
+  },
+  {
+   "id": "message:7",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Co 0",
+   "who": "Co 0",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000000"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:43:00.000Z",
+   "problem": {
+    "type": "message",
+    "id": 7,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:43:00.000Z",
+    "first_failed": "2026-10-09T06:43:00.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "message:50",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 6",
+   "who": "Booked 6",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000006"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:54.000Z",
+   "problem": {
+    "type": "message",
+    "id": 50,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:54.000Z",
+    "first_failed": "2026-10-09T06:42:54.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:telegram:7009",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 9 isn’t on WhatsApp — call them instead",
+   "who": "Booked 9",
+   "detail": "WhatsApp says this number has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7009"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:51.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "telegram:7009",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:51.000Z",
+    "first_failed": "2026-10-09T06:42:51.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000012",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "2 messages didn’t reach Cust 12",
+   "who": "Cust 12",
+   "detail": "Last: The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000012"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:48.000Z",
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000012",
+    "retryable": false,
+    "reason": "failed",
+    "count": 2,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:48.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000015",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 15 isn’t on WhatsApp — call them instead",
+   "who": "Booked 15",
+   "detail": "WhatsApp says +201000000015 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000015"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:45.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000015",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:45.000Z",
+    "first_failed": "2026-10-09T06:42:45.000Z"
+   }
+  },
+  {
+   "id": "message:135",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 18",
+   "who": "Booked 18",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000018"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:42.000Z",
+   "problem": {
+    "type": "message",
+    "id": 135,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:42.000Z",
+    "first_failed": "2026-10-09T06:42:42.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000021",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 21 isn’t on WhatsApp — call them instead",
+   "who": "Booked 21",
+   "detail": "WhatsApp says +201000000021 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000021"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:39.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000021",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:39.000Z",
+    "first_failed": "2026-10-09T06:42:39.000Z"
+   }
+  },
+  {
+   "id": "message:178",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach tg24",
+   "who": "tg24",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7024"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:36.000Z",
+   "problem": {
+    "type": "message",
+    "id": 178,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:36.000Z",
+    "first_failed": "2026-10-09T06:42:36.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000027",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 27 isn’t on WhatsApp — call them instead",
+   "who": "Booked 27",
+   "detail": "WhatsApp says +201000000027 has no WhatsApp account, so 2 messages could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000027"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:33.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000027",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 2,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:33.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "message:221",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 30",
+   "who": "Booked 30",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000030"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:30.000Z",
+   "problem": {
+    "type": "message",
+    "id": 221,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:30.000Z",
+    "first_failed": "2026-10-09T06:42:30.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000033",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Cust 33 isn’t on WhatsApp — call them instead",
+   "who": "Cust 33",
+   "detail": "WhatsApp says +201000000033 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000033"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:27.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000033",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:27.000Z",
+    "first_failed": "2026-10-09T06:42:27.000Z"
+   }
+  },
+  {
+   "id": "message:263",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 36",
+   "who": "Booked 36",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000036"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:24.000Z",
+   "problem": {
+    "type": "message",
+    "id": 263,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:24.000Z",
+    "first_failed": "2026-10-09T06:42:24.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:telegram:7039",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 39 isn’t on WhatsApp — call them instead",
+   "who": "Booked 39",
+   "detail": "WhatsApp says this number has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7039"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:21.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "telegram:7039",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:21.000Z",
+    "first_failed": "2026-10-09T06:42:21.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000042",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "2 messages didn’t reach Booked 42",
+   "who": "Booked 42",
+   "detail": "Last: The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000042"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:18.000Z",
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000042",
+    "retryable": false,
+    "reason": "failed",
+    "count": 2,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:18.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000045",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 45 isn’t on WhatsApp — call them instead",
+   "who": "Booked 45",
+   "detail": "WhatsApp says +201000000045 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000045"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:15.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000045",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:15.000Z",
+    "first_failed": "2026-10-09T06:42:15.000Z"
+   }
+  },
+  {
+   "id": "message:349",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Cust 48",
+   "who": "Cust 48",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000048"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:12.000Z",
+   "problem": {
+    "type": "message",
+    "id": 349,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:12.000Z",
+    "first_failed": "2026-10-09T06:42:12.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000051",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 51 isn’t on WhatsApp — call them instead",
+   "who": "Booked 51",
+   "detail": "WhatsApp says +201000000051 has no WhatsApp account, so a message could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000051"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:09.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000051",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 1,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:09.000Z",
+    "first_failed": "2026-10-09T06:42:09.000Z"
+   }
+  },
+  {
+   "id": "message:391",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach tg54",
+   "who": "tg54",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "telegram",
+    "chat_id": "7054"
+   },
+   "channel": "telegram",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:06.000Z",
+   "problem": {
+    "type": "message",
+    "id": 391,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:06.000Z",
+    "first_failed": "2026-10-09T06:42:06.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "chat:whatsapp:wa:201000000057",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Booked 57 isn’t on WhatsApp — call them instead",
+   "who": "Booked 57",
+   "detail": "WhatsApp says +201000000057 has no WhatsApp account, so 2 messages could not be delivered. Call them, or ask them for a number that is on WhatsApp.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000057"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:03.000Z",
+   "status": {
+    "label": "Not on WhatsApp",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null,
+   "problem": {
+    "type": "chat",
+    "id": "whatsapp:wa:201000000057",
+    "retryable": false,
+    "reason": "not_on_whatsapp",
+    "count": 2,
+    "last_error": "This number is not on WhatsApp.",
+    "last_error_raw": "(#131026) not on WhatsApp",
+    "last_attempt": "2026-10-09T06:42:03.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   }
+  },
+  {
+   "id": "message:434",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Message failed — couldn’t reach Booked 60",
+   "who": "Booked 60",
+   "detail": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+   "ref": null,
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000060"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:42:00.000Z",
+   "problem": {
+    "type": "message",
+    "id": 434,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.",
+    "last_error_raw": "(#131047) Re-engagement",
+    "last_attempt": "2026-10-09T06:42:00.000Z",
+    "first_failed": "2026-10-09T06:42:00.000Z"
+   },
+   "status": {
+    "label": "Not delivered",
+    "tone": "red",
+    "meaning": "danger"
+   },
+   "version": null
+  },
+  {
+   "id": "outbox:9007",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 7 wrote STOP",
+   "who": "Booked 7",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-7",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-7"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9007,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  },
+  {
+   "id": "outbox:9022",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 22 wrote STOP",
+   "who": "Booked 22",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-22",
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000022"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9022,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  },
+  {
+   "id": "outbox:9037",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 37 wrote STOP",
+   "who": "Booked 37",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-37",
+   "link": {
+    "type": "booking",
+    "ref": "MKY-BKG-37"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9037,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  },
+  {
+   "id": "outbox:9052",
+   "kind": "problem",
+   "tags": [
+    "problems"
+   ],
+   "tab": "needs_us",
+   "tone": "red",
+   "sentence": "Not sent — Booked 52 wrote STOP",
+   "who": "Booked 52",
+   "detail": "The booking confirmation is held until they write to us again. Call them if it cannot wait.",
+   "ref": "MKY-BKG-52",
+   "link": {
+    "type": "chat",
+    "channel": "whatsapp",
+    "chat_id": "wa:201000000052"
+   },
+   "channel": "whatsapp",
+   "priority": "normal",
+   "since": "2026-10-09T06:30:00.000Z",
+   "problem": {
+    "type": "outbox",
+    "id": 9052,
+    "retryable": true,
+    "count": 1,
+    "last_error": "The customer asked us not to message them (they wrote STOP).",
+    "last_error_raw": "boom",
+    "last_attempt": "2026-10-09T06:30:00.000Z",
+    "first_failed": "2026-10-09T06:30:00.000Z"
+   },
+   "status": {
+    "label": "Held",
+    "tone": "amber",
+    "meaning": "warning"
+   },
+   "version": null
+  }
+ ]
+}

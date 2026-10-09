@@ -20,12 +20,15 @@ import {
   requestStatusLabel, requestStatusTone, mrnStatusWords,
 } from '../ops/workflow.js';
 import {
-  enrichAll, isMissingTable, todayCheck, unreadable, customerFor, bookingVersion, ticketVersion, mrnVersion,
+  enrichAll, isMissingTable, todayCheck, unreadable, customersFor, customerKey, bookingVersion, ticketVersion, mrnVersion,
+  hasMessageLog, inChunks,
 } from './desk-shared.js';
 import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
 import { AWAITING_DETAILS } from '../flow/contact.js';
+import { shared } from './desk-live.js';
+import { VIEW_SCOPES } from '../../public/desk/live.js';
 
 /** What each of the desk's tones means, for a screen that names its own. */
 const MEANING = { blue: 'info', amber: 'warning', green: 'success', red: 'danger', gray: 'neutral' };
@@ -141,24 +144,67 @@ const OUTBOX_WORDS = {
 
 const RANK = (item) => (item.kind === 'problem' ? 0 : item.priority === 'urgent' ? 1 : item.overdue ? 2 : item.priority === 'high' ? 3 : 4);
 
+const DAY_MS = 86400_000;
+
+/** What a decided booking's row in "Done today", and a paper sent after it, are drawn from. */
+const DECIDED_COLUMNS = 'booking_ref, status, confirmed_at, confirmed_by, customer_name, make, model, vin, channel, assigned_to, priority';
+
+/**
+ * A moment before the start of today wherever "today" is reckoned: a day and
+ * an hour ago. "Done today" never needs an older row, so the reads for it stop
+ * there and the exact cut (Cairo's today, todayCheck) is made on the rows.
+ */
+const startOfTodayAtLatest = (now) => new Date(now - DAY_MS - 3600_000).toISOString();
+
 /**
  * Every row the inbox could show, before tabs and filters. Exported so the
  * sidebar count and the tab title ("(3) MKY Desk") are counted from exactly
  * the list a person would see.
+ *
+ * READ IN FOUR ROUNDS, WHATEVER THE SIZE OF THE LIST. Each round's reads go
+ * out together; a round waits only for what it needs from the one before.
+ * The list used to finish with a read per chat that had a failed message, one
+ * per paper with no booking and one per MRN application without a booking
+ * name - one after another - so the more there was to do, the longer the desk
+ * took to say so. Those are now asked for together (customersFor).
+ *
+ * BOUNDED BY WHAT IS SHOWN, NOT BY "THE NEWEST N". The requests and MRN
+ * applications were read as the newest 400 and 300 of all time and then
+ * filtered: once the business had more than that, an old one still open would
+ * have dropped off the inbox. They are now read as "open, or finished today"
+ * - which is what the list shows.
+ *
+ * A READ THAT FAILED MAKES THE LIST PARTIAL, AND SAYS SO. The rows are shown
+ * as they always were, without what could not be read - but the answer is
+ * marked `partial`, and a partial answer is never shared between operators,
+ * never given an ETag and never counted as caught up: the next tick asks
+ * again. Otherwise one failed read would be served, as "not modified", until
+ * something else changed.
  */
 export async function inboxItems() {
   const isToday = await todayCheck();
-  const since = new Date(Date.now() - PROBLEM_DAYS * 86400_000).toISOString();
+  const now = Date.now();
+  const since = new Date(now - PROBLEM_DAYS * DAY_MS).toISOString();
+  const today = startOfTodayAtLatest(now);
 
-  const [openQ, decidedQ, ticketsQ, mrnQ, handledQ] = await Promise.all([
+  // Round 1: what is open, what was decided, and what has been set aside.
+  const [openQ, decidedQ, ticketsQ, handledQ] = await Promise.all([
     db().from('booking_queue').select('*').in('status', OPEN_STATUSES).order('status_changed_at', { ascending: true }).limit(500),
-    db().from('booking_queue').select('*').in('status', ['confirmed', 'rejected', 'cancelled'])
-      .order('confirmed_at', { ascending: false }).limit(200),
-    db().from('client_request_queue').select('*').order('created_at', { ascending: false }).limit(400),
-    db().from('mrn_requests').select('*').order('created_at', { ascending: false }).limit(300),
+    // The latest decisions, for "Done today" and for papers that arrived after
+    // one. From the table, not booking_queue: these rows use none of what the
+    // view adds, and the view works out three subqueries for every decided
+    // booking before it can sort them - the heaviest read the desk made.
+    // Without a decision time a row is in neither; left in, Postgres sorts
+    // those first and they could fill the 200.
+    db().from('bookings').select(DECIDED_COLUMNS).in('status', ['confirmed', 'rejected', 'cancelled'])
+      .not('confirmed_at', 'is', null).order('confirmed_at', { ascending: false }).limit(200),
+    db().from('client_request_queue').select('*')
+      .or(`status.in.(${REQUEST_OPEN.join(',')}),status_changed_at.gte."${today}",resolved_at.gte."${today}"`)
+      .order('created_at', { ascending: false }).limit(400),
     db().from('audit_logs').select('entity_id, action, created_at').eq('entity_type', 'problem').gte('created_at', since).limit(1000),
   ]);
   if (openQ.error) throw new Error(`booking queue: ${openQ.error.message}`);
+  let partial = Boolean(decidedQ.error || ticketsQ.error || handledQ.error);
 
   const handled = new Set((handledQ.data ?? []).map((r) => r.entity_id));
   // A whole chat's failures set aside at once: everything up to that moment.
@@ -170,25 +216,91 @@ export async function inboxItems() {
   }
   const open = openQ.data ?? [];
   const refs = open.map((r) => r.booking_ref);
+  // Open bookings with an MRN application: their latest one is part of their version.
+  const withMrn = open.filter((r) => r.mrn_request_ref).map((r) => r.booking_ref);
+  const decided = decidedQ.data ?? [];
 
-  const { data: docs } = refs.length
-    ? await db().from('booking_documents')
-        .select('id, booking_ref, doc_type, status, extraction_ok, extracted, vin, uploaded_at')
-        .in('booking_ref', refs).is('deleted_at', null)
-    : { data: [] };
+  // Round 2: what those rows need, and the papers and failures that are rows of their own.
+  const [docsQ, contactsQ, mrnOwnQ, mrnOfOpenQ, papers, failures] = await Promise.all([
+    inChunks(refs, (c) => db().from('booking_documents')
+      .select('id, booking_ref, doc_type, status, extraction_ok, extracted, vin, uploaded_at')
+      .in('booking_ref', c).is('deleted_at', null)),
+    // What a booking's version is made of that the queue view does not carry,
+    // so each row's version is the one its case page gives (bookingVersion) and
+    // "Take it" can be sent straight from the list.
+    inChunks(refs, (c) => db().from('bookings').select('booking_ref, customer_contact').in('booking_ref', c)),
+    // Applications still open or recorded today: their own rows.
+    db().from('mrn_requests').select('*')
+      .or(`status.in.(${MRN_OPEN.join(',')}),and(status.eq.issued,issued_at.gte."${today}")`)
+      .order('created_at', { ascending: false }).limit(300),
+    // Every application of an open booking that has one: its latest is part
+    // of the booking's version, as loadBooking reads it (newest first).
+    inChunks(withMrn, (c) => db().from('mrn_requests').select('*').in('booking_ref', c)),
+    paperRows({ since, decided }),
+    problemRows({ since, handled }),
+  ]);
+  partial ||= Boolean(docsQ.error || contactsQ.error || mrnOwnQ.error || mrnOfOpenQ.error || papers.error || failures.error);
+  // One list, newest first, each application once - as one read gave it.
+  const mrnSeen = new Set();
+  const mrnQ = {
+    data: [...(mrnOwnQ.data ?? []), ...(mrnOfOpenQ.data ?? [])]
+      .filter((m) => !mrnSeen.has(m.request_ref) && mrnSeen.add(m.request_ref))
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''))),
+  };
   const docsByRef = new Map();
-  for (const d of docs ?? []) docsByRef.set(d.booking_ref, [...(docsByRef.get(d.booking_ref) ?? []), d]);
-
-  // What a booking's version is made of that the queue view does not carry,
-  // so each row's version is the one its case page gives (bookingVersion) and
-  // "Take it" can be sent straight from the list. The latest application per
-  // booking, as loadBooking reads it: mrn_requests comes newest first.
-  const { data: contacts } = refs.length
-    ? await db().from('bookings').select('booking_ref, customer_contact').in('booking_ref', refs)
-    : { data: [] };
-  const contactOf = new Map((contacts ?? []).map((b) => [b.booking_ref, b.customer_contact ?? null]));
+  for (const d of docsQ.data ?? []) docsByRef.set(d.booking_ref, [...(docsByRef.get(d.booking_ref) ?? []), d]);
+  const contactOf = new Map((contactsQ.data ?? []).map((b) => [b.booking_ref, b.customer_contact ?? null]));
   const latestMrn = new Map();
   for (const m of mrnQ.data ?? []) if (m.booking_ref && !latestMrn.has(m.booking_ref)) latestMrn.set(m.booking_ref, m);
+
+  // MRN applications that are not already a booking row: a booking still open
+  // shows its MRN as its own next step, and two rows for one job is noise.
+  const openRefs = new Set(refs);
+  const mrnRows = (mrnQ.data ?? []).filter((m) => {
+    const isOpen = MRN_OPEN.includes(m.status);
+    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) return false;
+    return !(isOpen && m.booking_ref && openRefs.has(m.booking_ref));
+  });
+
+  // Round 3: whose they are - the bookings behind MRN applications, and every
+  // booking of the chats that have a loose paper or a failed message.
+  const mrnBookingRefs = [...new Set(mrnRows.map((m) => m.booking_ref).filter(Boolean))];
+  const chatIds = [...new Set([...papers.loose.map((d) => String(d.chat_id)), ...failures.entries.map((e) => String(e.chatId))])];
+  const [{ data: mrnBookings, error: mrnBookingsError }, { data: chatBookings, error: chatBookingsError }] = await Promise.all([
+    inChunks(mrnBookingRefs, (c) => db().from('bookings').select('booking_ref, customer_name, channel, chat_id, client_id').in('booking_ref', c)),
+    inChunks(chatIds, (c) => db().from('bookings').select('chat_id, status, customer_name, created_at').in('chat_id', c)
+      .order('created_at', { ascending: false }).limit(2000)),
+  ]);
+  partial ||= Boolean(mrnBookingsError || chatBookingsError);
+  const mrnBookingOf = new Map((mrnBookings ?? []).map((b) => [b.booking_ref, b]));
+  const drafting = new Set();
+  const bookedName = new Map();   // chat -> the newest non-draft booking's customer_name (or null)
+  for (const b of chatBookings ?? []) {
+    const chat = String(b.chat_id);
+    if (b.status === 'draft') { drafting.add(chat); continue; }
+    if (!bookedName.has(chat)) bookedName.set(chat, b.customer_name ?? null);
+  }
+
+  // Round 4: the customers still without a name, all at once.
+  const mrnAsk = (m) => {
+    const b = m.booking_ref ? mrnBookingOf.get(m.booking_ref) ?? null : null;
+    const chatId = m.chat_id ?? b?.chat_id ?? null;
+    const channel = m.chat_id ? channelOf(m.chat_id) : b?.channel ?? (chatId ? channelOf(chatId) : null);
+    return { b, chatId, channel, ask: { clientId: m.client_id ?? b?.client_id ?? null, channel, chatId } };
+  };
+  // Looked up only when there is a chat or the application's own client to
+  // look up by - exactly when the inbox always did.
+  const mrnNeedsLookup = (m, x) => !x.b?.customer_name && Boolean(x.chatId || m.client_id);
+  const paperAsk = (d) => ({ clientId: d.client_id ?? null, channel: d.channel ?? channelOf(d.chat_id), chatId: d.chat_id });
+  const asks = [
+    ...mrnRows.map((m) => [m, mrnAsk(m)]).filter(([m, x]) => mrnNeedsLookup(m, x)).map(([, x]) => x.ask),
+    ...papers.loose.filter((d) => !drafting.has(String(d.chat_id))).map(paperAsk),
+    ...papers.late.map(paperAsk),
+    ...failures.entries.filter((e) => !bookedName.get(String(e.chatId))).map((e) => ({ clientId: e.clientId, channel: e.channel, chatId: e.chatId })),
+  ];
+  const customers = await customersFor(asks);
+  partial ||= Boolean(customers.partial);
+  const customerName = (ask) => customers.get(customerKey(ask))?.name ?? null;
 
   const enriched = await enrichAll(open, { docsByRef });
   const items = [];
@@ -306,30 +418,16 @@ export async function inboxItems() {
     });
   }
 
-  // MRN applications that are not already a booking row: a booking still open
-  // shows its MRN as its own next step, and two rows for one job is noise.
-  const openRefs = new Set(refs);
-  const mrnRows = (mrnQ.data ?? []).filter((m) => {
-    const isOpen = MRN_OPEN.includes(m.status);
-    if (!isOpen && !(m.status === 'issued' && isToday(m.issued_at))) return false;
-    return !(isOpen && m.booking_ref && openRefs.has(m.booking_ref));
-  });
   // Who the application is for, and on which channel: the row named the
   // booking reference and no channel, so the desk could not say whose it was.
-  const mrnBookingRefs = [...new Set(mrnRows.map((m) => m.booking_ref).filter(Boolean))];
-  const { data: mrnBookings } = mrnBookingRefs.length
-    ? await db().from('bookings').select('booking_ref, customer_name, channel, chat_id, client_id').in('booking_ref', mrnBookingRefs)
-    : { data: [] };
-  const mrnBookingOf = new Map((mrnBookings ?? []).map((b) => [b.booking_ref, b]));
   for (const m of mrnRows) {
     const tab = m.status === 'issued' ? 'done' : m.status === 'missing_information' ? 'waiting' : 'needs_us';
-    const b = m.booking_ref ? mrnBookingOf.get(m.booking_ref) ?? null : null;
-    const chatId = m.chat_id ?? b?.chat_id ?? null;
     // The application's own chat decides its channel; the booking's says the
     // same thing, and is the fallback for an application with no chat.
-    const channel = m.chat_id ? channelOf(m.chat_id) : b?.channel ?? (chatId ? channelOf(chatId) : null);
+    const x = mrnAsk(m);
+    const { b, channel, ask } = x;
     const name = b?.customer_name
-      || (chatId || m.client_id ? (await customerFor({ clientId: m.client_id ?? b?.client_id ?? null, channel, chatId }).catch(() => null))?.name : null)
+      || (mrnNeedsLookup(m, x) ? customerName(ask) : null)
       || m.booking_ref || 'MRN application';
     items.push({
       id: `mrn:${m.request_ref}`,
@@ -352,8 +450,13 @@ export async function inboxItems() {
     });
   }
 
-  items.push(...await paperItems({ since, handled, decided: decidedQ.data ?? [] }));
-  items.push(...await problemItems({ since, handled, chatSetAside }));
+  const paperName = (d) => customerName(paperAsk(d)) || 'The customer';
+  items.push(...paperItems({ papers, handled, drafting, nameOf: paperName }));
+  // A failed message is named after the chat's newest booking, else its customer.
+  const failureName = (e) => bookedName.get(String(e.chatId))
+    || customerName({ clientId: e.clientId, channel: e.channel, chatId: e.chatId }) || 'the customer';
+  items.push(...problemItems({ entries: problemEntries(failures, { nameFor: failureName }), chatSetAside }));
+  if (partial) items.partial = true;
   return items;
 }
 
@@ -369,7 +472,7 @@ const PAPER_COLUMNS = 'id, booking_ref, chat_id, client_id, channel, doc_type, f
  * decided booking is not in the inbox, so nobody would look. Each is a row
  * until the paper is checked, filed, or set aside.
  */
-async function paperItems({ since, handled, decided }) {
+async function paperRows({ since, decided }) {
   const decidedAt = new Map(decided.filter((b) => b.confirmed_at).map((b) => [b.booking_ref, b]));
   const [looseQ, lateQ] = await Promise.all([
     db().from('booking_documents').select(PAPER_COLUMNS).is('booking_ref', null).is('deleted_at', null)
@@ -380,30 +483,23 @@ async function paperItems({ since, handled, decided }) {
         .in('status', ['received', 'pending_verification']).gte('uploaded_at', since).limit(100)
       : { data: [] },
   ]);
+  const late = (lateQ.data ?? []).filter((d) => {
+    const b = decidedAt.get(d.booking_ref);
+    return b && String(d.uploaded_at ?? '') > String(b.confirmed_at);
+  });
+  return { loose: (looseQ.data ?? []).filter((d) => d.chat_id), late, decidedAt, error: looseQ.error || lateQ.error || null };
+}
 
-  const loose = (looseQ.data ?? []).filter((d) => d.chat_id && !handled.has(`document:${d.id}`));
-  const chats = [...new Set(loose.map((d) => String(d.chat_id)))];
-  const { data: drafts } = chats.length
-    ? await db().from('bookings').select('chat_id').in('chat_id', chats).eq('status', 'draft')
-    : { data: [] };
-  const drafting = new Set((drafts ?? []).map((b) => String(b.chat_id)));
-
+/** The rows for those papers; `nameOf` answers from names already read. */
+function paperItems({ papers, handled, drafting, nameOf }) {
+  const { decidedAt } = papers;
+  const loose = papers.loose.filter((d) => !handled.has(`document:${d.id}`));
   const out = [];
-  const names = new Map();
-  const nameOf = async (d) => {
-    const k = `${d.chat_id}|${d.client_id}`;
-    if (!names.has(k)) {
-      const c = await customerFor({ clientId: d.client_id ?? null, channel: d.channel ?? channelOf(d.chat_id), chatId: d.chat_id })
-        .catch(() => null);
-      names.set(k, c?.name || 'The customer');
-    }
-    return names.get(k);
-  };
   const label = (d) => DOC_LABEL[d.doc_type] && d.doc_type !== 'other' ? DOC_LABEL[d.doc_type] : (d.file_name || 'a paper');
 
   for (const d of loose) {
     if (drafting.has(String(d.chat_id))) continue;
-    const name = await nameOf(d);
+    const name = nameOf(d);
     const channel = d.channel ?? channelOf(d.chat_id);
     out.push({
       id: `document:${d.id}`,
@@ -425,10 +521,10 @@ async function paperItems({ since, handled, decided }) {
     });
   }
 
-  for (const d of lateQ.data ?? []) {
+  for (const d of papers.late) {
     const b = decidedAt.get(d.booking_ref);
     if (!b || handled.has(`document:${d.id}`) || String(d.uploaded_at ?? '') <= String(b.confirmed_at)) continue;
-    const name = b.customer_name || await nameOf(d);
+    const name = b.customer_name || nameOf(d);
     out.push({
       id: `document:${d.id}`,
       kind: 'problem',
@@ -472,8 +568,7 @@ const messages = (n) => (n === 1 ? 'a message' : `${n} messages`);
  * sent and then refused (the delivery receipt marks both), so an outbox row
  * carrying the provider id of a failed message is not counted twice.
  */
-async function problemItems({ since, handled, chatSetAside = new Map() }) {
-  const singles = await problemEntries({ since, handled });
+function problemItems({ entries: singles, chatSetAside = new Map() }) {
   const groups = new Map();
   for (const entry of singles) {
     const key = `chat:${entry.channel ?? 'unknown'}:${entry.chatId}`;
@@ -549,11 +644,11 @@ async function problemItems({ since, handled, chatSetAside = new Map() }) {
 }
 
 /**
- * Every message that did not reach a customer, one entry each, with the row
- * the inbox showed for it before they were grouped.
+ * Every message that did not reach a customer and still needs a person: the
+ * failed messages in the conversation log, and the outbox rows that died or
+ * are held. Read in round 2 of inboxItems(); named in round 4.
  */
-async function problemEntries({ since, handled }) {
-  const out = [];
+async function problemRows({ since, handled }) {
   const [failedQ, outboxQ] = await Promise.all([
     db().from('chat_messages').select('*').eq('status', 'failed').eq('direction', 'out')
       .gte('created_at', since).order('created_at', { ascending: false }).limit(200),
@@ -561,27 +656,50 @@ async function problemEntries({ since, handled }) {
       .gte('created_at', since).order('created_at', { ascending: false }).limit(300),
   ]);
 
-  const names = new Map();
-  const nameFor = async (channel, chatId, clientId) => {
-    const k = `${channel}|${chatId}|${clientId}`;
-    if (!names.has(k)) {
-      const { data: b } = await db().from('bookings').select('customer_name').eq('chat_id', String(chatId))
-        .neq('status', 'draft').order('created_at', { ascending: false }).limit(1).maybeSingle();
-      const c = b?.customer_name ? null : await customerFor({ clientId, channel, chatId });
-      names.set(k, b?.customer_name || c?.name || 'the customer');
-    }
-    return names.get(k);
-  };
-
+  const entries = [];
   // Provider ids of the failed messages, so the outbox's record of the same
   // message is not a second failure.
   const failedIds = new Set();
   if (!failedQ.error) {
     for (const m of failedQ.data ?? []) {
       if (m.provider_message_id) failedIds.add(String(m.provider_message_id));
+      if (handled.has(`message:${m.id}`)) continue;
+      entries.push({ source: 'message', row: m, channel: m.channel, chatId: String(m.chat_id), clientId: m.client_id ?? null });
+    }
+  } else if (!isMissingTable(failedQ.error)) {
+    console.error('failed messages read failed:', failedQ.error.message);
+  }
+
+  for (const o of outboxQ.data ?? []) {
+    // The desk's own sends are recorded here too, but the operator saw those
+    // fail as they pressed Send; listing them again would be noise.
+    if (o.payload?.via === 'desk') continue;
+    // Held rows stay 'pending' in the outbox; delivery_status says why.
+    const needsTemplate = o.delivery_status === 'needs_template';
+    const stopped = o.delivery_status === 'opted_out';
+    const dead = ['dead', 'failed'].includes(o.status);
+    if (!needsTemplate && !stopped && !dead) continue;
+    if (o.provider_message_id && failedIds.has(String(o.provider_message_id))) continue;
+    if (handled.has(`outbox:${o.id}`)) continue;
+    entries.push({ source: 'outbox', row: o, channel: o.channel, chatId: String(o.chat_id), clientId: o.client_id ?? null });
+  }
+  // A missing chat log is a database before its migration, not a failure.
+  const failedError = failedQ.error && !isMissingTable(failedQ.error) ? failedQ.error : null;
+  return { entries, error: failedError || outboxQ.error || null };
+}
+
+/**
+ * One entry per message that did not reach a customer, with the row the inbox
+ * showed for it before they were grouped. `nameFor` answers from the names
+ * inboxItems() has already read.
+ */
+function problemEntries({ entries }, { nameFor }) {
+  const out = [];
+  for (const e of entries) {
+    const name = nameFor(e);
+    if (e.source === 'message') {
+      const m = e.row;
       const pid = `message:${m.id}`;
-      if (handled.has(pid)) continue;
-      const name = await nameFor(m.channel, m.chat_id, m.client_id);
       const words = failureWords(m.error, { template: m.payload?.template ?? null });
       out.push({
         channel: m.channel, chatId: String(m.chat_id), name, at: m.created_at, error: m.error ?? null, words, held: null,
@@ -602,24 +720,14 @@ async function problemEntries({ since, handled }) {
           problem: { type: 'message', id: m.id, retryable: ['text', 'template', null, undefined].includes(m.kind) },
         },
       });
+      continue;
     }
-  } else if (!isMissingTable(failedQ.error)) {
-    console.error('failed messages read failed:', failedQ.error.message);
-  }
 
-  for (const o of outboxQ.data ?? []) {
-    // The desk's own sends are recorded here too, but the operator saw those
-    // fail as they pressed Send; listing them again would be noise.
-    if (o.payload?.via === 'desk') continue;
-    // Held rows stay 'pending' in the outbox; delivery_status says why.
+    const o = e.row;
+    const pid = `outbox:${o.id}`;
     const needsTemplate = o.delivery_status === 'needs_template';
     const stopped = o.delivery_status === 'opted_out';
     const dead = ['dead', 'failed'].includes(o.status);
-    if (!needsTemplate && !stopped && !dead) continue;
-    if (o.provider_message_id && failedIds.has(String(o.provider_message_id))) continue;
-    const pid = `outbox:${o.id}`;
-    if (handled.has(pid)) continue;
-    const name = await nameFor(o.channel, o.chat_id, o.client_id);
     const what = OUTBOX_WORDS[o.event_type] ?? String(o.event_type).replace(/_/g, ' ');
     const words = needsTemplate ? failureWords(null, { status: 'needs_template' })
       : stopped ? failureWords(null, { status: 'opted_out' })
@@ -667,6 +775,14 @@ const inFilter = (item, filter, me) => {
   return item.tags.includes(filter);
 };
 
+/**
+ * The inbox's rows, worked out once per instance for every operator asking
+ * under the same versions (lib/admin/desk-live.js). The rows are the same for
+ * everybody; tabs, filters and "mine" are cut from them per request, and
+ * nothing here changes them.
+ */
+const sharedInbox = (req) => shared('inbox', req?.deskPulse ?? null, VIEW_SCOPES.inbox, () => inboxItems());
+
 /** GET view=inbox&tab=&filter=&offset=&limit= */
 export async function inboxView(req, res, who) {
   const tab = TABS.includes(req.query.tab) ? req.query.tab : 'needs_us';
@@ -674,7 +790,10 @@ export async function inboxView(req, res, who) {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-  const all = await inboxItems();
+  const all = await sharedInbox(req);
+  // Some of it could not be read: shown, but not vouched for (no ETag) and
+  // marked, so the desk asks again on its next tick.
+  if (all.partial) req.deskNoTag = true;
   const counts = { tabs: {}, filters: {} };
   for (const t of TABS) counts.tabs[t] = all.filter((i) => i.tab === t).length;
   const inTab = all.filter((i) => i.tab === tab);
@@ -682,28 +801,38 @@ export async function inboxView(req, res, who) {
 
   const rows = sortItems(inTab.filter((i) => inFilter(i, filter, who.name)), tab);
   const chan = await channels();
-  const { error: logErr } = await db().from('chat_messages').select('id').limit(1);
+  const logged = await hasMessageLog();
 
   return res.status(200).json({
     tab,
     filter,
     counts,
+    // The sidebar's numbers, from the same list: the desk does not have to
+    // ask view=counts for them while the inbox is open.
+    nav: navCounts(all, who),
     total: rows.length,
     offset,
     limit,
     has_more: offset + limit < rows.length,
     items: rows.slice(offset, offset + limit),
-    features: { channels: Boolean(chan), chat_messages: !isMissingTable(logErr) },
+    features: { channels: Boolean(chan), chat_messages: logged },
+    ...(all.partial ? { partial: true } : {}),
   });
+}
+
+/** The numbers on the sidebar and in the tab title, from the inbox's rows. */
+function navCounts(all, who) {
+  const needs = all.filter((i) => i.tab === 'needs_us');
+  return {
+    needs_us: needs.length,
+    problems: needs.filter((i) => i.kind === 'problem').length,
+    mine: needs.filter((i) => String(i.assigned_to ?? '').toLowerCase() === who.name.toLowerCase()).length,
+  };
 }
 
 /** GET view=counts - the numbers on the sidebar and in the tab title. */
 export async function countsView(req, res, who) {
-  const all = await inboxItems();
-  const needs = all.filter((i) => i.tab === 'needs_us');
-  return res.status(200).json({
-    needs_us: needs.length,
-    problems: needs.filter((i) => i.kind === 'problem').length,
-    mine: needs.filter((i) => String(i.assigned_to ?? '').toLowerCase() === who.name.toLowerCase()).length,
-  });
+  const all = await sharedInbox(req);
+  if (all.partial) req.deskNoTag = true;
+  return res.status(200).json({ ...navCounts(all, who), ...(all.partial ? { partial: true } : {}) });
 }

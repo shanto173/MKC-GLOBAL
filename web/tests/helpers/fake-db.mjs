@@ -217,6 +217,10 @@ export function createFakeDb(seed = {}) {
       return this;
     }
     not(col, operator, value) {
+      if (operator === 'is' && value === null) {
+        this.filters.push((r) => r[col] !== null && r[col] !== undefined);
+        return this;
+      }
       if (operator !== 'in') throw new Error(`fake-db: not(${operator}) is not implemented`);
       const set = new Set(parseList(value));
       this.filters.push((r) => !set.has(String(r[col])));
@@ -234,7 +238,8 @@ export function createFakeDb(seed = {}) {
       return this;
     }
 
-    order(col, opts) { this.modifiers.order = { col, asc: opts?.ascending !== false }; return this; }
+    /** Each call adds a key, the first one leading, as PostgREST's order=a.desc,b.desc. */
+    order(col, opts) { (this.modifiers.order ??= []).push({ col, asc: opts?.ascending !== false }); return this; }
     limit(n) { this.modifiers.limit = n; return this; }
     range(from, to) { this.modifiers.range = [from, to]; return this; }
 
@@ -334,12 +339,15 @@ export function createFakeDb(seed = {}) {
       const total = rows.length;
 
       if (this.modifiers.order) {
-        const { col, asc } = this.modifiers.order;
+        const keys = this.modifiers.order;
         rows = [...rows].sort((a, b) => {
-          const x = a[col] ?? '';
-          const y = b[col] ?? '';
-          if (x === y) return 0;
-          return (x > y ? 1 : -1) * (asc ? 1 : -1);
+          for (const { col, asc } of keys) {
+            const x = a[col] ?? '';
+            const y = b[col] ?? '';
+            if (x === y) continue;
+            return (x > y ? 1 : -1) * (asc ? 1 : -1);
+          }
+          return 0;
         });
       }
       if (this.modifiers.range) rows = rows.slice(this.modifiers.range[0], this.modifiers.range[1] + 1);

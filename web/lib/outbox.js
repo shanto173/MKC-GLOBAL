@@ -61,9 +61,19 @@ const ANSWERS_CLIENT = new Set(['booking_request_pdf', 'booking_request_submitte
 // null: not yet known, true: seen to work, false: refused once - stop asking.
 let extraColumns = null;
 
-/** For tests: forget what was learned about the schema. */
+// When this instance last drained, and whether it has queued or released
+// anything since - for drainAfterTurn().
+let lastDrainAt = 0;
+let queuedHere = false;
+
+/** How long a turn that queued nothing leaves the outbox to the last drain. */
+export const TURN_DRAIN_IDLE_MS = 60_000;
+
+/** For tests: forget what was learned about the schema, and when it last drained. */
 export function resetOutboxForTests() {
   extraColumns = null;
+  lastDrainAt = 0;
+  queuedHere = false;
 }
 
 /**
@@ -128,6 +138,7 @@ export async function enqueue(event) {
     return { ok: false, queued: false, error: error.message };
   }
 
+  queuedHere = true;
   logEvent('outbox_queued', { event_type: event.eventType, entity_id: row.entity_id, channel });
   return { ok: true, queued: true };
 }
@@ -144,6 +155,8 @@ export async function enqueue(event) {
  *   never been seen to fail are not guarantees.
  */
 export async function drain({ limit = 20, send = sendMessage, sendFile = sendDocument } = {}) {
+  lastDrainAt = Date.now();
+  queuedHere = false;
   const now = new Date().toISOString();
   const { data: due, error } = await db()
     .from('notification_outbox')
@@ -267,6 +280,10 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
     }
   }
 
+  // As many were due as it would take: there may be more, so the next turn
+  // drains again rather than leaving them for a minute (drainAfterTurn).
+  if (result.considered >= limit) queuedHere = true;
+
   // The chat log of what went out is written in the background; a drain run
   // from a cron route has nothing after it to wait for that, so it waits here.
   await flush();
@@ -321,7 +338,25 @@ export async function releaseHeld(chatId) {
     else console.error('releasing held notifications failed:', error.message);
     return { ok: false };
   }
+  if (data?.length) queuedHere = true;
   return { ok: true, released: data?.length ?? 0 };
+}
+
+/**
+ * The drain at the end of a bot turn, when there is something for it.
+ *
+ * Every message a customer sent ended with a read of the outbox, to send what
+ * the turn had queued "now rather than at the next retry". Most turns queue
+ * nothing, and a customer filling in a booking sends a message every few
+ * seconds. So the turn drains when this instance queued or released
+ * something since its last drain - which is every case the drain is there
+ * for - and otherwise at most once a minute, which is what still delivers
+ * the retries that came due (there is no cron on this plan; drains are the
+ * retry loop). Rows queued elsewhere are drained where they were queued.
+ */
+export async function drainAfterTurn({ limit = 5, idleMs = TURN_DRAIN_IDLE_MS } = {}) {
+  if (!queuedHere && Date.now() - lastDrainAt < idleMs) return { ok: true, skipped: true };
+  return drain({ limit });
 }
 
 /**
@@ -374,6 +409,8 @@ export async function noteDeliveryStatus({ providerMessageId, status, code = nul
   await db().from('notification_outbox')
     .update({ ...patch, last_error: reason, updated_at: now.toISOString() })
     .eq('id', row.id);
+  // Put back to be sent: the next turn here drains, not the one a minute on.
+  if (patch.status === 'pending') queuedHere = true;
   logEvent('outbox_delivery_failed', { event_type: row.event_type, entity_id: row.entity_id, code, next: patch.status });
   return { ok: true, matched: true, ...patch };
 }

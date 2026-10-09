@@ -11,7 +11,11 @@
  *   GET  ?resource=console&view=shipments / shipment&id=
  *   GET  ?resource=console&view=search&q=…
  *   GET  ?resource=console&view=settings      (administrators)
+ *   GET  ?resource=console&view=pulse         what changed: one cheap read (lib/admin/desk-live.js)
  *   POST ?resource=console   { action, operator, version?, action_key?, … }
+ *
+ * The GET views the desk polls carry an ETag and answer 304 Not Modified when
+ * the desk already has the answer (lib/admin/desk-live.js).
  *
  * One route rather than twenty, because Vercel's Hobby plan allows twelve
  * Serverless Functions and this project is at exactly twelve.
@@ -46,15 +50,14 @@ import ticketsApi from '../../api/admin/tickets.js';
 import shipmentsApi from '../../api/admin/shipments.js';
 import mrnApi from './mrn.js';
 import {
-  readiness, canTransition, statusLabel, statusWords, statusTone, canTransitionRequest, requestStatusLabel,
-  requestStatusWords, mrnStatusWords, SHIPMENT_MILESTONES, shipmentTone, OPEN_STATUSES, DOC_LABEL,
-  requestStatusTone, MRN_STATUS,
+  readiness, canTransition, statusLabel, statusWords, canTransitionRequest, requestStatusLabel,
+  requestStatusWords, SHIPMENT_MILESTONES, OPEN_STATUSES, DOC_LABEL,
 } from '../ops/workflow.js';
 import {
   operatorFor, deniedReason, ROLE_WORDS, documentSummary, hash, refuseStale, ticketVersion, mrnVersion,
-  shipmentVersion, actionKeyOf, customerFor, isMissingTable, isMissingColumn,
+  shipmentVersion, actionKeyOf, customerFor, teamList, hasMessageLog,
 } from './desk-shared.js';
-import { inboxView, countsView, shortPort } from './desk-inbox.js';
+import { inboxView, countsView } from './desk-inbox.js';
 import {
   bookingCase, requestCase, mrnCase, documentUrl, documentView, previewView, editDetails, markReadValues, loadBooking, bookingEntities,
 } from './desk-case.js';
@@ -66,6 +69,9 @@ import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-se
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
+import { pulseView, conditionalView } from './desk-live.js';
+import { shipmentList, shipmentDetail } from './desk-shipments.js';
+import { search } from './desk-search.js';
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -101,12 +107,14 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const view = String(req.query.view ?? 'inbox');
       if (view === 'me') return await me(req, res);
-      const fn = VIEWS[view];
+      const fn = view === 'pulse' ? pulseView : VIEWS[view];
       if (!fn) return res.status(400).json({ error: `Unknown view "${view}"` });
       const who = await operatorFor(req);
       if (!who.ok) return res.status(403).json({ error: who.error });
       if (view === 'settings' && !who.can('settings')) return res.status(403).json({ error: deniedReason('settings', who.role) });
-      return await fn(req, res, who);
+      // The views the desk polls answer 304 when nothing they show has
+      // changed since the version the desk already has (lib/admin/desk-live.js).
+      return await conditionalView(view, req, res, who, (out) => fn(req, out, who));
     }
     if (req.method === 'POST') return await act(req, res);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -138,7 +146,8 @@ async function me(req, res) {
   const who = await operatorFor(req);
   if (!who.ok) {
     if (who.unknown) {
-      const { data } = await db().from('ops_users').select('name, active');
+      // Fresh: the first person on an empty desk must not wait out a cache.
+      const data = await teamList({ fresh: true }).catch(() => []);
       if (!(data ?? []).some((u) => u.active !== false)) return res.status(200).json({ bootstrap: true });
     }
     return res.status(403).json({ error: who.error });
@@ -149,19 +158,17 @@ async function me(req, res) {
     .then(() => null, () => null);
 
   const chan = await channels();
-  const [{ error: logErr }, { data: team }] = await Promise.all([
-    db().from('chat_messages').select('id').limit(1),
-    db().from('ops_users').select('name, role, active').order('name'),
-  ]);
+  const [logged, team] = await Promise.all([hasMessageLog(), teamList().catch(() => [])]);
   return res.status(200).json({
     name: who.name,
     role: who.role,
     role_words: ROLE_WORDS[who.role] ?? who.role,
     permissions: who.permissions,
-    features: { channels: Boolean(chan), chat_messages: !isMissingTable(logErr) },
+    features: { channels: Boolean(chan), chat_messages: logged },
     saved_replies: await savedReplies(),
     // Who work can be handed to. Names only: roles are the administrator's business.
-    team: (team ?? []).filter((u) => u.active !== false && u.role !== 'read_only').map((u) => u.name),
+    team: [...(team ?? [])].sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      .filter((u) => u.active !== false && u.role !== 'read_only').map((u) => u.name),
   });
 }
 
@@ -352,7 +359,8 @@ async function assign(req, res, who, { clear = false } = {}) {
     return res.status(403).json({ error: deniedReason('assign_others', who.role) });
   }
   if (!clear) {
-    const { data: person } = await db().from('ops_users').select('name, active').ilike('name', to).maybeSingle();
+    const people = (await teamList().catch(() => [])).filter((u) => String(u.name ?? '').toLowerCase() === to.toLowerCase());
+    const person = people.length === 1 ? people[0] : null;
     if (!person || person.active === false) return res.status(400).json({ error: `"${to}" is not an active member of the team.` });
   }
 
@@ -890,80 +898,9 @@ async function requestResolve(req, res, who) {
 }
 
 // ---------------------------------------------------------------------------
-// Shipments
+// Shipments (the list and one shipment are read in desk-shipments.js; the
+// search box is desk-search.js)
 // ---------------------------------------------------------------------------
-
-/** GET view=shipments&filter=active|delivered|all&q= */
-async function shipmentList(req, res) {
-  const filter = String(req.query.filter ?? 'active');
-  const q = String(req.query.q ?? '').trim().toLowerCase();
-  const query = db().from('shipments').select('*').order('updated_at', { ascending: false }).limit(300);
-  if (filter === 'delivered') query.eq('delivery_status', 'Complete');
-  else if (filter !== 'all') query.neq('delivery_status', 'Complete');
-
-  // How many each filter holds, whichever is shown, so the filter tabs can
-  // carry their numbers. Counted, not fetched.
-  const [all, delivered] = await Promise.all([
-    db().from('shipments').select('shipment_id', { count: 'exact', head: true }),
-    db().from('shipments').select('shipment_id', { count: 'exact', head: true }).eq('delivery_status', 'Complete'),
-  ]);
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: 'We could not load shipments.' });
-  const counts = all.error || delivered.error ? null : {
-    active: (all.count ?? 0) - (delivered.count ?? 0),
-    delivered: delivered.count ?? 0,
-    all: all.count ?? 0,
-  };
-
-  let rows = (data ?? []).map((s) => ({
-    shipment_id: s.shipment_id,
-    booking_ref: s.booking_ref ?? null,
-    customer_name: s.customer_name,
-    vehicle: [s.make, s.model].filter(Boolean).join(' ') || null,
-    vin: s.vin ?? null,
-    route: `${shortPort(s.origin_port)} → ${shortPort(s.destination_port)}`,
-    status: s.status,
-    tone: shipmentTone(s.status),
-    eta: s.eta ?? null,
-    vessel: s.vessel ?? null,
-    channel: s.channel ?? null,
-    updated_at: s.updated_at,
-    version: shipmentVersion(s),
-  }));
-  if (q) {
-    rows = rows.filter((s) => [s.shipment_id, s.booking_ref, s.customer_name, s.vin, s.vessel]
-      .some((v) => String(v ?? '').toLowerCase().includes(q)));
-  }
-  res.status(200).json({ filter, total: rows.length, counts, milestones: SHIPMENT_MILESTONES, rows });
-}
-
-/** GET view=shipment&id= */
-async function shipmentDetail(req, res, who) {
-  const id = String(req.query.id ?? '').trim();
-  const { data: s, error } = await db().from('shipments').select('*').eq('shipment_id', id).maybeSingle();
-  if (error) return res.status(500).json({ error: 'We could not load this shipment.' });
-  if (!s) return res.status(404).json({ error: `There is no shipment ${id}.` });
-
-  const [{ data: events }, { data: booking }] = await Promise.all([
-    db().from('shipment_events').select('*').eq('shipment_id', id).order('event_time', { ascending: false }).limit(60),
-    s.booking_ref ? db().from('bookings').select('booking_ref, client_id, chat_id, channel, customer_name, customer_contact')
-      .eq('booking_ref', s.booking_ref).maybeSingle() : { data: null },
-  ]);
-  const customer = await customerFor({
-    clientId: booking?.client_id, channel: s.channel ?? booking?.channel ?? channelOf(s.chat_id ?? booking?.chat_id), chatId: s.chat_id ?? booking?.chat_id,
-    name: s.customer_name, contact: booking?.customer_contact,
-  });
-
-  res.status(200).json({
-    shipment: { ...s, tone: shipmentTone(s.status) },
-    version: shipmentVersion(s),
-    events: (events ?? []).map((e) => ({ at: e.event_time, description: e.description, location: e.location ?? null, operator: e.operator ?? null })),
-    milestones: SHIPMENT_MILESTONES,
-    customer,
-    can_update: who.can('booking'),
-    update_reason: who.can('booking') ? null : deniedReason('booking', who.role),
-  });
-}
 
 /**
  * POST { action: 'shipment_update', shipment_id, version, status?, eta?, vessel?, location?, note?, tell_customer, action_key }
@@ -1023,100 +960,3 @@ async function shipmentUpdate(req, res, who) {
   return res.status(200).json({ ...result.payload, customer_told: told });
 }
 
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
-
-/**
- * GET view=search&q= - one box for chassis, reference, name and phone.
- * Results come back grouped and each carries where it opens.
- */
-async function search(req, res) {
-  const q = String(req.query.q ?? '').trim();
-  const empty = { q, groups: [] };
-  if (q.length < 2) return res.status(200).json(empty);
-  // Characters that mean something to PostgREST's or() syntax are removed, so
-  // whatever is typed is searched for rather than parsed.
-  const safe = q.replace(/[%_,()*"\\]/g, ' ').trim();
-  if (!safe) return res.status(200).json(empty);
-  const norm = q.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const digits = q.replace(/\D/g, '');
-
-  const like = (cols) => cols.map((c) => `${c}.ilike.%${safe}%`).join(',');
-  const clientCols = ['display_name', 'full_name', 'company', 'telegram_username', 'phone', 'whatsapp_name', 'whatsapp_id'];
-
-  const clientsQuery = async () => {
-    let r = await db().from('clients').select('*').or(like(clientCols)).limit(10);
-    // whatsapp_* arrive with the new migration; search what exists until then.
-    if (r.error && isMissingColumn(r.error)) r = await db().from('clients').select('*').or(like(clientCols.slice(0, 5))).limit(10);
-    return r.data ?? [];
-  };
-
-  const [bookings, shipments, clients, mrn, tickets] = await Promise.all([
-    db().from('bookings').select('booking_ref, status, vin, make, model, customer_name, customer_contact')
-      .or(like(['booking_ref', 'vin', 'customer_name', 'customer_contact']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''))
-      .neq('status', 'draft').order('created_at', { ascending: false }).limit(10).then((r) => r.data ?? []),
-    db().from('shipments').select('shipment_id, booking_ref, status, vin, customer_name, vessel, eta')
-      .or(like(['shipment_id', 'booking_ref', 'customer_name', 'vin']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : ''))
-      .limit(10).then((r) => r.data ?? []),
-    clientsQuery(),
-    db().from('mrn_requests').select('request_ref, booking_ref, status, vin, mrn_number')
-      .or(like(['request_ref', 'mrn_number', 'booking_ref']) + (norm.length >= 6 ? `,vin_norm.eq.${norm}` : '')).limit(10).then((r) => r.data ?? []),
-    db().from('support_tickets').select('ticket_ref, status, customer, contact, summary')
-      .or(like(['ticket_ref', 'customer', 'contact'])).order('created_at', { ascending: false }).limit(10).then((r) => r.data ?? []),
-  ]);
-
-  const groups = [
-    {
-      key: 'bookings', title: 'Bookings',
-      items: bookings.map((b) => ({
-        title: `${b.booking_ref} · ${b.customer_name ?? ''}`.trim(), detail: [[b.make, b.model].filter(Boolean).join(' '), b.vin].filter(Boolean).join(' · '),
-        status_words: statusWords(b.status), tone: statusTone(b.status), link: { type: 'booking', ref: b.booking_ref },
-      })),
-    },
-    {
-      key: 'customers', title: 'Customers',
-      items: clients.map((c) => {
-        const chat = c.whatsapp_id ? { channel: 'whatsapp', chat_id: `wa:${c.whatsapp_id}` }
-          : c.telegram_chat_id ? { channel: 'telegram', chat_id: String(c.telegram_chat_id) } : null;
-        return {
-          title: c.company || c.full_name || c.whatsapp_name || c.display_name || c.telegram_username || 'Customer',
-          detail: [c.phone || (c.whatsapp_id ? `+${c.whatsapp_id}` : null), c.telegram_username ? `@${c.telegram_username}` : null, chat?.channel === 'whatsapp' ? 'WhatsApp' : chat ? 'Telegram' : null].filter(Boolean).join(' · '),
-          link: chat ? { type: 'chat', ...chat } : null,
-        };
-      }),
-    },
-    {
-      key: 'shipments', title: 'Shipments',
-      items: shipments.map((s) => ({
-        title: `${s.shipment_id} · ${s.customer_name ?? ''}`.trim(), detail: [s.vin, s.vessel, s.eta ? `ETA ${s.eta}` : null].filter(Boolean).join(' · '),
-        status_words: s.status, tone: shipmentTone(s.status), link: { type: 'shipment', id: s.shipment_id },
-      })),
-    },
-    {
-      key: 'mrn', title: 'MRN applications',
-      items: mrn.map((m) => ({
-        title: `${m.request_ref}${m.booking_ref ? ` · ${m.booking_ref}` : ''}`, detail: [m.vin, m.mrn_number].filter(Boolean).join(' · '),
-        status_words: mrnStatusWords(m.status), tone: MRN_STATUS[m.status]?.tone ?? 'gray', link: { type: 'mrn', ref: m.request_ref },
-      })),
-    },
-    {
-      key: 'requests', title: 'Call-backs and requests',
-      items: tickets.map((t) => ({
-        title: `${t.ticket_ref} · ${t.customer ?? ''}`.trim(), detail: [t.contact, t.summary ? String(t.summary).slice(0, 80) : null].filter(Boolean).join(' · '),
-        // A tone like every other result, so the badge is not grey.
-        status_words: requestStatusWords(t.status), tone: requestStatusTone(t.status), link: { type: 'request', ref: t.ticket_ref },
-      })),
-    },
-  ].filter((g) => g.items.length);
-
-  // A phone number typed with spaces or a leading zero finds the chat even
-  // when no client row spells it the same way.
-  if (digits.length >= 7 && !groups.some((g) => g.key === 'customers')) {
-    const wa = `wa:${digits.replace(/^0+/, '')}`;
-    const { data: chat, error } = await db().from('chat_messages').select('channel, chat_id').eq('chat_id', wa).limit(1).maybeSingle();
-    if (!error && chat) groups.push({ key: 'customers', title: 'Customers', items: [{ title: `+${digits}`, detail: 'WhatsApp', link: { type: 'chat', channel: 'whatsapp', chat_id: wa } }] });
-  }
-
-  res.status(200).json({ q, groups });
-}

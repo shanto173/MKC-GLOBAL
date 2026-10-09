@@ -14,7 +14,7 @@
 import { db } from '../supabase.js';
 import { settings, writeSetting, invalidateSettings } from '../settings.js';
 import { audit } from '../audit.js';
-import { fingerprint, userVersion, ROLE_WORDS, refuseStale } from './desk-shared.js';
+import { fingerprint, userVersion, ROLE_WORDS, refuseStale, invalidateTeam } from './desk-shared.js';
 import { DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 
 const DOC_TYPES = ['invoice', 'brief', 'mrn', 'acid', 'eur1'];
@@ -287,6 +287,7 @@ export async function userSave(req, res, who) {
     ? { name: existing.name, role, active }
     : { name, role, active, created_by: who.name };
   const { data, error } = await db().from('ops_users').upsert(row, { onConflict: 'name' }).select().single();
+  invalidateTeam();
   if (error) return res.status(500).json({ error: 'We could not save that person.' });
 
   await audit({
@@ -312,6 +313,7 @@ export async function bootstrapAdmin(req, res) {
     return res.status(409).json({ error: 'The team already has people. Ask an administrator to add you.' });
   }
   const { error: insErr } = await db().from('ops_users').upsert({ name, role: 'admin', active: true, created_by: name }, { onConflict: 'name' });
+  invalidateTeam();
   if (insErr) return res.status(500).json({ error: 'We could not add you.' });
   await audit({ actor_type: 'operator', actor_id: name, action: 'ops_user_saved', entity_type: 'ops_user', entity_id: `user:${name}`, metadata: { name, role: 'admin', was: 'bootstrap' } });
   return res.status(200).json({ ok: true, name, role: 'admin' });
