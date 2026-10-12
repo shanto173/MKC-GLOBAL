@@ -10,19 +10,19 @@ the sign-in, not from the browser.
 
 ## Switching it on
 
-The columns live in `supabase/migrations/20261012120000_desk_accounts.sql`. Apply
-it like every other migration — from the `web` folder with the Supabase CLI:
-
-```bash
-npm run db:push
-```
-
-or paste the file into **Supabase → SQL Editor → New query → Run**. It is safe to
-re-run.
+The columns live in `supabase/migrations/20261012120000_desk_accounts.sql`, and
+were applied to the live database (`kverwgcnvnferjewvvyr`) on 12 October 2026. A
+fresh database gets them from `npm run db:push`, from the Supabase MCP server's
+`apply_migration`, or by pasting the file into **Supabase → SQL Editor → New
+query → Run**. It is safe to re-run.
 
 **Until it is applied nobody is locked out.** The desk notices the columns are
 missing, Settings → Team and access says so in an amber line, and everyone signs
-in with their name and the shared `ADMIN_SECRET`, exactly as before.
+in with their name and the shared `ADMIN_SECRET`, exactly as before. The same is
+true for the few minutes between a deploy and the migration: a server already
+running keeps every open session, because the one check it cannot make with the
+old columns - whether a password has changed since the token was issued - is
+skipped rather than failed.
 
 ---
 
