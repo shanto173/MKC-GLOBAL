@@ -889,6 +889,64 @@ test('a chassis read off a paper is looked up like a typed one, and a booked one
   assert.doesNotMatch(said(r), /Read from your documents/, 'nothing was adopted');
 });
 
+// ---------------------------------------------------------------------------
+// Operations takes the chat over
+// ---------------------------------------------------------------------------
+
+/** Operations ticks "I'll answer this chat". */
+const takeOver = (h, by = 'Sara') => {
+  h.db._tables.clients[0].bot_hold_at = new Date().toISOString();
+  h.db._tables.clients[0].bot_hold_by = by;
+};
+const handBack = (h) => {
+  h.db._tables.clients[0].bot_hold_at = null;
+  h.db._tables.clients[0].bot_hold_by = null;
+};
+
+test('a chat Operations has taken over gets no answer from the bot, and gets it back when they hand it over', async () => {
+  const h = harness();
+  const before = await h.command('/start');
+  assert.ok(before.messages.length, 'answering normally to begin with');
+
+  takeOver(h);
+  const held = await h.command('/start');
+  assert.deepEqual(held.messages, [], 'not one word, not even the menu');
+  // handled:true is what keeps the assistant quiet as well: an unhandled turn
+  // is the signal for it to answer the question itself.
+  assert.equal(held.handled, true, 'and the assistant does not step in either');
+
+  handBack(h);
+  const after = await h.command('/start');
+  assert.ok(after.messages.length, 'and the bot picks it up again');
+});
+
+test('a booking does not move a step while a colleague is answering', async () => {
+  const h = harness();
+  await identify(h);
+  const asked = await h.text('W1T96340310484233');
+  assert.equal(h.booking().vin, 'W1T96340310484233');
+  const state = asked.state;
+
+  takeOver(h);
+  const held = await h.text('MAN TGX');
+
+  assert.deepEqual(held.messages, []);
+  assert.equal(held.state, state, 'the conversation is where the colleague found it');
+  assert.ok(!h.booking().make, 'and an answer meant for a person is not taken as one for the bot');
+});
+
+test('a file sent to a chat Operations holds is still read and filed - only the answering stops', async () => {
+  const h = harness();
+  await identify(h);
+  takeOver(h);
+
+  const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
+
+  assert.deepEqual(r.messages, [], 'the customer hears nothing from the bot');
+  assert.equal(h.db._tables.booking_documents.length, 1, 'but the desk has the paper');
+  assert.equal(h.db._tables.booking_documents[0].doc_type, 'invoice');
+});
+
 test('the caption is read ahead of the file, and the file then only counts', async () => {
   const h = harness();
   await identify(h);

@@ -364,12 +364,22 @@ async function turn(message, ctx, client, background) {
   if (KEPT_TYPES.has(message.type)) defer(logged.then(() => keepWhatsAppMedia(message, ctx)));
 
   try {
+    // Operations has taken this conversation over: the bot says nothing at
+    // all, here or in the flow (lib/flow/machine.js, runFlow). The message is
+    // logged and its files are still read and filed - everything but the
+    // answering, which is a colleague's now.
+    //
+    // Put on ctx because the client row is already in hand here: the flow
+    // would otherwise read it again on every single message.
+    ctx.botHold = client?.bot_hold_at ? { at: client.bot_hold_at, by: client.bot_hold_by ?? null } : null;
+    const held = Boolean(ctx.botHold);
+
     // This chat's claims of the last two minutes, read once for both the
     // flood check and the wait for an earlier message.
     const claims = await recentClaims(chatId);
     const flood = await floodCheck(chatId, claims);
     if (flood !== 'ok') {
-      if (flood === 'warn') await sendToChat(target, { text: T.slowDown() });
+      if (flood === 'warn' && !held) await sendToChat(target, { text: T.slowDown() });
       logEvent('whatsapp_flood', { chat: masked(chatId), action: flood });
       await finishClaim(message.id, 'ignored');
       return;
@@ -419,7 +429,7 @@ async function turn(message, ctx, client, background) {
     }
 
     if (input.kind === 'unsupported') {
-      await sendToChat(target, { text: T.unsupported(), inline: kb.mainMenu() });
+      if (!held) await sendToChat(target, { text: T.unsupported(), inline: kb.mainMenu() });
       await finishClaim(message.id, 'processed');
       return;
     }
@@ -428,7 +438,7 @@ async function turn(message, ctx, client, background) {
       // A paper of a type or a size the bot will not read is still what the
       // customer sent: kept for the desk to open, as a voice note is.
       if (message.type === 'document' || message.type === 'image') defer(logged.then(() => keepWhatsAppMedia(message, ctx)));
-      await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
+      if (!held) await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
       await finishClaim(message.id, 'processed');
       return;
     }

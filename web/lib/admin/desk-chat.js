@@ -23,6 +23,7 @@ import { audit } from '../audit.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
 import { customerFor, isMissingTable, HISTORY_PENDING, actionKeyOf, ago } from './desk-shared.js';
+import { setBotHold } from '../clients.js';
 import { failureWords, DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 import { statusWords, statusTone, requestStatusWords, REQUEST_OPEN } from '../ops/workflow.js';
 import { filesOf, placeOf, contactsOf } from './desk-media.js';
@@ -343,6 +344,55 @@ export async function sendMessage(req, res, who) {
     return res.status(httpFor(sent)).json({ error: sent.words ?? 'It did not go through.', ...sent, composer: now });
   }
   return res.status(200).json(sent);
+}
+
+/**
+ * POST { action: 'bot_hold', channel+chat_id | booking_ref | ticket_ref, on: true|false }
+ *
+ * Operations taking a conversation over, or handing it back. Held, the bot
+ * answers nothing in this chat (lib/flow/machine.js, runFlow); everything else
+ * - the message arriving, its files being read and filed, the desk seeing all
+ * of it - carries on exactly as before.
+ *
+ * It is kept on the customer, not on the chat session, because a customer who
+ * clears their side of the conversation would otherwise hand the chat back to
+ * the bot without anybody deciding to.
+ */
+export async function setChatHold(req, res, who) {
+  const body = req.body ?? {};
+  const target = await targetOf(body);
+  if (!target) return res.status(404).json({ error: 'We could not find that conversation.' });
+
+  const customer = await customerFor({ clientId: target.clientId, channel: target.channel, chatId: target.chatId });
+  const clientId = customer.client_id ?? target.clientId ?? null;
+  if (!clientId) {
+    return res.status(409).json({
+      error: 'There is no customer record for this chat yet, so the bot cannot be told to stand back. One appears as soon as they write.',
+    });
+  }
+
+  const on = body.on === true || body.on === 'true';
+  const saved = await setBotHold(clientId, { on, by: who.name });
+  if (!saved.ok) {
+    if (saved.unsupported) {
+      return res.status(503).json({ error: 'Taking a chat over needs a database change that has not been applied yet.' });
+    }
+    return res.status(500).json({ error: 'That did not save. Try again.' });
+  }
+
+  if (saved.changed) {
+    await audit({
+      actor_type: 'operator', actor_id: who.name,
+      action: on ? 'chat_taken_over' : 'chat_handed_back',
+      entity_type: 'chat', entity_id: `${target.channel}:${target.chatId}`,
+      metadata: { client_id: String(clientId) },
+    });
+  }
+  return res.status(200).json({
+    ok: true,
+    changed: saved.changed,
+    bot_hold: on ? { at: saved.at, by: who.name } : null,
+  });
 }
 
 /** POST { action: 'send_reopen_template', channel, chat_id | booking_ref | ticket_ref, action_key } */
@@ -754,6 +804,10 @@ export async function chatsView(req, res) {
       phone,
       language: ['en', 'ar'].includes(cl?.language) ? cl.language : null,
       opted_out: Boolean(cl?.opted_out_at),
+      // A chat somebody has taken off the bot is marked in the list as well as
+      // in the chat: a promise that a person is answering it is one somebody
+      // has to be able to see without opening every conversation.
+      bot_hold: Boolean(cl?.bot_hold_at),
       last: c.last ? {
         body: body.length > 160 ? `${body.slice(0, 160)}…` : body,
         direction: c.last.direction, author: c.last.author, staff_name: c.last.staff_name ?? null,

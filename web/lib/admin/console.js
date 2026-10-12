@@ -64,7 +64,7 @@ import {
   bookingCase, requestCase, mrnCase, documentUrl, documentView, previewView, editDetails, markReadValues, loadBooking, bookingEntities,
 } from './desk-case.js';
 import {
-  chatsView, chatView, sendMessage, sendReopenTemplate, retryMessage, retryOutbox, dismissProblem,
+  chatsView, chatView, sendMessage, sendReopenTemplate, setChatHold, retryMessage, retryOutbox, dismissProblem,
   sendToCustomer, savedReplies,
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
@@ -222,6 +222,9 @@ const NEEDS = {
   request_info: 'client', verify_document: 'documents', reject_document: 'documents', mark_document_read_values: 'documents',
   internal_note: 'notes',
   message_client: 'chat', send_message: 'chat', send_reopen_template: 'chat', request_reply: 'chat',
+  // Taking a chat off the bot is the same trust as writing to the customer:
+  // whoever may answer them may decide the bot should not.
+  bot_hold: 'chat',
   chat_upload: 'chat', send_files: 'chat',
   retry_message: 'problems', retry_outbox: 'problems', dismiss_problem: 'problems',
   create_booking: 'booking', confirm: 'booking', reject: 'booking', cancel: 'booking', edit_details: 'booking',
@@ -276,6 +279,7 @@ async function act(req, res) {
     case 'message_client':
     case 'send_message': return sendMessage(req, res, who);
     case 'send_reopen_template': return sendReopenTemplate(req, res, who);
+    case 'bot_hold': return setChatHold(req, res, who);
     case 'chat_upload': return chatUpload(req, res, who);
     case 'send_files': return sendFiles(req, res, who);
     case 'retry_message': return retryMessage(req, res, who);

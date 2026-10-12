@@ -48,14 +48,26 @@ const ALBUM_MS = 2 * 60_000;
 /** The one thing a closed WhatsApp window allows: the approved template that asks them to reply. */
 export const TEMPLATE_WORDS = 'Send the reply-request template';
 
+/** The tick that takes a chat off the bot, worded the same everywhere it is named. */
+export const TAKEOVER_WORDS = 'I’ll answer this chat';
+
 /**
  * Where the customer is with the bot, said under the newest message - not
- * only in a tooltip - and what a person most often gets wrong about it: the
- * bot is not paused by a reply from the desk (there is no pausing it).
+ * only in a tooltip - and what a person most often gets wrong about it:
+ * replying here does not stop the bot. Ticking the box in the header does,
+ * and when it is ticked this says so instead, with who has the chat - so a
+ * second colleague does not spend a minute wondering whether it has broken.
  * @returns {{state: string, note: string}|null}
  */
 export function botStateLine(customer) {
   const words = customer?.bot_state_words;
+  const hold = customer?.bot_hold;
+  if (hold) {
+    return {
+      state: 'The bot is not answering this chat',
+      note: `${hold.by ? `${hold.by} has it` : 'Somebody has it'}. Untick “${TAKEOVER_WORDS}” to let the bot back in.`,
+    };
+  }
   if (!words) return null;
   return { state: `With the bot: ${words}`, note: 'The bot keeps answering; replying here does not pause it.' };
 }
@@ -289,8 +301,55 @@ export function mountConversation(container, {
       h('div', { class: 'convo-end' },
         c.opted_out_at ? badge('Wrote STOP', 'red', { small: true }) : null,
         c.is_blocked ? badge('Blocked', 'red', { icon: 'lock', small: true }) : null,
+        takeover(c),
         windowChip(),
         headExtra ? h('span', { class: 'convo-extra' }, headExtra(data)) : null));
+  }
+
+  /**
+   * The tick that takes the conversation off the bot.
+   *
+   * Operations answering a customer while the bot answers them differently is
+   * the worst thing this system can do to somebody, and until now the only
+   * defence was to be quick. Ticked, the bot says nothing in this chat - not
+   * an answer, not a menu, not "I could not read that file" - until it is
+   * unticked. Everything else goes on as before: the message arrives, files
+   * are still read and filed, the desk still sees all of it.
+   *
+   * It says who has the chat when somebody does, because the second person to
+   * open it needs to know that before they type.
+   */
+  function takeover(c) {
+    if (!session.can('chat')) return c.bot_hold ? badge('Bot off', 'amber', { small: true }) : null;
+    const on = Boolean(c.bot_hold);
+    const box = h('input', { type: 'checkbox', class: 'takeover-box', checked: on ? 'checked' : null });
+    const label = h('label', {
+      class: `takeover${on ? ' is-on' : ''}`,
+      title: on
+        ? `The bot is not answering this chat${c.bot_hold.by ? ` — ${c.bot_hold.by} has it` : ''}. Untick to let it back in.`
+        : 'The bot stops answering this customer until you untick it. Their messages and files still arrive here.',
+    }, box, h('span', {}, on && c.bot_hold.by ? `Bot off · ${c.bot_hold.by}` : TAKEOVER_WORDS));
+
+    box.addEventListener('change', async () => {
+      const wanted = box.checked;
+      box.disabled = true;
+      try {
+        await post({ action: 'bot_hold', ...target, on: wanted });
+        // The header is drawn from `data`; the answer is authoritative, but a
+        // reload is what puts the state line under the transcript right too.
+        if (data?.customer) data.customer.bot_hold = wanted ? { at: new Date().toISOString(), by: session.name } : null;
+        headDrawn = null;
+        drawHead();
+        drawTranscript();
+        toast(wanted ? 'You have this chat. The bot will not answer it.' : 'The bot is answering this chat again.', 'ok');
+      } catch (err) {
+        box.checked = !wanted;
+        toastError(err);
+      } finally {
+        box.disabled = false;
+      }
+    });
+    return label;
   }
 
   /**

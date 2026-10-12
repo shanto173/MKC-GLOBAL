@@ -109,6 +109,9 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
           : h('span', { class: 'chat-last', dir: 'auto' }, c.last ? c.last.body : 'No messages logged yet'),
         c.failed ? badge(`${c.failed} failed`, 'red', { small: true }) : null,
         c.opted_out ? badge('STOP', 'red', { small: true, icon: 'lock' }) : null,
+        // Somebody has taken this one off the bot, so somebody has to answer
+        // it. Visible from the list, not only from inside the conversation.
+        c.bot_hold ? badge('Bot off', 'amber', { small: true }) : null,
         c.unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'sr-only' }, 'New message')) : null)));
   }
 

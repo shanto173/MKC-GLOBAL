@@ -40,6 +40,7 @@ import {
   withTurn, withLanguage, currentLanguage, normaliseLanguage, detectLanguage, languageFromChoice, looksFrancoArabic,
 } from '../lang.js';
 import { logEvent } from '../audit.js';
+import { botHold } from '../clients.js';
 import { waitingOn, recordAnswer, FOLLOW_UP_MINUTES } from '../answers.js';
 
 const say = (text, inline = null) => ({ text, ...(inline ? { inline } : {}) });
@@ -78,10 +79,35 @@ export async function runFlow(input, ctx, { awaitSave = true } = {}) {
     return { handled: false, messages: [], state: S.MAIN_MENU, degraded: true, saved: Promise.resolve() };
   }
 
-  // The session and the client's language are read side by side: one wait on
-  // every message, not two.
-  const [{ session, error }, stored] = await Promise.all([loadSession(ctx), turnLanguage(ctx)]);
+  // The session, the client's language and whether a person has taken this
+  // conversation over are read side by side: one wait on every message, not
+  // three.
+  //
+  // The transports read the client row for every message anyway (the blocked
+  // check), so they pass the hold in and this costs nothing there - `null` is
+  // "asked, not held". Only a caller that does not know (undefined) pays for
+  // the lookup, and it is skipped altogether for a chat with no customer
+  // record, which cannot be held by anybody.
+  const [{ session, error }, stored, held] = await Promise.all([
+    loadSession(ctx),
+    turnLanguage(ctx),
+    ctx.botHold !== undefined ? ctx.botHold : botHold(ctx.clientId).catch(() => null),
+  ]);
   const language = stored ?? normaliseLanguage(ctx.language);
+
+  // Operations has this chat. The message is already logged, the files it
+  // brought are already stored and the desk already knows it arrived - all of
+  // that happens in the transport, before this. What stops is the answering:
+  // nothing is said, and the booking does not move a step on a message a
+  // colleague is in the middle of handling.
+  //
+  // `handled: true` with nothing to say is what keeps the assistant quiet too
+  // - an unhandled turn is the signal for it to answer the question itself
+  // (api/whatsapp.js, deliver).
+  if (held) {
+    logEvent('flow_held', { chat_id: String(ctx.chatId), state: session.current_state, by: held.by ?? null });
+    return { handled: true, messages: [], state: session.current_state, language, held, saved: Promise.resolve() };
+  }
 
   // Everything said this turn is said in that language, and worded for that
   // channel - including what the handlers say from deep inside.

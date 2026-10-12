@@ -157,6 +157,52 @@ export async function setOptOut(clientId, optedOut) {
 }
 
 /**
+ * Whether Operations has this conversation, and the bot is to stay out of it.
+ *
+ * Asked on every single message, so it is one lookup by primary key and it
+ * never throws: a database that cannot answer, or a column the migration has
+ * not added yet, means the bot answers as it always did. Silence is the one
+ * failure a customer cannot tell from being ignored, so it is never the
+ * accident - it only ever happens because somebody asked for it.
+ */
+export async function botHold(clientId) {
+  if (!clientId) return null;
+  const { data, error } = await db().from('clients')
+    .select('bot_hold_at, bot_hold_by').eq('id', clientId).maybeSingle();
+  if (error || !data?.bot_hold_at) {
+    if (error && !isSchemaMissing(error)) console.error('bot hold read failed:', error.message);
+    return null;
+  }
+  return { at: data.bot_hold_at, by: data.bot_hold_by ?? null };
+}
+
+/**
+ * Operations taking a conversation over, or handing it back.
+ *
+ * `by` is the person, kept for the chat header: "Held by Sara since 14:20" is
+ * what stops a second colleague wondering whether the bot has broken.
+ */
+export async function setBotHold(clientId, { on, by = null }) {
+  if (!clientId) return { ok: false, error: 'There is no customer record for this chat yet.' };
+  const { data: current, error: readErr } = await db().from('clients')
+    .select('bot_hold_at').eq('id', clientId).maybeSingle();
+  if (readErr) return { ok: false, unsupported: isSchemaMissing(readErr), error: readErr.message };
+
+  const held = Boolean(current?.bot_hold_at);
+  if (held === Boolean(on)) return { ok: true, changed: false, at: current?.bot_hold_at ?? null };
+
+  const at = on ? new Date().toISOString() : null;
+  const { error } = await db().from('clients')
+    .update({ bot_hold_at: at, bot_hold_by: on ? by : null, updated_at: new Date().toISOString() })
+    .eq('id', clientId);
+  if (error) {
+    console.error('bot hold update failed:', error.message);
+    return { ok: false, unsupported: isSchemaMissing(error), error: error.message };
+  }
+  return { ok: true, changed: true, at };
+}
+
+/**
  * A number or an email the client gave us, kept on their record.
  *
  * The booking holds the contact for THAT booking; this is the person. It is

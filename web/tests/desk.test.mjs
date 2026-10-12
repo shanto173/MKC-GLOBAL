@@ -550,6 +550,49 @@ test('a customer who wrote STOP, or is blocked: the preview says nothing will be
 });
 
 // ---------------------------------------------------------------------------
+// Taking a chat off the bot
+// ---------------------------------------------------------------------------
+
+test('Operations takes a chat over, the bot is told to stay out, and it is handed back', async () => {
+  const held = await post({ action: 'bot_hold', channel: 'whatsapp', chat_id: WA, on: true });
+  assert.equal(held.status, 200);
+  assert.equal(held.body.changed, true);
+  assert.equal(held.body.bot_hold.by, 'Sara');
+
+  const client = rows('clients').find((c) => c.id === 2);
+  assert.ok(client.bot_hold_at, 'the customer record is what the bot reads on every message');
+  assert.equal(client.bot_hold_by, 'Sara');
+
+  // The chat says so, and so does the list - nobody has to open a conversation
+  // to find out that a person promised to answer it.
+  const chat = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  assert.equal(chat.body.customer.bot_hold.by, 'Sara');
+  const list = await get({ view: 'chats' });
+  assert.equal(list.body.chats.find((c) => c.chat_id === WA).bot_hold, true);
+
+  // Ticking it twice is not a second takeover.
+  const again = await post({ action: 'bot_hold', channel: 'whatsapp', chat_id: WA, on: true });
+  assert.equal(again.body.changed, false);
+
+  const back = await post({ action: 'bot_hold', channel: 'whatsapp', chat_id: WA, on: false });
+  assert.equal(back.status, 200);
+  assert.equal(back.body.bot_hold, null);
+  assert.equal(rows('clients').find((c) => c.id === 2).bot_hold_at, null);
+
+  const trail = rows('audit_logs').filter((a) => ['chat_taken_over', 'chat_handed_back'].includes(a.action));
+  assert.deepEqual(trail.map((a) => a.action), ['chat_taken_over', 'chat_handed_back'], 'both halves are on the record');
+  assert.equal(trail[0].actor_id, 'Sara');
+  assert.equal(trail[0].entity_id, `whatsapp:${WA}`);
+});
+
+test('only somebody who may write to a customer may take the bot off them', async () => {
+  rows('ops_users').push({ id: 9, name: 'Viewer', role: 'viewer', active: true });
+  const r = await post({ action: 'bot_hold', channel: 'whatsapp', chat_id: WA, on: true }, 'Viewer');
+  assert.equal(r.status, 403);
+  assert.ok(!rows('clients').find((c) => c.id === 2).bot_hold_at, 'nothing changed');
+});
+
+// ---------------------------------------------------------------------------
 // Talking to the customer
 // ---------------------------------------------------------------------------
 

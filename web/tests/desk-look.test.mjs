@@ -177,6 +177,30 @@ test('where the customer is with the bot is said in the conversation - and that 
   });
 });
 
+test('and when a colleague has taken the chat over, it says that instead - with who has it', () => {
+  const held = convo.botStateLine({
+    bot_state_words: 'Booking — giving the chassis number',
+    bot_hold: { at: '2026-10-12T14:20:00Z', by: 'Sara' },
+  });
+  assert.equal(held.state, 'The bot is not answering this chat');
+  assert.match(held.note, /^Sara has it\./, 'the second person to open it needs to know before they type');
+  assert.match(held.note, new RegExp(convo.TAKEOVER_WORDS), 'and how to let the bot back in');
+  // Held, with nothing known about where they were: still said.
+  assert.equal(convo.botStateLine({ bot_hold: { at: '2026-10-12T14:20:00Z', by: null } }).state,
+    'The bot is not answering this chat');
+});
+
+test('the tick that takes a chat off the bot is in the chat header, and what it does is said in the tooltip', () => {
+  const chat = src('conversation.js');
+  assert.match(chat, /takeover\(c\)/, 'drawn in the header beside the window chip');
+  assert.match(chat, /action: 'bot_hold'/, 'and it is a server decision, not a browser one');
+  assert.match(chat, /The bot stops answering this customer until you untick it/,
+    'said in plain words before it is ticked, not only after');
+  // Somebody who may not write to a customer may not take the bot off them -
+  // they see the state, without a tick they cannot use.
+  assert.match(chat, /session\.can\('chat'\)[\s\S]{0,120}badge\('Bot off'/);
+});
+
 test('every inbox row says who owns it, even work nobody is assigned', () => {
   const { ownerNote } = inbox;
   assert.equal(ownerNote({ kind: 'problem' }), 'Anyone on the team');

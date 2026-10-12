@@ -188,6 +188,16 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
       return answer(res, { ok: true, blocked: true });
     }
 
+    // Operations has taken this conversation over: the bot says nothing at
+    // all, here or in the flow (lib/flow/machine.js, runFlow). The message is
+    // logged and its files are still read and filed - everything but the
+    // answering, which is a colleague's now.
+    //
+    // Put on ctx because the client row is already in hand here: the flow
+    // would otherwise read it again on every single message.
+    ctx.botHold = client?.bot_hold_at ? { at: client.bot_hold_at, by: client.bot_hold_by ?? null } : null;
+    const held = Boolean(ctx.botHold);
+
     const input = await readInput(update, ctx);
 
     // /reset is a transport concern - it wipes the transcript and the visible
@@ -213,7 +223,7 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
       if (input.file) {
         defer(logged.then(() => keepTelegramMedia(message, ctx, { f: { file_id: input.file.fileId, file_size: input.file.size }, mime: input.file.mimeType, name: input.file.fileName })));
       }
-      await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
+      if (!held) await sendToChat(target, { text: input.text, inline: kb.homeOnly() });
       await finishUpdate(update.update_id, 'processed');
       return answer(res, { ok: true });
     }
@@ -223,7 +233,7 @@ async function turn(res, { update, callbackQuery, message, from, chatId, correla
     // customer waited for an answer that was never coming. The desk has the
     // file itself (above).
     if (input.kind === 'unsupported') {
-      await sendToChat(target, { text: unsupportedWords(), inline: kb.mainMenu() });
+      if (!held) await sendToChat(target, { text: unsupportedWords(), inline: kb.mainMenu() });
       await finishUpdate(update.update_id, 'processed');
       return answer(res, { ok: true, unsupported: true });
     }

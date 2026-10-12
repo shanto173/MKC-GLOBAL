@@ -948,6 +948,15 @@ textarea.input { resize: vertical; min-height: 72px; line-height: var(--lh-body)
 .convo-phone svg { flex: none; }
 .convo-profile { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .convo-end { display: flex; align-items: center; gap: var(--sp-2); flex: none; margin-left: auto; }
+
+/* Taking a chat off the bot. Quiet until it is on, then amber and plainly
+   readable from across the room - a chat the bot has been told to stay out of
+   is a promise that somebody is answering it. */
+.takeover { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink-3); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; user-select: none; }
+.takeover:hover { border-color: var(--ink-4); color: var(--ink-2); }
+.takeover input { margin: 0; accent-color: var(--amber-solid); cursor: pointer; }
+.takeover.is-on { background: var(--amber-bg); border-color: var(--amber-line); color: var(--amber-text); font-weight: 600; }
+@media (max-width: 640px) { .takeover span { display: none; } .takeover { padding: 3px 6px; } }
 .window-chip {
   display: inline-flex; align-items: center; gap: 5px; flex: none; height: 24px; padding: 0 var(--sp-2);
   border: 1px solid; border-radius: var(--r-full); font-size: var(--text-xs); font-weight: var(--w-semibold); white-space: nowrap; cursor: default;

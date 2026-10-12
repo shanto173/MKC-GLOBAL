@@ -672,6 +672,10 @@ function customerFrom({ client, session, clientId, channel, chatId, name, contac
     language_words: language ? LANGUAGE_WORDS[language] : 'Not chosen yet',
     opted_out_at: client?.opted_out_at ?? null,
     is_blocked: Boolean(client?.is_blocked),
+    // Operations has this conversation and the bot is staying out of it. Null
+    // on a database that has not run the migration yet, which reads as "the
+    // bot answers" - what it did before the column existed.
+    bot_hold: client?.bot_hold_at ? { at: client.bot_hold_at, by: client.bot_hold_by ?? null } : null,
     last_client_message_at: session?.last_client_message_at ?? null,
     bot_state: session?.current_state ?? null,
     bot_state_words: botStateWords(session?.current_state),
