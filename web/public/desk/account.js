@@ -30,7 +30,6 @@ export function passwordDialog({ name = session.name, mine = !name || name === s
     subtitle: mine
       ? 'You will use it the next time you sign in. Anywhere else you are signed in will ask again.'
       : `Read it out to ${name} - the desk never shows it again. Anywhere they are signed in will ask again.`,
-    size: 'sm',
     body: h('div', { class: 'stack' },
       h('div', { class: 'field' }, h('label', { class: 'label', for: 'pw-1' }, 'New password'), one,
         h('p', { class: 'field-hint' }, `At least ${MIN_PASSWORD} characters. Not the shared desk secret.`)),
