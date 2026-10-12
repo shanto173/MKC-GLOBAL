@@ -27,6 +27,7 @@ import { openViewer } from './viewer.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
 import { infoDot } from './glossary.js';
+import { deleteDialog } from './delete.js';
 
 const TURN_TONE = { ops: 'blue', client: 'amber', none: 'green' };
 const TURN_WORDS = { ops: 'Our turn', client: 'Customer’s turn', none: 'Nothing to do' };
@@ -564,6 +565,12 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
   function run(spec) {
     switch (spec.action) {
       case 'open_document': return spec.document_id ? openDoc(spec.document_id) : null;
+      // Deleting the record this page is about: afterwards there is no page
+      // to come back to, so it goes to the inbox.
+      case 'delete_record': return deleteDialog({
+        kind: spec.delete_kind, reference: spec.delete_reference, name: spec.delete_reference,
+        onDone: () => { location.hash = '#/inbox'; },
+      });
       case 'request_info': return askDialog(spec.prefill ?? '');
       case 'confirm': return confirmDialog(spec.warning);
       case 'reject': return rejectDialog();

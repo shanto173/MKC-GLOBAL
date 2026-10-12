@@ -32,7 +32,7 @@ export const PERMISSIONS = {
   read_only:      new Set(['read']),
   ops_agent:      new Set(['read', 'assign_self', 'status', 'documents', 'client', 'chat', 'notes', 'booking', 'mrn', 'problems']),
   ops_supervisor: new Set(['read', 'assign_self', 'assign_others', 'status', 'documents', 'client', 'chat', 'notes', 'booking', 'mrn', 'problems', 'priority', 'override']),
-  admin:          new Set(['read', 'assign_self', 'assign_others', 'status', 'documents', 'client', 'chat', 'notes', 'booking', 'mrn', 'problems', 'priority', 'override', 'settings', 'users']),
+  admin:          new Set(['read', 'assign_self', 'assign_others', 'status', 'documents', 'client', 'chat', 'notes', 'booking', 'mrn', 'problems', 'priority', 'override', 'settings', 'users', 'delete']),
 };
 
 export const ROLE_WORDS = {
@@ -51,7 +51,7 @@ export const ROLE_CAN = {
   read_only: 'Can open every screen, conversation and document. Cannot change anything or write to customers.',
   ops_agent: 'Assigns work to themselves, replies to customers, verifies documents, records booking and MRN steps, writes internal notes, and retries or dismisses issues.',
   ops_supervisor: 'Everything an agent can do, and also gives work to someone else and changes priority.',
-  admin: 'Everything a supervisor can do, and also changes these settings and the team.',
+  admin: 'Everything a supervisor can do, and also changes these settings and the team, and deletes records — which can be taken back for 30 days.',
 };
 
 /**
@@ -66,6 +66,7 @@ export function deniedReason(permission, role) {
     override: 'Only a supervisor can do this.',
     settings: 'Only an administrator can change settings.',
     users: 'Only an administrator can manage the team.',
+    delete: 'Only an administrator can delete records.',
   }[permission] ?? 'Your role cannot do this.';
 }
 

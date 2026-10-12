@@ -300,6 +300,13 @@ export function bookingNextStep(who, state, docsOut) {
     secondary.push(button(who, 'priority', 'Change priority', { perm: 'priority', more: true }));
     secondary.push(button(who, 'assign', 'Give to someone else', { perm: 'assign_others', more: true }));
   }
+  // Offered whatever the state: a confirmed booking is exactly the sort of
+  // record somebody is asked to erase, and a closed one is the easiest to
+  // delete by mistake - so it is behind the overflow menu and a typed
+  // reference, not behind a status check.
+  secondary.push(button(who, 'delete_record', 'Delete this booking', {
+    perm: 'delete', kind: 'danger', more: true, delete_kind: 'booking', delete_reference: booking.booking_ref,
+  }));
 
   const confirmed = booking.status === 'confirmed';
   return {
@@ -515,6 +522,9 @@ export async function requestCase(req, res, who) {
     }));
     if (t.assigned_to) secondary.push(button(who, 'request_assign', 'Give to someone else', { perm: 'assign_others', more: true }));
   }
+  secondary.push(button(who, 'delete_record', 'Delete this request', {
+    perm: 'delete', kind: 'danger', more: true, delete_kind: 'request', delete_reference: t.ticket_ref,
+  }));
 
   const [auditQ, bookingsQ, notes] = await Promise.all([
     db().from('audit_logs').select('*').eq('entity_id', ref).order('created_at', { ascending: false }).limit(40),
@@ -585,6 +595,9 @@ export async function mrnCase(req, res, who) {
     if (m.status === 'submitted') secondary.push(button(who, 'mrn_review', 'Start working on it', { perm: 'mrn' }));
     secondary.push(button(who, 'mrn_reject', 'Reject the application', { perm: 'mrn', kind: 'danger', more: true }));
   }
+  secondary.push(button(who, 'delete_record', 'Delete this application', {
+    perm: 'delete', kind: 'danger', more: true, delete_kind: 'mrn', delete_reference: ref,
+  }));
 
   const [{ data: auditRows }, notes] = await Promise.all([
     db().from('audit_logs').select('*')

@@ -29,6 +29,7 @@ import { RHYTHM } from './live.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
 import { openViewer } from './viewer.js';
+import { deleteDialog, canDelete } from './delete.js';
 
 export function renderChats({ route, main, refreshCounts = () => {}, signal = null, subscribe = null }) {
   const [channel, chatId] = route.parts;
@@ -141,12 +142,29 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
           h('div', { class: 'menu-list chip-menu', role: 'menu' }, chips())),
       ];
     };
+
+    /**
+     * "Delete this customer", for an administrator: the one button that takes
+     * a person's whole history off the desk - their messages, their files,
+     * their bookings. It needs the client id, which a chat has only once the
+     * customer is a row in clients.
+     */
+    const eraseCustomer = (d) => {
+      if (!canDelete() || !d.customer?.client_id) return [];
+      const b = h('button', { class: 'icon-btn convo-delete', type: 'button', 'aria-label': `Delete ${d.customer.name} and everything about them`, title: 'Delete this customer' },
+        icon('trash', { size: 15 }));
+      b.addEventListener('click', () => deleteDialog({
+        kind: 'customer', reference: String(d.customer.client_id), name: d.customer.name,
+        onDone: () => { location.hash = '#/chats'; loadList({ quiet: true }); },
+      }));
+      return [b];
+    };
     convo = mountConversation(convoEl, {
       channel, chatId, target: { channel, chat_id: chatId }, draftKey: `chat:${channel}:${chatId}`,
       backHref: '#/chats',
       // The conversation reloads itself after a send; the list's last line follows at once.
       onSent: () => loadList({ quiet: true }),
-      headExtra: links,
+      headExtra: (d) => [...links(d), ...eraseCustomer(d)],
       // A file sent from here can also be filed on one of their live bookings.
       fileOn: (d) => (d.bookings ?? []).filter((b) => !['cancelled', 'rejected', 'expired'].includes(b.status))
         .map((b) => ({ booking_ref: b.booking_ref, label: `${b.booking_ref} · ${b.status_words}` })),

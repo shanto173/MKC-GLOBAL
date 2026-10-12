@@ -12,6 +12,7 @@ import {
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
+import { deleteDialog, canDelete } from './delete.js';
 
 const FILTERS = [['active', 'On the way'], ['delivered', 'Delivered'], ['all', 'All']];
 const DAY = 86400_000;
@@ -225,11 +226,24 @@ function renderShipment({ main, signal = null }, id) {
       h('header', { class: 'shipment-head' },
         h('a', { class: 'back', href: '#/shipments' }, icon('back', { size: 16 }), 'Shipments'),
         h('div', { class: 'case-title-row' }, h('h1', { class: 'case-ref' }, s.shipment_id), badge(s.status, s.tone),
-          eta?.late ? badge(`Late ${eta.late} d`, 'red') : null),
+          eta?.late ? badge(`Late ${eta.late} d`, 'red') : null,
+          // An administrator's only way to remove a shipment: at the end of
+          // the title row, quiet, and behind a typed reference.
+          canDelete() ? deleteButton(s) : null),
         h('p', { class: 'case-facts' }, facts.flatMap((f, i) => (i ? [h('span', { class: 'dot', 'aria-hidden': 'true' }, '·'), f] : [f])))),
       h('div', { class: 'case-grid case-grid-even' },
         h('div', { class: 'case-main' }, form(s)),
         h('div', { class: 'case-main' }, events())));
+  }
+
+  function deleteButton(s) {
+    const b = h('button', { class: 'btn btn-ghost btn-sm case-delete', type: 'button', title: 'Delete this shipment' },
+      icon('trash', { size: 14 }), h('span', {}, 'Delete'));
+    b.addEventListener('click', () => deleteDialog({
+      kind: 'shipment', reference: s.shipment_id, name: s.shipment_id,
+      onDone: () => { location.hash = '#/shipments'; },
+    }));
+    return b;
   }
 
   function form(s) {

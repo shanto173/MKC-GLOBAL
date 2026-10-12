@@ -103,3 +103,51 @@ as them — typing their name is not.
 The `operator` field still decides identity for requests authorised by the raw
 `ADMIN_SECRET`, because that is how the scripts and the older admin endpoints
 work, and whoever holds that secret can act as anybody in any case.
+
+---
+
+## Deleting records
+
+An administrator can delete a booking, a customer request, an MRN application,
+a shipment, a whole customer, or a team member's sign-in. Nobody else can — not
+a supervisor, not an agent — and the server checks the role on every one of
+these, not just the screen.
+
+| Where | What it deletes |
+|---|---|
+| Case page → ⋯ → Delete this booking / request / application | That record and its own rows: its documents, internal notes, tasks and queued messages. Not the shipment it became, and not the customer. |
+| Shipment page → Delete | The shipment and its milestone updates. Not the booking it came from. |
+| Chat header → bin icon | **The customer and everything about them**: every message, every file, their bookings, requests, MRN applications and shipments. |
+| Settings → Team → bin icon | That person's sign-in. Nothing they did: "confirmed by Sara" stays. |
+
+### The dialog
+
+Before anything goes, the desk asks the server what *would* go and reads it
+back — "3 documents, 41 messages and 1 shipment" — then makes the administrator
+type the reference (`MKY-BKG-2`, or the customer's name) before Delete turns on.
+The typed text is checked again on the server. A red button gets pressed on the
+wrong row eventually; typing a reference does not happen by accident.
+
+### Thirty days
+
+A deletion removes the rows for real, so the record is off every screen, count
+and search the moment it goes — there is no "and not deleted" filter anywhere to
+forget. The rows themselves are kept whole in `deleted_records`, and
+**Settings → Recently deleted** puts any of them back, under the same ids, so
+everything that pointed at them still does.
+
+After 30 days the copy and the files are destroyed. The purge runs after any
+deletion and from `/api/cron/outbox` (which can be called by hand or on a
+schedule), at most once an hour per server.
+
+Until then the files are still in the private `booking-docs` bucket: that is
+what makes an undo possible, and it is the honest meaning of "recoverable for
+30 days". Anyone who needs a deletion to be immediate and final should delete
+and then call `/api/cron/outbox` once the 30 days are up — or ask for the
+retention to be shortened in `KEEP_DAYS`.
+
+### What a deletion never touches
+
+The audit trail. Every deletion writes `record_deleted` to it with who, what,
+and how many rows went; every restore writes `record_restored`. A tool that
+quietly erased the record of its own use would be the wrong tool.

@@ -232,10 +232,13 @@ test('after saving a shipment update the desk says whether the customer was noti
 // nothing typed is lost by walking away
 // ---------------------------------------------------------------------------
 
-test('Settings has the five groups the brief names, and each says who last changed it', async () => {
+test('Settings has the groups the brief names, and each says who last changed it', async () => {
   const s = await import('../public/desk/settings.js');
+  // The brief's five, the glossary, and what an administrator deleted - which
+  // is on this page because putting something back is an administrator's job.
   assert.deepEqual(s.SECTIONS.map(([, label]) => label),
-    ['Team and access', 'Office hours and contact numbers', 'Required documents', 'WhatsApp messaging', 'Saved replies', 'Glossary']);
+    ['Team and access', 'Office hours and contact numbers', 'Required documents', 'WhatsApp messaging', 'Saved replies',
+      'Recently deleted', 'Glossary']);
   const changed = { a: { by: 'Sara', at: '2026-10-08T10:00:00Z' }, b: { by: 'Omar', at: '2026-10-09T09:00:00Z' }, c: null };
   assert.deepEqual(s.lastChange(changed, ['a', 'b', 'c']), { by: 'Omar', at: '2026-10-09T09:00:00Z' });
   assert.equal(s.lastChange(changed, ['c']), null);

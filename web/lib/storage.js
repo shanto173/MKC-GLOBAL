@@ -119,3 +119,44 @@ export async function downloadDocument(path, { bucket = BUCKET, quiet = false } 
   }
   return Buffer.from(await data.arrayBuffer());
 }
+
+/**
+ * Removes objects from the bucket, for good.
+ *
+ * Only the purge calls this (lib/admin/desk-delete.js): a deletion leaves the
+ * files where they are for thirty days so it can be undone, and this is what
+ * runs when those thirty days are up. Paths are grouped by bucket and sent in
+ * batches, because a customer with a year of paperwork is one call per
+ * hundred files rather than one per file.
+ *
+ * Never throws and never refuses: a file that is already gone is a file that
+ * is gone. The count returned is what the storage API accepted.
+ */
+export async function removeObjects(files, { batch = 100 } = {}) {
+  const byBucket = new Map();
+  for (const f of files ?? []) {
+    const path = typeof f === 'string' ? f : f?.path;
+    if (!path) continue;
+    const bucket = (typeof f === 'string' ? BUCKET : f?.bucket) || BUCKET;
+    if (!byBucket.has(bucket)) byBucket.set(bucket, new Set());
+    byBucket.get(bucket).add(String(path));
+  }
+
+  let removed = 0;
+  const failed = [];
+  for (const [bucket, paths] of byBucket) {
+    const list = [...paths];
+    for (let i = 0; i < list.length; i += batch) {
+      const slice = list.slice(i, i + batch);
+      try {
+        const { error } = await db().storage.from(bucket).remove(slice);
+        if (error) { failed.push(error.message); continue; }
+        removed += slice.length;
+      } catch (err) {
+        failed.push(err?.message ?? 'remove threw');
+      }
+    }
+  }
+  if (failed.length) console.error('file removal failed:', failed.slice(0, 3).join('; '));
+  return { ok: failed.length === 0, removed, failed: failed.length };
+}

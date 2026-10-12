@@ -29,6 +29,7 @@ import mrn from '../../lib/admin/mrn.js';
 import readTest from '../../lib/admin/read-test.js';
 import consoleApi from '../../lib/admin/console.js';
 import { drain } from '../../lib/outbox.js';
+import { purgeDue } from '../../lib/admin/desk-delete.js';
 
 const RESOURCES = { tasks, mrn, 'read-test': readTest, console: consoleApi };
 
@@ -75,5 +76,9 @@ async function outbox(req, res) {
 
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const result = await drain({ limit });
-  return res.status(result.ok ? 200 : 500).json(result);
+  // The same call sweeps up deletions whose thirty days are over: this is the
+  // one route in the project that is meant to be called on a schedule, and the
+  // purge has to happen whether or not anybody opened the desk today.
+  const purged = await purgeDue({ force: true }).catch((err) => ({ ok: false, error: err?.message }));
+  return res.status(result.ok ? 200 : 500).json({ ...result, purged });
 }

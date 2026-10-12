@@ -69,6 +69,7 @@ import {
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
 import { signIn, setPassword, tokenOf, readToken } from './desk-auth.js';
+import { deletePreview, deletedView, deleteRecord, restoreRecord } from './desk-delete.js';
 import { chatFilesView } from './desk-media.js';
 import { chatUpload, sendFiles } from './desk-files.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
@@ -97,6 +98,8 @@ const VIEWS = {
   shipment: shipmentDetail,
   search,
   settings: settingsView,
+  delete_preview: deletePreview,
+  deleted: deletedView,
 };
 
 const badCase = (req, res) => res.status(400).json({ error: 'type must be booking, request or mrn' });
@@ -226,6 +229,7 @@ const NEEDS = {
   request_assign: 'assign_self', request_status: 'status', request_resolve: 'client',
   shipment_update: 'booking',
   settings_write: 'settings', user_save: 'users',
+  delete_record: 'delete', restore_record: 'delete',
   // Anyone may set their own password; setPassword checks for itself before
   // letting somebody set another person's.
   set_password: 'read',
@@ -292,6 +296,8 @@ async function act(req, res) {
     case 'request_reply': return requestReply(req, res, who);
     case 'request_resolve': return requestResolve(req, res, who);
     case 'shipment_update': return shipmentUpdate(req, res, who);
+    case 'delete_record': return deleteRecord(req, res, who);
+    case 'restore_record': return restoreRecord(req, res, who);
     case 'set_password': return setPassword(req, res, who);
     case 'settings_write': return settingsWrite(req, res, who);
     case 'user_save': return userSave(req, res, who);

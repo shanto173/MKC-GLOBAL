@@ -15,10 +15,11 @@
  */
 
 import {
-  h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill, PURPOSE,
+  h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, when, add, fill, PURPOSE,
 } from './ui.js';
 import { infoDot, glossaryList } from './glossary.js';
 import { passwordDialog, MIN_PASSWORD } from './account.js';
+import { deleteDialog } from './delete.js';
 
 /** The groups, in the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 10): id, title, icon. */
 export const SECTIONS = [
@@ -27,6 +28,7 @@ export const SECTIONS = [
   ['docs', 'Required documents', 'file'],
   ['whatsapp', 'WhatsApp messaging', 'whatsapp'],
   ['replies', 'Saved replies', 'reply'],
+  ['deleted', 'Recently deleted', 'trash'],
   ['glossary', 'Glossary', 'note'],
 ];
 /** The settings each group saves, for "last changed by". (The team is people, not settings.) */
@@ -105,7 +107,7 @@ export function renderSettings({ main }) {
       }));
     // A card with unsaved edits stays exactly as it is: saving one card
     // never wipes what somebody is typing in another.
-    const make = { team: teamCard, hours: hoursCard, docs: docsCard, whatsapp: whatsappCard, replies: repliesCard, glossary: glossaryCard };
+    const make = { team: teamCard, hours: hoursCard, docs: docsCard, whatsapp: whatsappCard, replies: repliesCard, deleted: deletedCard, glossary: glossaryCard };
     const drawn = body ? Object.fromEntries([...body.children].map((c) => [c.id.replace(/^set-/, ''), c])) : {};
     body = h('div', { class: 'settings-body' }, SECTIONS.map(([id]) => (dirty.has(id) && drawn[id] ? drawn[id] : make[id]())));
     fill(root, nav, body);
@@ -238,6 +240,18 @@ export function renderSettings({ main }) {
         name: u.name, mine: u.name === session.name, onSaved: () => load(),
       }));
 
+      // Switching somebody off keeps their sign-in and their history; deleting
+      // takes the sign-in away for good. Nobody can delete their own.
+      const binBtn = h('button', {
+        class: 'icon-btn team-delete', type: 'button',
+        'aria-label': `Delete ${u.name}'s sign-in`,
+        title: u.name === session.name ? 'You cannot delete your own sign-in' : `Delete ${u.name}'s sign-in`,
+        disabled: u.name === session.name,
+      }, icon('trash', { size: 15 }));
+      binBtn.addEventListener('click', () => deleteDialog({
+        kind: 'person', reference: u.name, name: u.name, onDone: () => load(),
+      }));
+
       return h('tr', { class: u.active ? '' : 'is-inactive' },
         h('th', { scope: 'row' }, h('span', { class: 'team-name' }, avatar(u.name), h('span', {}, u.name, u.name === session.name ? h('span', { class: 'muted small' }, ' (you)') : null))),
         h('td', { 'data-label': 'Signs in as' }, accounts
@@ -248,7 +262,7 @@ export function renderSettings({ main }) {
         h('td', { 'data-label': 'Role' }, role),
         h('td', { 'data-label': 'Can sign in' }, h('label', { class: 'check' }, active, u.active ? badge('Active', 'green', { small: true }) : badge('Switched off', 'gray', { small: true }))),
         h('td', { class: 'muted small' }, u.last_seen ? `Seen ${ago(u.last_seen)}` : 'Not seen yet'),
-        h('td', { class: 'team-actions' }, accounts ? pwBtn : null, saveBtn));
+        h('td', { class: 'team-actions' }, accounts ? pwBtn : null, saveBtn, binBtn));
     });
 
     const role = h('select', { class: 'input', id: 'new-role' }, data.roles.map((r) => h('option', { value: r.role, selected: r.role === 'ops_agent' }, r.words)));
@@ -447,6 +461,69 @@ export function renderSettings({ main }) {
 
   // -- glossary -------------------------------------------------------------------
   /** The words of the trade, as every info dot on the desk explains them. Edited in public/desk/glossary.js. */
+  // -- recently deleted ---------------------------------------------------------
+  /**
+   * What an administrator deleted, and the one button that undoes it.
+   *
+   * Fetched on its own rather than with the rest of Settings: it is the one
+   * card that is usually empty, and nobody should pay for it on every load of
+   * a page they came to for the opening hours.
+   */
+  function deletedCard() {
+    const list = h('div', {}, skeleton(2));
+    const body = card('deleted', titleOf('deleted'),
+      'Deleted records, kept so a mistake can be undone. After 30 days they are gone for good — files and all.',
+      list);
+
+    (async () => {
+      let out;
+      try {
+        out = await api({ view: 'deleted' });
+      } catch (err) {
+        fill(list, errorState(err, () => { fill(list, skeleton(2)); }));
+        return;
+      }
+      if (out.available === false) {
+        fill(list, h('div', { class: 'banner banner-amber' }, icon('alert', { size: 15 }),
+          h('p', {}, 'Deleting is not switched on in the database yet. Run the deletions migration.')));
+        return;
+      }
+      if (!out.records.length) {
+        fill(list, h('p', { class: 'muted' }, 'Nothing has been deleted.'));
+        return;
+      }
+      fill(list, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain' },
+        h('thead', {}, h('tr', {}, ['What', 'Deleted', 'Goes for good', ''].map((c) => h('th', { scope: 'col' }, c)))),
+        h('tbody', {}, out.records.map((r) => row(r))))));
+
+      function row(r) {
+        const put = h('button', { class: 'btn btn-sm', type: 'button' }, icon('undo', { size: 13 }), h('span', {}, 'Put it back'));
+        put.addEventListener('click', async () => {
+          put.disabled = true;
+          try {
+            await post({ action: 'restore_record', id: r.id });
+            toast(`${r.label ?? r.reference} is back.`);
+            await load();
+          } catch (err) {
+            toastError(err);
+            put.disabled = false;
+          }
+        });
+        return h('tr', { class: r.restored_at ? 'is-inactive' : '' },
+          h('th', { scope: 'row' },
+            h('div', {}, r.label ?? `${r.kind_words} ${r.reference}`),
+            r.words?.length ? h('div', { class: 'muted small' }, r.words.join(', ')) : null),
+          h('td', { class: 'muted small' }, `${r.deleted_by} · ${ago(r.deleted_at)}`),
+          h('td', { class: 'muted small' }, r.restored_at
+            ? badge('Put back', 'green', { small: true })
+            : when(r.purge_after)),
+          h('td', {}, r.can_restore ? put : null));
+      }
+    })();
+
+    return body;
+  }
+
   function glossaryCard() {
     return card('glossary', 'Glossary', 'What the info dots beside VIN, MRN, ACID, EUR.1 and CMR say. Everyone can open this list from their account menu.', glossaryList());
   }

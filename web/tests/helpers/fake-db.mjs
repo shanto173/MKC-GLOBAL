@@ -373,6 +373,33 @@ export function createFakeDb(seed = {}) {
   }
 
   const rpcHandlers = {
+    /**
+     * Mirrors restore_deleted_record: the payload is walked backwards, so the
+     * record itself (kept last) goes back before the rows that point at it,
+     * and a row that is somehow there already is left alone.
+     *
+     * The real one is SQL because of `generated always as identity`, and is
+     * tested against Postgres in tests/deletions-sql.test.mjs. This stands in
+     * for it so the route around it - who may ask, what is audited, what the
+     * desk is told - can be tested without a database.
+     */
+    restore_deleted_record({ record_id }) {
+      const kept = table('deleted_records').find((r) => String(r.id) === String(record_id));
+      if (!kept) throw new Error(`no deleted record ${record_id}`);
+      if (kept.restored_at) throw new Error('already put back');
+      const done = {};
+      for (const part of [...(kept.payload ?? [])].reverse()) {
+        const rows = table(part.table);
+        for (const row of part.rows ?? []) {
+          const same = rows.find((r) => (row.id != null ? String(r.id) === String(row.id) : false));
+          if (!same) rows.push({ ...row });
+        }
+        done[part.table] = (part.rows ?? []).length;
+      }
+      kept.restored_at = new Date().toISOString();
+      return done;
+    },
+
     /** Mirrors claim_telegram_update: the first caller wins, retries do not. */
     claim_telegram_update({ p_update_id, p_chat_id }) {
       const rows = table('processed_updates');
