@@ -14,9 +14,14 @@
  * WhatsApp also has a rule Telegram does not: a business may write freely only
  * within 24 hours of the client's last message (the customer service window).
  * Outside it only a template Meta has approved may be sent, and anything else
- * is refused with error 131047. So a WhatsApp send from the desk or the outbox
- * checks the window first, and outside it either sends the event's template or
- * reports `needs_template` - it never sends free text it knows will bounce.
+ * is refused with error 131047. So an automatic WhatsApp send checks the
+ * window first, and outside it either sends the event's template or reports
+ * `needs_template` - it never queues free text it knows will bounce.
+ *
+ * A person at the desk is not held to our copy of that clock: `ignoreWindow`
+ * attempts the send and lets Meta answer, because last_client_message_at is an
+ * estimate (a message that arrived while a webhook was failing never moved it)
+ * and a refusal from Meta is worth more than a refusal from us.
  *
  * Every send is written to chat_messages (lib/chatlog.js), so the desk shows
  * the conversation the way the client saw it.
@@ -714,6 +719,13 @@ async function sendWhatsApp(target, message, opts) {
       && new Date(window.lastClientMessageAt) >= new Date(opts.closedUnlessClientWroteAfter);
   }
 
+  // A person at the desk pressed Send knowing the window may have closed.
+  // Our clock is an estimate - a client message that arrived while a webhook
+  // was failing never moved it - so the attempt is made and Meta decides. A
+  // 131047 comes back below and is handled exactly as it is when our clock
+  // said open and Meta disagreed.
+  if (opts.ignoreWindow && author === 'staff') open = true;
+
   if (!open) return viaTemplate(target, message, opts, log);
 
   const sent = await sendSteps(target, renderWhatsApp(message, { language: opts.language }), log, opts.logPayload ?? {});
@@ -751,6 +763,9 @@ async function viaTemplate(target, message, opts, log) {
  *              needs_template.
  *   answering  this message answers something the client did (their PDF
  *              after they confirmed): sent even after STOP.
+ *   ignoreWindow  a person at the desk pressed Send: do not refuse on our own
+ *              copy of the 24-hour clock, attempt the send and let Meta be the
+ *              one that says no. Staff messages only.
  * @returns {Promise<{ok: boolean, status: 'sent'|'needs_template'|'opted_out'|'failed',
  *                    providerMessageId?: string|null, error?: string, code?: number|null,
  *                    permanent?: boolean, templateName?: string}>}

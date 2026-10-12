@@ -372,13 +372,27 @@ export const timeEl = (at, text = age(at)) => h('time', { datetime: at, title: w
 // Session and the API
 // ---------------------------------------------------------------------------
 
-/** The same keys the old console used, so nobody is signed out by the change. */
+/**
+ * What is kept between visits.
+ *
+ * TKEY is the signed sign-in token, which is what the desk sends now: it names
+ * the person it was issued to, so the server no longer takes the operator's
+ * name from the browser. It expires, and a password change ends it.
+ *
+ * SKEY held the shared desk secret every person used to type. It is still
+ * read, so that a tab left open from before this change signs in once more
+ * rather than silently failing, and it is cleared the moment a token arrives.
+ */
+export const TKEY = 'mky-ops-token';
 export const SKEY = 'mky-ops-secret';
 export const NKEY = 'mky-ops-name';
+export const UKEY = 'mky-ops-username';
 
 export const session = {
+  token: safeGet(TKEY) ?? '',
   secret: safeGet(SKEY) ?? '',
   name: safeGet(NKEY) ?? '',
+  username: safeGet(UKEY) ?? '',
   role: null,
   permissions: [],
   features: {},
@@ -449,7 +463,9 @@ export async function api(params, { method = 'GET', body = null, signal = null }
     res = await fetch(url, {
       method,
       headers: {
-        'x-admin-secret': session.secret,
+        // The token when there is one; the old shared secret only while a
+        // sign-in is still being exchanged for one.
+        ...(session.token ? { 'x-desk-token': session.token } : { 'x-admin-secret': session.secret }),
         ...(body ? { 'content-type': 'application/json' } : {}),
         ...(kept ? { 'if-none-match': kept.etag } : {}),
       },
@@ -482,7 +498,9 @@ export async function api(params, { method = 'GET', body = null, signal = null }
     data = { error: 'The server sent something we could not read.' };
   }
   if (res.status === 401) {
-    for (const fn of listeners.unauthorised) fn('That desk password was not accepted. Sign in again.');
+    // The server's own sentence when it has one: a sign-in that expired and a
+    // password that was changed are different things to be told.
+    for (const fn of listeners.unauthorised) fn(data?.error || 'Your sign-in was not accepted. Sign in again.');
   }
   if (!res.ok) {
     if (method === 'GET' && res.status >= 500) readFailures += 1;

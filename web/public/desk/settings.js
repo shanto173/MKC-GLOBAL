@@ -18,6 +18,7 @@ import {
   h, icon, api, post, toast, toastError, badge, avatar, emptyState, errorState, skeleton, session, ago, add, fill, PURPOSE,
 } from './ui.js';
 import { infoDot, glossaryList } from './glossary.js';
+import { passwordDialog, MIN_PASSWORD } from './account.js';
 
 /** The groups, in the owner's words (docs/DESK-REDESIGN-PROMPT.md, section 10): id, title, icon. */
 export const SECTIONS = [
@@ -176,15 +177,33 @@ export function renderSettings({ main }) {
     ...children);
 
   // -- team -------------------------------------------------------------------
+  /** "Ariful Islam" -> "ariful.islam", the same rule the server applies. */
+  const asUsername = (v) => String(v ?? '').trim().toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '.').replace(/\.{2,}/g, '.').replace(/^[.\-_]+|[.\-_]+$/g, '')
+    .slice(0, 40);
+
   function teamCard() {
-    // Unsaved here: a row whose role or sign-in was changed, or a name typed to add.
+    // Unsaved here: a row whose role or sign-in was changed, or a person being typed in.
     const rowsChanged = new Set();
-    const name = h('input', { class: 'input', id: 'new-name', placeholder: 'Name as they will type it', autocomplete: 'off' });
+    // The database may not have the sign-in columns yet (the code reaches
+    // Vercel before the migration is pushed). Say so rather than offering
+    // boxes that cannot be saved.
+    const accounts = data.accounts !== false;
+    const name = h('input', { class: 'input', id: 'new-name', placeholder: 'Ariful Islam', autocomplete: 'off' });
+    const username = h('input', { class: 'input', id: 'new-username', placeholder: 'ariful.islam', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' });
+    const password = h('input', { class: 'input', id: 'new-password', type: 'password', autocomplete: 'new-password' });
     const recheck = () => {
-      if (rowsChanged.size || name.value.trim()) touched('team');
+      if (rowsChanged.size || name.value.trim() || username.value.trim() || password.value) touched('team');
       else { dirty.delete('team'); if (markers.team) markers.team.hidden = true; }
     };
-    name.addEventListener('input', recheck);
+    name.addEventListener('input', () => {
+      // The username follows the name until somebody types one themselves.
+      if (!username.dataset.typed) username.value = asUsername(name.value);
+      recheck();
+    });
+    username.addEventListener('input', () => { username.dataset.typed = '1'; recheck(); });
+    password.addEventListener('input', recheck);
+
     const rows = data.users.map((u) => {
       const role = h('select', { class: 'input input-small', 'aria-label': `Role for ${u.name}` },
         data.roles.map((r) => h('option', { value: r.role, selected: r.role === u.role }, r.words)));
@@ -209,25 +228,51 @@ export function renderSettings({ main }) {
           saveBtn.disabled = false;
         }
       });
+
+      // Their sign-in: the username they type, and whether they have a
+      // password of their own yet. Without one they are still getting in on
+      // the shared desk secret, which is worth seeing at a glance.
+      const pwBtn = h('button', { class: 'btn btn-sm', type: 'button' }, icon('lock', { size: 13 }),
+        h('span', {}, u.has_password ? 'Change password' : 'Set password'));
+      pwBtn.addEventListener('click', () => passwordDialog({
+        name: u.name, mine: u.name === session.name, onSaved: () => load(),
+      }));
+
       return h('tr', { class: u.active ? '' : 'is-inactive' },
         h('th', { scope: 'row' }, h('span', { class: 'team-name' }, avatar(u.name), h('span', {}, u.name, u.name === session.name ? h('span', { class: 'muted small' }, ' (you)') : null))),
+        h('td', { 'data-label': 'Signs in as' }, accounts
+          ? h('div', { class: 'team-signin' },
+            u.username ? h('code', {}, u.username) : h('span', { class: 'muted small' }, 'No username yet'),
+            u.has_password ? null : badge('No password', 'amber', { small: true, icon: 'lock' }))
+          : h('span', { class: 'muted small' }, '—')),
         h('td', { 'data-label': 'Role' }, role),
         h('td', { 'data-label': 'Can sign in' }, h('label', { class: 'check' }, active, u.active ? badge('Active', 'green', { small: true }) : badge('Switched off', 'gray', { small: true }))),
         h('td', { class: 'muted small' }, u.last_seen ? `Seen ${ago(u.last_seen)}` : 'Not seen yet'),
-        h('td', {}, saveBtn));
+        h('td', { class: 'team-actions' }, accounts ? pwBtn : null, saveBtn));
     });
 
     const role = h('select', { class: 'input', id: 'new-role' }, data.roles.map((r) => h('option', { value: r.role, selected: r.role === 'ops_agent' }, r.words)));
-    const add = h('form', { class: 'inline-form' },
-      h('div', { class: 'field' }, h('label', { class: 'label', for: 'new-name' }, 'Add a person'), name),
+    const add = h('form', { class: 'inline-form inline-form-wrap' },
+      h('div', { class: 'field' }, h('label', { class: 'label', for: 'new-name' }, 'Full name'), name),
+      accounts ? h('div', { class: 'field' }, h('label', { class: 'label', for: 'new-username' }, 'Username'), username) : null,
+      accounts ? h('div', { class: 'field' },
+        h('label', { class: 'label', for: 'new-password' }, 'Password'), password,
+        h('p', { class: 'field-hint' }, `At least ${MIN_PASSWORD} characters`)) : null,
       h('div', { class: 'field' }, h('label', { class: 'label', for: 'new-role' }, 'Role'), role),
-      h('button', { class: 'btn', type: 'submit' }, icon('plus', { size: 14 }), 'Add'));
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('plus', { size: 14 }), 'Add person'));
     add.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (name.value.trim().length < 2) return toast('Type their name first.', 'info');
+      const who = name.value.trim();
+      if (who.length < 2) return toast('Type their name first.', 'info');
+      if (accounts && password.value && password.value.length < MIN_PASSWORD) {
+        return toast(`A password needs at least ${MIN_PASSWORD} characters.`, 'info');
+      }
       try {
-        await post({ action: 'user_save', name: name.value.trim(), role: role.value, active: true });
-        toast(`${name.value.trim()} can now sign in with the desk password.`);
+        const sign = accounts ? { username: username.value.trim() || asUsername(who), password: password.value } : {};
+        await post({ action: 'user_save', name: who, role: role.value, active: true, ...sign });
+        toast(sign.password
+          ? `${who} can sign in as “${sign.username}” with the password you typed.`
+          : `${who} added. Set a password for them before they can sign in.`);
         dirty.delete('team');
         await load();
       } catch (err) {
@@ -235,11 +280,15 @@ export function renderSettings({ main }) {
       }
     });
 
-    return card('team', titleOf('team'), 'Who can sign in, and what each role can do. The server enforces these; this list says what they mean. Everyone signs in with their name and the desk password.',
+    return card('team', titleOf('team'),
+      'Who can sign in, and what each role can do. Each person has their own username and password; the server enforces the roles, and this list says what they mean.',
       // What each role can do, from the server (lib/admin/desk-shared.js ROLE_CAN, beside what it enforces).
       h('dl', { class: 'roles' }, data.roles.map((r) => [h('dt', {}, r.words), h('dd', {}, r.can ?? '')])),
+      accounts ? null : h('div', { class: 'banner banner-amber' }, icon('alert', { size: 15 }),
+        h('p', {}, h('strong', {}, 'Personal sign-ins are not switched on in the database yet. '),
+          'Run the accounts migration (supabase db push); until then everyone signs in with the shared desk password.')),
       h('div', { class: 'table-wrap' }, h('table', { class: 'table table-plain team-table' },
-        h('thead', {}, h('tr', {}, ['Name', 'Role', 'Can sign in', 'Last seen', ''].map((c) => h('th', { scope: 'col' }, c)))),
+        h('thead', {}, h('tr', {}, ['Name', 'Signs in as', 'Role', 'Can sign in', 'Last seen', ''].map((c) => h('th', { scope: 'col' }, c)))),
         h('tbody', {}, rows))),
       add,
       h('div', { class: 'form-actions' }, unsavedTag('team')));

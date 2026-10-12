@@ -97,6 +97,8 @@ Fill in:
 | `OPENAI_API_KEY` | platform.openai.com → API keys → Create new secret key |
 | `ADMIN_SECRET` | Invent another random string, same way |
 
+This one is the deployment's master key for the operations desk, not a password to hand round the team: each person gets their own username and password under Settings → Team and access. See [DESK-ACCOUNTS.md](DESK-ACCOUNTS.md).
+
 Leave `LLM_PROVIDER=openai` and `OPENAI_MODEL=gpt-4.1-mini` — about USD 0.40 per
 million input tokens, so roughly 5,000 customer chats for $5.
 

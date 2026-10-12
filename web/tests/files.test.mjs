@@ -442,17 +442,18 @@ test('an upload address is handed out only for a file the channel takes, while a
   const exe = await act({ action: 'chat_upload', channel: 'telegram', chat_id: TG, file_name: 'tool.exe', mime_type: 'application/x-msdownload', size: 100, action_key: 'upload-key-3' });
   assert.equal(exe.status, 400);
 
+  // A closed window no longer stops the upload: the file goes up, the send is
+  // attempted, and WhatsApp is the one that refuses it if it is going to.
   const closed = await act({ action: 'chat_upload', channel: 'whatsapp', chat_id: CLOSED, file_name: 'q.pdf', mime_type: 'application/pdf', size: 10, action_key: 'upload-key-4' });
-  assert.equal(closed.status, 409);
-  assert.equal(closed.body.status, 'needs_template');
-  assert.equal(closed.body.composer.mode, 'template_only', 'the screen is told to offer the template instead');
+  assert.equal(closed.status, 200);
+  assert.ok(closed.body.path, 'an address to upload to, as for any open conversation');
   const stopped = await act({ action: 'chat_upload', channel: 'whatsapp', chat_id: STOPPED, file_name: 'q.pdf', mime_type: 'application/pdf', size: 10, action_key: 'upload-key-5' });
   assert.equal(stopped.status, 409);
   assert.match(stopped.body.error, /wrote STOP/);
 
   const ro = await act({ action: 'chat_upload', channel: 'whatsapp', chat_id: WA, file_name: 'q.pdf', mime_type: 'application/pdf', size: 10, action_key: 'upload-key-6' }, 'Rita');
   assert.equal(ro.status, 403);
-  assert.equal(storage.calls.signedUpload.length, 2, 'only the allowed requests (the first, and its retry) got an address');
+  assert.equal(storage.calls.signedUpload.length, 3, 'the allowed requests only: the first, its retry, and the closed-window one that is now attempted');
 });
 
 test('a photo and a paper go to WhatsApp as a photo and a document, Arabic name and caption intact, logged with where they are kept', async () => {

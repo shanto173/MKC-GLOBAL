@@ -326,8 +326,13 @@ anybody. `OperationsNotifier` (`lib/operations.js`) fans a copy out to whichever
 chat channels are configured; Pumble is one of them and is off by default. None
 of them can affect whether a booking succeeded.
 
-The desk is `/desk/` (`/ops/` and `/ops.html` forward to it), protected by `ADMIN_SECRET`, which travels in a
-header and never in a URL.
+The desk is `/desk/` (`/ops/` and `/ops.html` forward to it). Each person signs in
+with their own username and password and is given a signed token, which travels in
+the `x-desk-token` header and never in a URL; the name on every decision comes from
+that token rather than from a field the browser fills in. `ADMIN_SECRET` remains the
+deployment's own key - it authorises the API directly for the scripts, and it is the
+way back in for an administrator who has forgotten their password. See
+[DESK-ACCOUNTS.md](DESK-ACCOUNTS.md).
 
 ---
 

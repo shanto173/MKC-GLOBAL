@@ -228,7 +228,7 @@ export function mountConversation(container, {
     }
     const lastIn = [...data.messages].reverse().find((m) => m.direction === 'in');
     seen.mark(channel, chatId, lastIn?.at);
-    const mode = `${data.composer.mode}|${data.composer.reason ?? ''}|${session.can('chat')}`;
+    const mode = `${data.composer.mode}|${data.composer.reason ?? ''}|${data.composer.window_closed}|${data.composer.template_offer}|${session.can('chat')}`;
     if (mode !== composerMode) { composerMode = mode; drawComposer(); }
     // Part of it could not be read (the server said so): drawn, and asked for again.
     return !data.partial;
@@ -264,7 +264,7 @@ export function mountConversation(container, {
   let headDrawn = null;
   function drawHead() {
     const c = data.customer;
-    const sig = JSON.stringify([c, data.window?.closes_at, data.composer.mode, data.bookings, data.requests, Math.floor(Date.now() / 600_000)]);
+    const sig = JSON.stringify([c, data.window?.closes_at, data.composer.mode, data.composer.window_closed, data.bookings, data.requests, Math.floor(Date.now() / 600_000)]);
     if (sig === headDrawn) return;
     headDrawn = sig;
     const profile = c.profile_name && c.profile_name !== c.name ? `${c.channel === 'whatsapp' ? 'WhatsApp' : 'Profile'} name: ${c.profile_name}` : null;
@@ -295,8 +295,8 @@ export function mountConversation(container, {
 
   /**
    * The WhatsApp window, as a chip in the header: open and how long, closing
-   * (amber, under three hours), or not known. Closed, opted out or blocked is
-   * the composer's banner, because there is a button to go with it.
+   * (amber, under three hours), closed, or not known. Opted out and blocked
+   * are the composer's banner, because there is nothing to send at all.
    */
   function windowChip() {
     const w = data.window ?? {};
@@ -304,6 +304,12 @@ export function mountConversation(container, {
     // The long words where there is room; a narrow column says the short
     // ones, and a screen reader always hears the long.
     const words = (long, short) => [h('span', { class: 'wc-long' }, long), h('span', { class: 'wc-short', 'aria-hidden': 'true' }, short)];
+    if (data.composer.window_closed) {
+      return h('span', {
+        class: 'window-chip tone-amber',
+        title: 'More than 24 hours since they last wrote. A normal message may be refused; the approved template always goes through.',
+      }, icon('clock', { size: 13 }), words('Window closed', 'Closed'));
+    }
     if (!w.closes_at) {
       return h('span', { class: 'window-chip tone-gray', title: data.composer.note ?? '' }, icon('clock', { size: 13 }), words('Window not known', 'Not known'));
     }
@@ -671,8 +677,9 @@ export function mountConversation(container, {
   /** `said`: the failure just above already says when this can be sent again. */
   function retryButton(m, { said = false } = {}) {
     const key = newKey();
-    // Outside the window, or after STOP, a retry would only be refused again:
-    // no button that cannot work - it says when it can, once.
+    // After STOP, or with nothing to write to, a retry would only be refused
+    // again: no button that cannot work - it says when it can, once. A closed
+    // window is not that: Retry attempts it and WhatsApp answers.
     if (data.composer.mode !== 'text') return said ? null : h('span', { class: 'fail-after' }, 'It can be sent again once they write.');
     const b = h('button', {
       class: 'link-btn fail-retry', type: 'button', disabled: !session.can('problems'),
@@ -767,13 +774,18 @@ export function mountConversation(container, {
       return;
     }
     const text = c.mode === 'text';
-    // Closed, STOP or blocked: the banner, with what can still be done, in
-    // place of a box nobody can type in. The box is only hidden - what was
-    // typed stays in it, and it is back as it was when they write again. On
-    // Telegram there is nothing to say (the header says Telegram); a
-    // WhatsApp window that cannot be read gets one quiet line.
+    // STOP, blocked, no chat: the banner in place of a box nobody can type in.
+    // The box is only hidden - what was typed stays in it, and it is back as
+    // it was when they write again.
+    //
+    // A closed WhatsApp window is NOT one of those any more. The box stays
+    // open, with a warning above it and the template beside the warning: the
+    // send is attempted and WhatsApp is the one that refuses it, because our
+    // copy of their clock is an estimate and the person asking is the one who
+    // knows whether it is worth a try.
     box.hidden = !text;
     if (!text) add(slot, blocked(c));
+    else if (c.window_closed) add(slot, windowWarning(c));
     else if (c.note && data.window?.applies && data.window?.known === false) add(slot, h('p', { class: 'composer-note' }, icon('clock', { size: 13 }), c.note));
     ta.disabled = !text;
     ta.placeholder = !text ? 'Nothing can be sent now'
@@ -995,39 +1007,59 @@ export function mountConversation(container, {
     }
   }
 
-  /** Why nothing can be typed, as a banner in the tone it deserves - and the one thing that can still be sent. */
+  /**
+   * The WhatsApp window has closed, and the box below is still open.
+   *
+   * Says what will probably happen, and offers the approved template as the
+   * thing most likely to work - without taking the choice away.
+   */
+  function windowWarning(c) {
+    const box2 = h('div', { class: 'banner banner-amber banner-composer', role: 'status' },
+      icon('clock', { size: 15 }),
+      h('p', {}, h('strong', {}, 'The WhatsApp window has closed. '), c.warning));
+    if (c.template_offer) add(box2, templateButton());
+    return box2;
+  }
+
+  /** The one message a closed window always accepts: the approved "please reply" template. */
+  function templateButton() {
+    const key = newKey();
+    const label = TEMPLATE_WORDS;
+    const b = h('button', { class: 'btn btn-sm', type: 'button' }, icon('template', { size: 14 }), h('span', {}, label));
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      b.lastChild.textContent = 'Sending…';
+      try {
+        await post({ action: 'send_reopen_template', ...target, action_key: key });
+        toast('Reply-request template sent. You can type a normal reply after the customer responds.');
+        await load({ quiet: true });
+      } catch (err) {
+        toastError(err);
+        b.disabled = false;
+        b.lastChild.textContent = label;
+      }
+    });
+    return b;
+  }
+
+  /**
+   * Why nothing can be typed, as a banner in the tone it deserves.
+   *
+   * What is left here is only what no attempt could get past: a customer who
+   * wrote STOP, a blocked one, a conversation with no chat to write to, a
+   * WhatsApp that is not connected. The closed window is not one of them any
+   * more - that is windowWarning(), above a box that still works.
+   */
   function blocked(c) {
     const cust = data.customer ?? {};
     const stopped = Boolean(cust.opted_out_at || cust.is_blocked);
-    const tone = c.mode === 'template_only' ? 'amber' : stopped ? 'red' : 'gray';
-    const title = c.mode === 'template_only' ? 'The WhatsApp window has closed. '
-      : cust.opted_out_at ? 'Opted out. ' : cust.is_blocked ? 'Blocked. ' : '';
+    const title = cust.opted_out_at ? 'Opted out. ' : cust.is_blocked ? 'Blocked. ' : '';
     const waiting = files.filter((f) => f.status !== 'sent').length;
     const kept = ta.value.trim() ? ' What you typed is kept for then.' : '';
-    const box2 = h('div', { class: `banner banner-${tone} banner-composer`, role: 'status' },
-      icon(c.mode === 'template_only' ? 'clock' : stopped ? 'lock' : 'alert', { size: 15 }),
+    return h('div', { class: `banner banner-${stopped ? 'red' : 'gray'} banner-composer`, role: 'status' },
+      icon(stopped ? 'lock' : 'alert', { size: 15 }),
       h('p', {}, title ? h('strong', {}, title) : null, c.reason,
         waiting ? ` The ${waiting === 1 ? 'file' : `${waiting} files`} attached will wait here until then.` : null, kept || null));
-    if (c.mode === 'template_only') {
-      const key = newKey();
-      const label = TEMPLATE_WORDS;
-      const b = h('button', { class: 'btn btn-primary btn-sm', type: 'button' }, icon('template', { size: 14 }), h('span', {}, label));
-      b.addEventListener('click', async () => {
-        b.disabled = true;
-        b.lastChild.textContent = 'Sending…';
-        try {
-          await post({ action: 'send_reopen_template', ...target, action_key: key });
-          toast('Reply-request template sent. You can type a normal reply after the customer responds.');
-          await load({ quiet: true });
-        } catch (err) {
-          toastError(err);
-          b.disabled = false;
-          b.lastChild.textContent = label;
-        }
-      });
-      add(box2, b);
-    }
-    return box2;
   }
 
   /** Saved replies, inserted in the customer's language (both when they have not chosen). */

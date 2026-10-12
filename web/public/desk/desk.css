@@ -1293,6 +1293,13 @@ a.result:hover .result-title { color: var(--brand-700); }
 .team-name { display: flex; align-items: center; gap: var(--sp-3); }
 .team-table td, .team-table th { padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
 .team-table .input-small { max-width: 200px; }
+/* The sign-in column: the username they type, and a mark when they have no
+   password of their own yet and are still coming in on the shared secret. */
+.team-signin { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.team-signin code { font-size: var(--text-sm); background: var(--n-50); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 6px; }
+.team-actions { display: flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; flex-wrap: wrap; }
+/* Adding a person is four fields now, not two: they wrap rather than squeeze. */
+.inline-form-wrap .field { flex: 1 1 160px; }
 .replies { display: flex; flex-direction: column; gap: var(--sp-3); }
 .reply-edit { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); background: var(--surface-2); }
 .reply-edit-head { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-3); }

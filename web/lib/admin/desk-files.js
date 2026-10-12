@@ -61,8 +61,7 @@ async function conversationOf(body, res) {
   const customer = await customerFor({ clientId: target.clientId, channel: target.channel, chatId: target.chatId, name: target.name, contact: target.contact });
   const { composer } = await composerFor({ channel: target.channel, chatId: target.chatId, customer });
   if (!composer.can_send) {
-    const status = composer.mode === 'template_only' ? 'needs_template' : 'refused';
-    return { done: res.status(409).json({ error: composer.reason, status, composer }) };
+    return { done: res.status(409).json({ error: composer.reason, status: 'refused', composer }) };
   }
   return { target, customer, owner: { clientId: customer.client_id ?? target.clientId ?? null, chatId: target.chatId } };
 }
@@ -140,6 +139,9 @@ async function sendOneFile({ who, chan, target, customer, owner, file, caption, 
         author: 'staff', staffName: who.name, bookingRef: fileOn?.booking_ref ?? target.bookingRef ?? null,
         language: customer.language, eventType: 'operations_message', allowTemplate: false,
         answering: answeringAfterStop(customer),
+        // As with typed text: a person pressed Send, so the attempt is made
+        // and WhatsApp is the one that refuses it if the window has closed.
+        ignoreWindow: true,
         // Kept on the log row, so the conversation shows the file and Retry can send it again.
         logPayload: { storage_bucket: BUCKET, storage_path: path, size: buffer.length, mime_type: plan.mime, outbound: true },
       },

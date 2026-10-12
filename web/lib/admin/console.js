@@ -68,6 +68,7 @@ import {
   sendToCustomer, savedReplies,
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
+import { signIn, setPassword, tokenOf, readToken } from './desk-auth.js';
 import { chatFilesView } from './desk-media.js';
 import { chatUpload, sendFiles } from './desk-files.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
@@ -106,7 +107,32 @@ export default async function handler(req, res) {
     // Said plainly, because the person reading it is setting the desk up.
     return res.status(503).json({ error: 'The desk is not configured: ADMIN_SECRET is not set on the server.', setup: 'ADMIN_SECRET' });
   }
-  if (secret !== config.adminSecret) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Signing in is the one thing that happens before there is anything to sign
+  // in with, so it is the one thing this door does not guard.
+  if (req.method === 'POST' && String(req.body?.action ?? '') === 'sign_in') {
+    res.setHeader?.('Cache-Control', 'no-store');
+    try {
+      return await signIn(req, res);
+    } catch (err) {
+      console.error('sign-in failed:', err);
+      return res.status(500).json({ error: 'Something went wrong on our side.' });
+    }
+  }
+
+  // Two ways in. A signed token names the person it was issued to, and that
+  // name - not one typed into the request - is who the desk says acted. The
+  // raw ADMIN_SECRET is the deployment's own key: it still works, for the
+  // scripts and for an administrator locked out of their own account.
+  const token = tokenOf(req);
+  const bySecret = Boolean(secret) && secret === config.adminSecret;
+  if (token) {
+    const read = readToken(token);
+    if (read.ok) req.auth = { name: read.name, pv: read.pv };
+    else if (!bySecret) return res.status(401).json({ error: read.error, reauth: true });
+  } else if (!bySecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     if (req.method === 'GET') {
@@ -115,7 +141,7 @@ export default async function handler(req, res) {
       const fn = view === 'pulse' ? pulseView : VIEWS[view];
       if (!fn) return res.status(400).json({ error: `Unknown view "${view}"` });
       const who = await operatorFor(req);
-      if (!who.ok) return res.status(403).json({ error: who.error });
+      if (!who.ok) return res.status(who.reauth ? 401 : 403).json({ error: who.error, ...(who.reauth ? { reauth: true } : {}) });
       if (view === 'settings' && !who.can('settings')) return res.status(403).json({ error: deniedReason('settings', who.role) });
       // The views the desk polls answer 304 when nothing they show has
       // changed since the version the desk already has (lib/admin/desk-live.js).
@@ -160,7 +186,7 @@ async function me(req, res) {
       const data = await teamList({ fresh: true }).catch(() => []);
       if (!(data ?? []).some((u) => u.active !== false)) return res.status(200).json({ bootstrap: true });
     }
-    return res.status(403).json({ error: who.error });
+    return res.status(who.reauth ? 401 : 403).json({ error: who.error, ...(who.reauth ? { reauth: true } : {}) });
   }
 
   // Best effort: "last seen" is a courtesy for the team list, never a blocker.
@@ -200,6 +226,9 @@ const NEEDS = {
   request_assign: 'assign_self', request_status: 'status', request_resolve: 'client',
   shipment_update: 'booking',
   settings_write: 'settings', user_save: 'users',
+  // Anyone may set their own password; setPassword checks for itself before
+  // letting somebody set another person's.
+  set_password: 'read',
 };
 
 /** Actions where the version the operator saw is checked before anything is written. */
@@ -216,7 +245,7 @@ async function act(req, res) {
   if (action === 'bootstrap_admin') return bootstrapAdmin(req, res);
 
   const who = await operatorFor(req);
-  if (!who.ok) return res.status(403).json({ error: who.error });
+  if (!who.ok) return res.status(who.reauth ? 401 : 403).json({ error: who.error, ...(who.reauth ? { reauth: true } : {}) });
 
   const needs = NEEDS[action];
   if (!needs) return res.status(400).json({ error: `Unknown action "${action}"` });
@@ -263,6 +292,7 @@ async function act(req, res) {
     case 'request_reply': return requestReply(req, res, who);
     case 'request_resolve': return requestResolve(req, res, who);
     case 'shipment_update': return shipmentUpdate(req, res, who);
+    case 'set_password': return setPassword(req, res, who);
     case 'settings_write': return settingsWrite(req, res, who);
     case 'user_save': return userSave(req, res, who);
     default: return res.status(400).json({ error: `Unknown action "${action}"` });

@@ -83,13 +83,29 @@ export async function windowFor({ channel, chatId, customer }) {
  * What the composer may do, decided here so every screen that shows a composer
  * says the same thing, and so the rule is tested rather than drawn.
  *
- *   mode 'text'           free text may be sent
- *   mode 'template_only'  WhatsApp window closed: only the "please reply" template
- *   mode 'disabled'       nothing can be sent; `reason` says why
+ *   mode 'text'      free text may be typed and sent
+ *   mode 'disabled'  nothing can be sent at all; `reason` says why
+ *
+ * THE 24-HOUR WINDOW NO LONGER CLOSES THE BOX.
+ *
+ * It used to: outside it the desk replaced the composer with a banner and the
+ * approved template, and Send was refused here before WhatsApp was asked. That
+ * was our rule standing in front of Meta's, and it was wrong twice over - our
+ * clock can be behind (a message that arrived while a webhook was failing
+ * leaves last_client_message_at stale), and a person who wants to try should
+ * be allowed to try. So the box stays open, the send is attempted, and if Meta
+ * refuses with 131047 the answer says so and offers the template.
+ *
+ * What is still refused here is what cannot be sent at all on any rule of
+ * ours or theirs: no chat, a channel we cannot write back to, a blocked
+ * customer, a customer who wrote STOP, WhatsApp not connected.
+ *
+ * `window_closed` and `warning` are what the screen shows above an open box:
+ * the attempt may bounce, and the template is one press away either way.
  */
 export function composerState({ channel, chatId, customer, window: win, connected, templateAvailable }) {
   const name = customer?.name && customer.name !== 'Unknown customer' ? customer.name : 'The customer';
-  const off = (reason) => ({ mode: 'disabled', can_send: false, reason, note: null });
+  const off = (reason) => ({ mode: 'disabled', can_send: false, reason, note: null, window_closed: false, template_offer: false });
 
   if (!chatId) return off('This customer has no chat we can write to.');
   if (!CHANNELS.includes(channel)) return off('This conversation was on the website widget. We cannot write back to it.');
@@ -98,32 +114,32 @@ export function composerState({ channel, chatId, customer, window: win, connecte
 
   // A customer who wrote STOP gets nothing from us - unless they have written
   // again since, in which case answering their own message is still allowed.
+  // This one is not ours to wave through: it is the law in most of the places
+  // we write to, and Meta enforces it on their side too.
   if (customer?.opted_out_at) {
     const since = customer.last_client_message_at && new Date(customer.last_client_message_at) > new Date(customer.opted_out_at);
-    const windowOpen = channel !== 'whatsapp' || win?.open === true;
-    if (!(since && windowOpen)) {
+    if (!since) {
       return off(`${name} wrote STOP on ${shortDate(customer.opted_out_at)}. You can reply only after they write to us again.`);
     }
   }
 
-  if (channel === 'whatsapp' && win?.open !== true) {
-    const last = win?.last_client_message_at
-      ? `${name} last wrote ${ago(win.last_client_message_at)}.`
-      : `${name} has not written to us on WhatsApp yet.`;
-    const rule = 'After 24 hours WhatsApp allows only an approved template.';
-    if (!templateAvailable) return off(`${last} ${rule} The template isn’t available yet.`);
-    return {
-      mode: 'template_only',
-      can_send: false,
-      reason: `${last} ${rule} Send the approved reply-request template. You can type a normal reply after the customer responds.`,
-      note: null,
-    };
-  }
+  const closed = channel === 'whatsapp' && win?.open !== true && win?.known !== false;
+  const last = win?.last_client_message_at
+    ? `${name} last wrote ${ago(win.last_client_message_at)}.`
+    : `${name} has not written to us on WhatsApp yet.`;
 
   return {
     mode: 'text',
     can_send: true,
     reason: null,
+    window_closed: closed,
+    // Whether there is a template to fall back on, which is what the screen
+    // offers beside the warning and after a refusal.
+    template_offer: Boolean(closed && templateAvailable),
+    warning: closed
+      ? `${last} More than 24 hours on, WhatsApp usually accepts only an approved template, so a normal message may bounce back`
+        + `${templateAvailable ? ' - send the reply-request template instead, or try anyway.' : '. No reply-request template is set up yet.'}`
+      : null,
     note: channel === 'telegram' ? 'Telegram · no time limit'
       : win?.known === false ? 'We cannot tell when they last wrote. If 24 hours have passed, WhatsApp will refuse and you will see why.'
         : null,
@@ -179,6 +195,12 @@ export async function sendToCustomer({
   bookingRef = null, entityType = 'chat', entityId = null,
   language = null, eventType = 'operations_message', allowTemplate = false,
   templatePayload = null, answering = false,
+  // A person pressed Send: attempt it even when our copy of the 24-hour clock
+  // says the window has closed, and let WhatsApp be the one that refuses.
+  // Not when a template is the intended fallback (a shipment update has a real
+  // approved template with the right words in it) - there the template is the
+  // better outcome, not a consolation after a bounce.
+  ignoreWindow = !allowTemplate,
 }) {
   const body = String(text ?? '').trim();
   if (!body) return { ok: false, status: 'empty', words: 'The message is empty.' };
@@ -228,7 +250,7 @@ export async function sendToCustomer({
       { channel, chatId: String(chatId), clientId },
       { text: body },
       {
-        author: 'staff', staffName: who.name, bookingRef, language, eventType, allowTemplate, answering,
+        author: 'staff', staffName: who.name, bookingRef, language, eventType, allowTemplate, answering, ignoreWindow,
         // What a template would be filled with if the window has closed.
         payload: { ...(templatePayload ?? {}), text: body, message: body, reference: templatePayload?.reference ?? bookingRef ?? entity },
       },
@@ -296,10 +318,7 @@ export async function sendMessage(req, res, who) {
   const { composer } = await composerFor({ channel: target.channel, chatId: target.chatId, customer });
   // Checked again here, not just drawn: the window can close while the
   // operator types, and a refusal now is better than one from Meta later.
-  if (!composer.can_send) {
-    const status = composer.mode === 'template_only' ? 'needs_template' : 'refused';
-    return res.status(409).json({ error: composer.reason, status, composer });
-  }
+  if (!composer.can_send) return res.status(409).json({ error: composer.reason, status: 'refused', composer });
 
   const sent = await sendToCustomer({
     who, channel: target.channel, chatId: target.chatId, clientId: customer.client_id ?? target.clientId,
@@ -411,9 +430,7 @@ export async function retryMessage(req, res, who) {
 
   const customer = await customerFor({ clientId: m.client_id, channel: m.channel, chatId: m.chat_id });
   const { composer } = await composerFor({ channel: m.channel, chatId: m.chat_id, customer });
-  if (!composer.can_send) {
-    return res.status(409).json({ error: composer.reason, status: composer.mode === 'template_only' ? 'needs_template' : 'refused' });
-  }
+  if (!composer.can_send) return res.status(409).json({ error: composer.reason, status: 'refused' });
   outcome = await sendToCustomer({
     who, channel: m.channel, chatId: m.chat_id, clientId: m.client_id, text: m.body,
     actionKey: actionKeyOf(req.body) ?? `retry-${id}-${Date.now().toString(36)}`,

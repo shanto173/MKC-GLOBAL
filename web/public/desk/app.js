@@ -18,8 +18,8 @@
  */
 
 import {
-  h, $, clear, icon, avatar, session, api, safeSet, safeGet, SKEY, NKEY, on, add, fill, BRAND, pageTitle, brandLogo,
-  subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES, unsavedWords,
+  h, $, clear, icon, avatar, session, api, post, safeSet, safeGet, TKEY, SKEY, NKEY, UKEY, on, add, fill, BRAND, pageTitle, brandLogo,
+  subscribe, startLive, stopLive, primeLive, forgetAnswers, VIEW_SCOPES, unsavedWords, toast,
 } from './ui.js';
 import { RHYTHM } from './live.js';
 import { renderInbox } from './inbox.js';
@@ -29,6 +29,7 @@ import { renderShipments } from './shipments.js';
 import { renderSettings } from './settings.js';
 import { renderSearch } from './search.js';
 import { openGlossary } from './glossary.js';
+import { passwordDialog } from './account.js';
 
 const NAV = [
   { key: 'inbox', label: 'Inbox', icon: 'inbox', href: '#/inbox' },
@@ -156,6 +157,9 @@ function drawNav(active, query = {}) {
       // The words of the trade, for every role (Settings is administrators' only).
       h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; openGlossary(); } },
         h('span', { class: 'menu-item-title' }, icon('note', { size: 15 }), 'Glossary')),
+      // Anybody may change their own password, whatever their role.
+      h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; passwordDialog(); } },
+        h('span', { class: 'menu-item-title' }, icon('lock', { size: 15 }), 'Set my password')),
       h('button', { class: 'menu-item', type: 'button', role: 'menuitem', onclick: () => { menu.open = false; if (mayLeave()) signOut(); } },
         h('span', { class: 'menu-item-title' }, icon('logout', { size: 15 }), 'Sign out'))));
   fill($('#me'), menu);
@@ -218,7 +222,7 @@ function showSignIn(message = '', extra = null) {
   err.hidden = !message;
   clear($('#signinExtra'));
   if (extra) add($('#signinExtra'), extra);
-  $('#who').value = session.name || '';
+  $('#who').value = session.username || '';
   ($('#who').value ? $('#secret') : $('#who')).focus();
 }
 
@@ -234,6 +238,42 @@ function showNotConfigured(setting) {
     h('p', { class: 'field-hint' }, 'Whoever deployed the desk adds it under Project settings → Environment variables, then redeploys.')));
 }
 
+/**
+ * Hands the username and password to the server and keeps the token it
+ * answers with. Everything after this - every read, every action - carries
+ * that token, and the server takes the name on it rather than one the browser
+ * typed. A wrong password never says which half was wrong.
+ */
+async function signInWithPassword(username, password) {
+  const button = $('#signinButton');
+  button.disabled = true;
+  button.textContent = 'Signing in…';
+  try {
+    // No token yet: this one call goes out on its own.
+    const out = await post({ action: 'sign_in', username, password });
+    session.token = out.token;
+    session.secret = '';
+    session.name = out.name ?? username;
+    session.username = username;
+    safeSet(TKEY, session.token);
+    safeSet(SKEY, null);
+    safeSet(NKEY, session.name);
+    safeSet(UKEY, username);
+    needsPassword = Boolean(out.needs_password);
+    await signIn();
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = 'Sign in';
+    if (err.data?.setup) return showNotConfigured(err.data.setup);
+    showSignIn(err.offline
+      ? 'We could not reach the server. Check the connection and try again.'
+      : err.message);
+  }
+}
+
+/** Said once, after signing in on the shared desk secret with no password of one's own. */
+let needsPassword = false;
+
 async function signIn({ quiet = false } = {}) {
   const button = $('#signinButton');
   button.disabled = true;
@@ -245,7 +285,6 @@ async function signIn({ quiet = false } = {}) {
     const [me, pulse] = await Promise.all([api({ view: 'me' }), api({ view: 'pulse' }).catch(() => null)]);
     if (me.bootstrap) return offerBootstrap();
     Object.assign(session, me);
-    safeSet(SKEY, session.secret);
     safeSet(NKEY, session.name);
     $('#signin').hidden = true;
     $('#app').hidden = false;
@@ -258,14 +297,21 @@ async function signIn({ quiet = false } = {}) {
     countsSub = subscribe(VIEW_SCOPES.counts, () => (screen?.providesCounts ? true : refreshCounts()));
     if (!screen?.providesCounts) refreshCounts();
     startLive();
+    // Signed in on the shared desk secret, with no password of their own: the
+    // one place to say so is here, where they have just proved who they are.
+    if (needsPassword) {
+      needsPassword = false;
+      toast('You are signed in with the shared desk password. Set a password of your own under Settings → Team and access.', 'info', { timeout: 12_000 });
+    }
   } catch (err) {
     if (err.data?.setup) return showNotConfigured(err.data.setup);
-    const message = err.status === 401 ? 'That desk password was not accepted.'
+    const message = err.status === 401 ? (err.data?.error || 'Your sign-in was not accepted.')
       : err.offline ? 'We could not reach the server. Check the connection and try again.'
         : err.message;
-    // A remembered password that stopped working (it was rotated) is said
-    // plainly, with the name already filled in.
-    showSignIn(quiet && err.status === 401 ? 'The desk password has changed. Sign in again.' : message);
+    // A remembered sign-in that stopped working - it expired, or the password
+    // was changed - is said plainly, with the username already filled in.
+    if (err.status === 401) { session.token = ''; safeSet(TKEY, null); }
+    showSignIn(quiet && err.status === 401 ? (err.data?.error || 'Your sign-in has ended. Sign in again.') : message);
   } finally {
     button.disabled = false;
     button.textContent = 'Sign in';
@@ -290,7 +336,9 @@ function offerBootstrap() {
 }
 
 function signOut() {
+  safeSet(TKEY, null);
   safeSet(SKEY, null);
+  session.token = '';
   session.secret = '';
   leave();
   stopLive();
@@ -307,12 +355,10 @@ function signOut() {
 
 $('#signinForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  const name = $('#who').value.trim();
-  const secret = $('#secret').value.trim();
-  if (!name || !secret) return showSignIn('Type your name and the desk password.');
-  session.name = name;
-  session.secret = secret;
-  signIn();
+  const username = $('#who').value.trim();
+  const password = $('#secret').value;
+  if (!username || !password) return showSignIn('Type your username and password.');
+  signInWithPassword(username, password);
 });
 
 add($('#searchIcon'), icon('search', { size: 16 }));
@@ -359,9 +405,13 @@ window.addEventListener('beforeunload', (e) => {
   if (screen?.unsaved?.()?.length) { e.preventDefault(); e.returnValue = ''; }
 });
 
-if (session.secret && session.name) {
+if (session.token) {
   signIn({ quiet: true });
 } else {
   session.name = safeGet(NKEY) ?? '';
+  session.username = safeGet(UKEY) ?? '';
+  // A tab open from before per-person sign-ins: the shared secret it kept is
+  // not sent anywhere now, and the person types their own password once.
+  if (session.secret) { session.secret = ''; safeSet(SKEY, null); }
   showSignIn('');
 }

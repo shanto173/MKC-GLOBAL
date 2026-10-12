@@ -595,24 +595,40 @@ test('with the channel code: one send, as staff, in the customer’s language; a
   assert.equal(opts.language, 'ar');
 });
 
-test('the window closed while typing: refused with the reason, and the template offered', async () => {
+test('the window has closed: the box stays open, the send is attempted, the template is offered beside it', async () => {
   const fake = fakeChannels({ open: false });
   channelsState.deployed = true;
   channelsState.api = fake.api;
 
+  // The desk no longer refuses on its own copy of WhatsApp's clock. It warns,
+  // offers the template, and lets the person decide.
   const chat = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
-  assert.equal(chat.body.composer.mode, 'template_only');
-  assert.match(chat.body.composer.reason, /24 hours/);
+  assert.equal(chat.body.composer.mode, 'text');
+  assert.equal(chat.body.composer.can_send, true);
+  assert.equal(chat.body.composer.window_closed, true);
+  assert.equal(chat.body.composer.template_offer, true);
+  assert.match(chat.body.composer.warning, /24 hours/);
 
   const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'Hi', action_key: 'k-wa-0000003' });
-  assert.equal(r.status, 409);
-  assert.equal(r.body.status, 'needs_template');
-  assert.equal(fake.calls.send.length, 0);
+  assert.equal(r.status, 200);
+  assert.equal(fake.calls.send.length, 1, 'WhatsApp was asked, not second-guessed');
+  assert.equal(fake.calls.send[0].opts.ignoreWindow, true, 'and told not to stop at our own clock');
 
   const t = await post({ action: 'send_reopen_template', channel: 'whatsapp', chat_id: WA, action_key: 'k-wa-0000004' });
   assert.equal(t.status, 200);
   assert.equal(fake.calls.reopen.length, 1);
   assert.equal(fake.calls.reopen[0].opts.language, 'ar');
+});
+
+test('a closed window with no template configured still lets a person try', async () => {
+  const fake = fakeChannels({ open: false });
+  delete fake.api.sendReopenTemplate;
+  channelsState.deployed = true;
+  channelsState.api = fake.api;
+  const chat = await get({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  assert.equal(chat.body.composer.mode, 'text');
+  assert.equal(chat.body.composer.template_offer, false);
+  assert.match(chat.body.composer.warning, /No reply-request template is set up yet/);
 });
 
 test('WhatsApp refusing a message as outside the window is said in words, the draft is the operator’s to keep', async () => {
@@ -1391,21 +1407,30 @@ test('the team: people are added and changed, and the last administrator cannot 
 // Pure rules
 // ---------------------------------------------------------------------------
 
-test('a closed WhatsApp window says what to send, in the brief\'s words', () => {
+test('a closed WhatsApp window warns, and does not shut the box', () => {
   const base = { channel: 'whatsapp', chatId: WA, customer: { name: 'Delta', last_client_message_at: iso(30 * 3600_000) }, connected: true, templateAvailable: true };
   const c = composerState({ ...base, window: { open: false, last_client_message_at: iso(30 * 3600_000) } });
-  assert.equal(c.mode, 'template_only');
-  assert.match(c.reason, /^Delta last wrote .+\. After 24 hours WhatsApp allows only an approved template\. Send the approved reply-request template\. You can type a normal reply after the customer responds\.$/);
-  // No template set up: the rule, and that the template is missing.
-  assert.match(composerState({ ...base, templateAvailable: false, window: { open: false } }).reason, /After 24 hours WhatsApp allows only an approved template\. The template isn’t available yet\.$/);
+  assert.equal(c.mode, 'text');
+  assert.equal(c.can_send, true, 'the person decides whether it is worth a try, not our copy of Meta’s clock');
+  assert.equal(c.window_closed, true);
+  assert.equal(c.template_offer, true);
+  assert.equal(c.reason, null, 'nothing is being refused, so there is nothing to explain away');
+  assert.match(c.warning, /^Delta last wrote .+\. More than 24 hours on, WhatsApp usually accepts only an approved template, so a normal message may bounce back - send the reply-request template instead, or try anyway\.$/);
+  // No template set up: still open, and the warning says there is no fallback.
+  const bare = composerState({ ...base, templateAvailable: false, window: { open: false } });
+  assert.equal(bare.mode, 'text');
+  assert.equal(bare.template_offer, false);
+  assert.match(bare.warning, /No reply-request template is set up yet\.$/);
 });
 
 test('the composer rule, case by case', () => {
   const base = { channel: 'whatsapp', chatId: WA, customer: { name: 'Delta' }, connected: true, templateAvailable: true };
   assert.equal(composerState({ ...base, channel: 'telegram', chatId: '5', window: { open: true } }).mode, 'text');
   assert.match(composerState({ ...base, connected: false, window: { open: true } }).reason, /isn’t connected yet/);
-  assert.equal(composerState({ ...base, window: { open: false } }).mode, 'template_only');
+  assert.equal(composerState({ ...base, window: { open: false } }).mode, 'text', 'a closed window no longer closes the box');
+  assert.equal(composerState({ ...base, window: { open: false } }).window_closed, true);
   assert.equal(composerState({ ...base, window: { open: true } }).mode, 'text');
+  assert.equal(composerState({ ...base, window: { open: true } }).window_closed, false);
   assert.equal(composerState({ ...base, chatId: null, window: { open: true } }).mode, 'disabled');
 
   // Wrote STOP, then wrote again inside the window: answering them is allowed.
@@ -1413,6 +1438,10 @@ test('the composer rule, case by case', () => {
   assert.equal(composerState({ ...base, customer: stopped, window: { open: true } }).mode, 'text');
   const silent = { name: 'Delta', opted_out_at: iso(3600_000), last_client_message_at: iso(5 * 3600_000) };
   assert.equal(composerState({ ...base, customer: silent, window: { open: true } }).mode, 'disabled');
+  // STOP is not ours to wave through the way the 24-hour clock is: the window
+  // being closed as well changes nothing either way.
+  assert.equal(composerState({ ...base, customer: silent, window: { open: false } }).mode, 'disabled');
+  assert.equal(composerState({ ...base, customer: stopped, window: { open: false } }).mode, 'text');
 });
 
 test('why a message failed, in words', () => {

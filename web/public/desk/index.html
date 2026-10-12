@@ -23,19 +23,20 @@
     <span id="offlineIcon"></span><span><strong>Offline — retrying.</strong> Nothing you have typed is lost.</span>
   </div>
 
-  <!-- Sign in. The name is checked against the team list, so every decision
-       is attributable to a person who exists and is still on the team. -->
+  <!-- Sign in. Each person has their own username and password, made for them
+       by an administrator under Settings, so every decision on the desk is
+       attributable to the person who actually made it. -->
   <main id="signin" class="signin" hidden>
     <form id="signinForm" class="signin-card" novalidate>
       <span class="brand-logo brand-logo-lg"><img src="/brand/mky-logo.png" alt="" width="120" height="94" /></span>
       <h1>MKY Global Forwarding</h1>
       <p class="signin-eyebrow">Operations desk</p>
-      <p class="signin-sub">Sign in with your name and the desk password.</p>
-      <label class="label" for="who">Your name</label>
-      <input class="input" id="who" name="who" autocomplete="username" required />
-      <label class="label" for="secret">Desk password</label>
+      <p class="signin-sub">Sign in with your own username and password.</p>
+      <label class="label" for="who">Username</label>
+      <input class="input" id="who" name="who" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+      <label class="label" for="secret">Password</label>
       <input class="input" id="secret" name="secret" type="password" autocomplete="current-password" required />
-      <p class="field-hint">Ask your administrator if you do not have it.</p>
+      <p class="field-hint">An administrator makes these under Settings → Team and access. Ask them if you do not have one yet.</p>
       <p id="signinError" class="form-error" role="alert" hidden></p>
       <div id="signinExtra"></div>
       <button class="btn btn-primary btn-block" type="submit" id="signinButton">Sign in</button>

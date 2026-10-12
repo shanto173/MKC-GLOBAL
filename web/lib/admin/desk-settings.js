@@ -14,7 +14,8 @@
 import { db } from '../supabase.js';
 import { settings, writeSetting, invalidateSettings } from '../settings.js';
 import { audit } from '../audit.js';
-import { fingerprint, userVersion, ROLE_WORDS, ROLE_CAN, refuseStale, invalidateTeam } from './desk-shared.js';
+import { fingerprint, userVersion, ROLE_WORDS, ROLE_CAN, refuseStale, invalidateTeam, hasAccountColumns } from './desk-shared.js';
+import { hashPassword, passwordProblem, normaliseUsername, usernameProblem, MIN_PASSWORD } from './desk-auth.js';
 import { DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 
 const DOC_TYPES = ['invoice', 'brief', 'mrn', 'acid', 'eur1'];
@@ -181,12 +182,22 @@ export async function settingsView(req, res) {
     document_types: DOC_TYPES,
     users: (users ?? []).map(userOut),
     roles: ROLES.map((r) => ({ role: r, words: ROLE_WORDS[r], can: ROLE_CAN[r] })),
+    // Whether this database has the per-person sign-in columns yet. False
+    // between the code reaching Vercel and `supabase db push` being run, and
+    // the screen says so rather than offering a password box that cannot work.
+    accounts: hasAccountColumns(),
+    min_password: MIN_PASSWORD,
   });
 }
 
 const userOut = (u) => ({
   name: u.name, role: u.role, role_words: ROLE_WORDS[u.role] ?? u.role, active: u.active !== false,
   email: u.email ?? null, last_seen: u.last_seen ?? null, version: userVersion(u),
+  // The sign-in name, and whether a password of their own has been set -
+  // never the hash, which has no reason to leave the server.
+  username: u.username ?? null,
+  has_password: Boolean(u.password_hash),
+  password_set_at: u.password_set_at ?? null,
 });
 
 // ---------------------------------------------------------------------------
@@ -257,11 +268,16 @@ const summarise = (v) => {
 };
 
 /**
- * POST { action: 'user_save', name, role, active, version? }
+ * POST { action: 'user_save', name, role, active, username?, password?, version? }
  *
  * Adds a person or changes one. Refuses anything that would leave the desk
  * without an active administrator - including an administrator demoting or
  * switching off themselves - because nobody could then undo it from here.
+ *
+ * A new person is given a username and a password here, so that adding
+ * somebody is one form and not three: they can sign in the moment the
+ * administrator reads the password out to them. Changing an existing person's
+ * password is its own action (set_password), because it ends their sessions.
  */
 export async function userSave(req, res, who) {
   const name = String(req.body?.name ?? '').trim().slice(0, 80);
@@ -271,21 +287,52 @@ export async function userSave(req, res, who) {
   if (!ROLES.includes(role)) return res.status(400).json({ error: 'Choose a role from the list.' });
 
   const { data: all } = await db().from('ops_users').select('*');
-  const existing = (all ?? []).find((u) => u.name.toLowerCase() === name.toLowerCase()) ?? null;
+  const everyone = all ?? [];
+  const existing = everyone.find((u) => u.name.toLowerCase() === name.toLowerCase()) ?? null;
 
   if (existing && req.body?.version && req.body.version !== userVersion(existing)) {
     return refuseStale(res, { entityIds: [`user:${existing.name}`], current: userVersion(existing) });
   }
 
-  const adminsAfter = (all ?? []).filter((u) => u.active !== false && u.role === 'admin'
+  const adminsAfter = everyone.filter((u) => u.active !== false && u.role === 'admin'
     && u.name.toLowerCase() !== name.toLowerCase()).length + (active && role === 'admin' ? 1 : 0);
   if (adminsAfter === 0) {
     return res.status(409).json({ error: 'The desk needs at least one active administrator. Make someone else an administrator first.' });
   }
 
+  // The sign-in name. Given, or made from the name the obvious way; either
+  // way it is checked against everybody else's before it is written.
+  const accounts = hasAccountColumns();
+  const credentials = {};
+  if (accounts) {
+    const asked = String(req.body?.username ?? '').trim();
+    const username = normaliseUsername(asked || (existing?.username ? '' : name));
+    if (asked) {
+      const problem = usernameProblem(asked);
+      if (problem) return res.status(400).json({ error: problem });
+    }
+    if (username) {
+      const taken = everyone.find((u) => u.username && normaliseUsername(u.username) === username
+        && u.name.toLowerCase() !== name.toLowerCase());
+      if (taken) return res.status(409).json({ error: `“${username}” is already ${taken.name}’s username. Choose another.` });
+      if (username !== (existing?.username ?? null)) credentials.username = username;
+    }
+
+    const password = req.body?.password == null ? '' : String(req.body.password);
+    if (password) {
+      if (existing?.password_hash) {
+        return res.status(400).json({ error: `${existing.name} already has a password. Use “Set password” to change it.` });
+      }
+      const problem = passwordProblem(password);
+      if (problem) return res.status(400).json({ error: problem });
+      credentials.password_hash = await hashPassword(password);
+      credentials.password_set_at = new Date().toISOString();
+    }
+  }
+
   const row = existing
-    ? { name: existing.name, role, active }
-    : { name, role, active, created_by: who.name };
+    ? { name: existing.name, role, active, ...credentials }
+    : { name, role, active, created_by: who.name, ...credentials };
   const { data, error } = await db().from('ops_users').upsert(row, { onConflict: 'name' }).select().single();
   invalidateTeam();
   if (error) return res.status(500).json({ error: 'We could not save that person.' });
@@ -293,9 +340,13 @@ export async function userSave(req, res, who) {
   await audit({
     actor_type: 'operator', actor_id: who.name, action: 'ops_user_saved',
     entity_type: 'ops_user', entity_id: `user:${data.name}`,
-    metadata: { name: data.name, role, active, was: existing ? `${existing.role}${existing.active === false ? ' (inactive)' : ''}` : 'new' },
+    metadata: {
+      name: data.name, role, active, username: data.username ?? null,
+      password_set: Boolean(credentials.password_hash),
+      was: existing ? `${existing.role}${existing.active === false ? ' (inactive)' : ''}` : 'new',
+    },
   });
-  return res.status(200).json({ ok: true, user: userOut(data) });
+  return res.status(200).json({ ok: true, user: userOut(data), accounts });
 }
 
 /**
@@ -305,7 +356,7 @@ export async function userSave(req, res, who) {
  * person adds themselves - once. After that the door is shut.
  */
 export async function bootstrapAdmin(req, res) {
-  const name = String(req.body?.operator ?? '').trim().slice(0, 80);
+  const name = String(req.auth?.name ?? req.body?.operator ?? '').trim().slice(0, 80);
   if (name.length < 2) return res.status(400).json({ error: 'Type your name first.' });
   const { data: all, error } = await db().from('ops_users').select('name, active');
   if (error) return res.status(500).json({ error: 'We could not read the team list.' });

@@ -96,7 +96,9 @@ The `wa:` prefix keeps a WhatsApp chat id from ever equalling a Telegram chat id
 6. Drain the outbox (limit 5).
 
 ### 3.5 The 24-hour window and templates
-`conversation_sessions.last_client_message_at` is stamped on every inbound message. `windowOpen` = within `whatsapp_window_hours` (default 24). Outbox rows for WhatsApp: window open → render and send as today; closed → the template from `bot_settings.whatsapp_templates[event_type]`, in the client's language, parameters filled from the payload. No template configured/approved → the row waits (`delivery_status = 'needs_template'`) and the desk shows it; it is **never** sent as free text outside the window (Meta would reject it, error 131047).
+`conversation_sessions.last_client_message_at` is stamped on every inbound message. `windowOpen` = within `whatsapp_window_hours` (default 24). Outbox rows for WhatsApp: window open → render and send as today; closed → the template from `bot_settings.whatsapp_templates[event_type]`, in the client's language, parameters filled from the payload. No template configured/approved → the row waits (`delivery_status = 'needs_template'`) and the desk shows it; an automatic message is **never** sent as free text outside the window (Meta would reject it, error 131047).
+
+**A person at the desk is not held to that clock.** `sendToChat({ ignoreWindow: true })` skips our own window check and makes the attempt, because `last_client_message_at` is an estimate — a client message that arrived while a webhook was failing never moved it — and the person pressing Send is the one who knows whether it is worth a try. If Meta refuses with 131047, the result comes back `needs_template`, the desk says so in words and offers the reply-request template. STOP and a blocked number are still refused before anything is sent: those are not clocks, they are the customer's own instruction.
 
 ### 3.6 Failures and limits
 | Meta says | We do |
@@ -190,7 +192,7 @@ Document viewer: the file on the left, what the bot read on the right (chassis, 
 
 **Shipments**: confirmed shipments; change status / ETA / add an event; "tell the customer" is on by default and previews the message.
 
-**Settings** (admin): team (names, roles), office hours, direct line, documents required, WhatsApp templates (which are configured; a test button), saved replies.
+**Settings** (admin): team (name, username, password, role, switched on or off), office hours, direct line, documents required, WhatsApp templates (which are configured; a test button), saved replies.
 
 ### 4.4 Desk edge cases
 
@@ -198,8 +200,9 @@ Document viewer: the file on the left, what the bot read on the right (chassis, 
 |---|---|
 | Two people act on the same case | The second is refused with who/when; the page refreshes. |
 | Customer writes while you type | The new message appears; your draft stays. |
-| WhatsApp window closed | The banner takes the box's place: "Send the approved reply-request template. You can type a normal reply after the customer responds.", with the template button. What was typed is kept. |
-| Window closes while you type | Send is refused with the same explanation; draft kept. |
+| WhatsApp window closed | The box stays open. An amber line above it says when the customer last wrote and that a normal message may bounce back, with the reply-request template beside it as the thing most likely to work. Send still sends — WhatsApp decides. |
+| Window closes while you type | Nothing changes under your hands: the warning appears, the draft stays, Send still attempts it. |
+| WhatsApp refuses it (131047) | A red line under the message with the reason, Retry sending, and the template still offered. |
 | Message failed (Meta error) | One red line under the message with the reason in words (once for a run of the same), Retry sending where it can work, and it appears in Inbox → Issues. |
 | Customer opted out | Composer disabled: "Wrote STOP on …". Replies to their own new messages still work. |
 | Document unreadable / bot read nothing | Viewer says so; the person can type the values. |

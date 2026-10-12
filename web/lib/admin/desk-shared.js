@@ -11,6 +11,7 @@
 
 import { db } from '../supabase.js';
 import { settings, requiredDocuments } from '../settings.js';
+import { isSchemaMissing } from '../chatlog.js';
 import { DOC_LABEL, statusLabel, nextAction } from '../ops/workflow.js';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,27 @@ let team = null;       // { client, at, rows }
 let teamRead = null;   // { client, promise }
 
 /**
+ * What is read for each person.
+ *
+ * username and password_set_at, never the hash: the list is kept in memory for
+ * half a minute, and a password digest has no business being there.
+ * password_set_at is what a signed token is checked against, so a password
+ * changed anywhere ends that person's other sessions.
+ *
+ * ACCOUNTS is tried first and dropped to BASIC on a database that has not run
+ * the accounts migration yet - the code reaches Vercel before `supabase db
+ * push` is run, and a column that does not exist must not lock the desk out of
+ * itself for those few minutes. It is tried again every five minutes, so a
+ * warm instance picks the columns up when the migration lands without waiting
+ * to be recycled.
+ */
+const ACCOUNTS = 'name, role, active, username, password_set_at';
+const BASIC = 'name, role, active';
+const RETRY_COLUMNS_MS = 5 * 60_000;
+let columns = ACCOUNTS;
+let droppedAt = 0;
+
+/**
  * Everyone on the desk: name, role, active. Cached per database client, so a
  * test that swaps the client never sees the last test's team.
  */
@@ -93,9 +115,17 @@ export async function teamList({ fresh = false } = {}) {
   const client = db();
   if (!fresh && team?.client === client && Date.now() - team.at < TEAM_TTL_MS) return team.rows;
   if (teamRead?.client !== client || fresh) {
-    const promise = client.from('ops_users').select('name, role, active').then(({ data, error }) => {
-      if (error) throw new Error(error.message);
-      const rows = data ?? [];
+    const promise = (async () => {
+      if (columns === BASIC && Date.now() - droppedAt > RETRY_COLUMNS_MS) columns = ACCOUNTS;
+      let read = await client.from('ops_users').select(columns);
+      if (read.error && columns === ACCOUNTS && isSchemaMissing(read.error)) {
+        columns = BASIC;
+        droppedAt = Date.now();
+        read = await client.from('ops_users').select(columns);
+      }
+      if (read.error) throw new Error(read.error.message);
+      return read.data ?? [];
+    })().then((rows) => {
       if (teamRead?.promise === promise) team = { client, at: Date.now(), rows };
       return rows;
     }).finally(() => { if (teamRead?.promise === promise) teamRead = null; });
@@ -104,15 +134,28 @@ export async function teamList({ fresh = false } = {}) {
   return teamRead.promise;
 }
 
+/** Whether this database has the per-person sign-in columns yet. */
+export const hasAccountColumns = () => columns === ACCOUNTS;
+
 /** Forgets the cached team, after a write to it. */
 export function invalidateTeam() {
   team = null;
   teamRead = null;
 }
 
-/** Resolves the operator named in the request, and what they may do. */
+/**
+ * Resolves who is asking, and what they may do.
+ *
+ * A request that carried a signed sign-in token (console.js has already
+ * checked the signature and put it on `req.auth`) is that person, whatever the
+ * `operator` field says - the name on a decision is no longer typed by the
+ * browser. Only a request authorised by the raw ADMIN_SECRET, which is the
+ * deployment's own key, still names its operator: the scripts, the older
+ * admin endpoints and the tests work that way.
+ */
 export async function operatorFor(req) {
-  const name = String(req.body?.operator ?? req.query?.operator ?? '').trim();
+  const auth = req.auth ?? null;
+  const name = auth?.name ?? String(req.body?.operator ?? req.query?.operator ?? '').trim();
   if (!name) return { ok: false, error: 'Sign in with your name before making changes.' };
 
   let rows;
@@ -128,6 +171,12 @@ export async function operatorFor(req) {
   const data = matches[0];
   if (!data) return { ok: false, unknown: true, error: `"${name}" is not on the team list. Ask an administrator to add you.` };
   if (!data.active) return { ok: false, error: `"${data.name}" is no longer active. Ask an administrator.` };
+
+  // The token was issued against a password that has since been changed: the
+  // session it belongs to ended when the password did.
+  if (auth && auth.pv !== (data.password_set_at ? Date.parse(data.password_set_at) || 0 : 0)) {
+    return { ok: false, reauth: true, error: 'Your password was changed. Sign in again.' };
+  }
 
   const can = (p) => PERMISSIONS[data.role]?.has(p) ?? false;
   return { ok: true, name: data.name, role: data.role, can, permissions: [...(PERMISSIONS[data.role] ?? [])] };

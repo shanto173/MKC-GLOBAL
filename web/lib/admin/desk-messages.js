@@ -188,6 +188,9 @@ export function ticketResolvedText(ticket, note = '', language = null) {
 export function failureWords(error, { status = null, template = null } = {}) {
   const e = String(error ?? '');
   if (status === 'needs_template' || /131047|re-?engagement|24.?hour/i.test(e)) {
+    // Said as WhatsApp's answer, not ours: the desk attempts the send now
+    // rather than refusing it itself, so this sentence reports a refusal that
+    // actually came back from Meta.
     return 'The customer hasn’t written in 24 hours, so WhatsApp only allows an approved template.';
   }
   if (status === 'opted_out' || /opted.?out|\bSTOP\b/i.test(e)) return 'The customer asked us not to message them (they wrote STOP).';
