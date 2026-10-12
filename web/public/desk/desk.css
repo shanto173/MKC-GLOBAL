@@ -1173,6 +1173,11 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
 .preview-stage.is-zoomed .preview-img { max-width: none; max-height: none; cursor: zoom-out; }
 .preview-actions { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1); }
 
+/* The frame a document is printed from (printFile in viewer.js). Rendered,
+   because a display:none frame has nothing to print - but one pixel, behind
+   everything, and deaf to the mouse. */
+.print-frame { position: fixed; left: 0; top: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; z-index: -1; }
+
 /* -- Document viewer -------------------------------------------------------------------------- */
 
 .viewer-nav { display: flex; align-items: center; gap: var(--sp-1); }

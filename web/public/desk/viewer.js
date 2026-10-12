@@ -62,6 +62,90 @@ function pdfjs() {
 }
 
 /**
+ * The paper itself, sent to a printer.
+ *
+ * WHY NOT Ctrl+P. Ctrl+P prints the desk - the sidebar, the chat beside it,
+ * the panel, and the document somewhere in the middle of all that, at screen
+ * resolution. What a person at this desk needs on paper is the customer's
+ * invoice as the customer sent it, full page: for the file, for customs, for
+ * the driver.
+ *
+ * So the file is fetched (the signed link is readable from here already - the
+ * PDF is drawn from the same fetch), kept as a blob on this origin, and
+ * printed from a frame nobody sees. A cross-origin frame could not be asked to
+ * print at all; a blob on our own origin can.
+ *
+ * An image is wrapped in a page of its own, so it prints the size of the paper
+ * rather than whatever a browser decides a bare image should be. If the
+ * browser will not print from a frame at all, the file opens in a tab, where
+ * its own print button always works.
+ */
+async function printFile(url, { name = 'Document', mime = '' } = {}) {
+  let blobUrl = null;
+  let frame = null;
+  const clean = () => {
+    // After the dialog is done with: a blob revoked while the print preview is
+    // still reading it prints an empty page.
+    setTimeout(() => {
+      frame?.remove();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    }, 30_000);
+  };
+
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw Object.assign(new Error(`The file link answered ${res.status}.`), { status: res.status });
+    const blob = await res.blob();
+    const type = String(mime || blob.type || '');
+    blobUrl = URL.createObjectURL(blob);
+
+    frame = h('iframe', { class: 'print-frame', 'aria-hidden': 'true', tabindex: '-1', title: `${name}, for printing` });
+    const ready = new Promise((resolve, reject) => {
+      frame.addEventListener('load', () => resolve(), { once: true });
+      frame.addEventListener('error', () => reject(new Error('The file would not open for printing.')), { once: true });
+      // A PDF plugin that never fires load must not leave the button spinning.
+      setTimeout(() => reject(new Error('The file took too long to open for printing.')), 20_000);
+    });
+
+    if (type.startsWith('image/')) {
+      frame.srcdoc = '<!doctype html><meta charset="utf-8">'
+        + '<style>@page{margin:12mm}html,body{margin:0;height:100%}'
+        + 'img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}</style>'
+        + `<img alt="" src="${blobUrl}">`;
+    } else {
+      frame.src = blobUrl;
+    }
+    document.body.append(frame);
+    await ready;
+
+    const win = frame.contentWindow;
+    if (!win) throw new Error('The file would not open for printing.');
+    win.focus();
+    win.print();
+    clean();
+    return true;
+  } catch (err) {
+    clean();
+    // Nothing silent: the file opens where the browser's own print button is.
+    toast(`${err.message || 'The file would not print.'} Opening it in a new tab instead.`, 'warn');
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return false;
+  }
+}
+
+/** The Print button, as it appears beside "Open in a new tab" on every file. */
+function printButton(url, { name, mime } = {}) {
+  const button = h('button', {
+    class: 'btn btn-sm btn-ghost', type: 'button', title: `Print ${name ?? 'this document'}`,
+    onclick: async () => {
+      button.disabled = true;
+      try { await printFile(url, { name, mime }); } finally { button.disabled = false; }
+    },
+  }, icon('printer', { size: 14 }), 'Print');
+  return button;
+}
+
+/**
  * A PDF drawn by pdf.js into `box`, one canvas per page, at the screen's own
  * pixel density (see drawPdf in openViewer for why not the browser's viewer).
  * `stale()` says this drawing has been overtaken; `expired()` is called once
@@ -174,6 +258,7 @@ export function openFilePreview(ctx) {
         item.paper?.reviewable && ctx.onOpenPaper
           ? h('button', { class: 'btn btn-sm', type: 'button', onclick: () => { dlg.close(); ctx.onOpenPaper(item.paper.id); } }, icon('eye', { size: 14 }), 'Open in the document viewer')
           : null,
+        printButton(link.url, { name: item.name ?? 'File', mime }),
         h('a', { class: 'btn btn-sm btn-ghost', href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 14 }), 'Open in a new tab')));
   }
   draw();
@@ -286,7 +371,8 @@ export function openViewer(ctx) {
     // it, ask again rather than show a broken frame.
     if (urlInfo.expires_at && new Date(urlInfo.expires_at) < new Date()) return expired(doc);
     fill(fileArea, frame, h('div', { class: 'viewer-file-bar' },
-      h('span', { class: 'file-name' }, icon('file', { size: 14 }), h('bdi', { dir: 'ltr', title: doc.file_name ?? '' }, doc.file_name ?? '')), open));
+      h('span', { class: 'file-name' }, icon('file', { size: 14 }), h('bdi', { dir: 'ltr', title: doc.file_name ?? '' }, doc.file_name ?? '')),
+      h('span', { class: 'preview-actions' }, printButton(urlInfo.url, { name: doc.file_name ?? doc.label, mime }), open)));
     // Drawn once it is on the page, so it knows how wide it has to be.
     if (frame.classList.contains('viewer-pages')) drawPdf(frame, doc, urlInfo.url);
   }

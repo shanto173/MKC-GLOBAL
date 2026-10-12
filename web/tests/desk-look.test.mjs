@@ -297,6 +297,43 @@ test('an info dot sits beside each term where it appears, and the whole glossary
   assert.match(src('settings.js'), /glossaryList\(/, 'and Settings lists it too');
 });
 
+// ---------------------------------------------------------------------------
+// Printing a document
+// ---------------------------------------------------------------------------
+
+test('any file the desk shows can be printed, and it is the paper that prints, not the desk', () => {
+  // Both places a file is shown: the document viewer where a paper is checked
+  // and verified, and the preview the chat opens.
+  const viewerSrc = src('viewer.js');
+  assert.equal((viewerSrc.match(/printButton\(/g) ?? []).length, 3,
+    'declared once, offered on both the document viewer and the file preview');
+  // The frame's own window, never the desk's: window.print() here would print
+  // the sidebar, the chat and the panel with the paper lost in the middle.
+  assert.ok(/contentWindow/.test(viewerSrc), 'the frame holding the file is what prints');
+  assert.ok(!/\bwindow\.print\(/.test(viewerSrc), 'never the desk\'s own print');
+  assert.ok(/createObjectURL/.test(viewerSrc), 'the file on this origin, so a frame may be asked to print it');
+});
+
+test('the frame a document prints from is rendered - a hidden one has nothing to print', () => {
+  const frame = rule('.print-frame');
+  assert.ok(frame, '.print-frame has a rule of its own');
+  assert.doesNotMatch(frame, /display:\s*none/, 'display:none prints a blank page');
+  assert.doesNotMatch(frame, /visibility:\s*hidden/);
+  assert.match(frame, /position:\s*fixed/, 'and it is out of the way');
+  assert.match(frame, /opacity:\s*0/);
+});
+
+test('every icon the desk asks for exists', () => {
+  const named = new Set();
+  for (const file of ['app.js', 'inbox.js', 'case.js', 'viewer.js', 'conversation.js', 'chats.js',
+    'settings.js', 'shipments.js', 'search.js', 'preview.js', 'delete.js', 'account.js', 'glossary.js']) {
+    for (const m of src(file).matchAll(/\bicon\('([a-zA-Z]+)'/g)) named.add(m[1]);
+  }
+  assert.ok(named.has('printer'), 'including the printer on the file bar');
+  const missing = [...named].filter((name) => !ui.ICONS[name]);
+  assert.deepEqual(missing, [], 'an icon that is not in the table draws nothing at all');
+});
+
 test('an MRN is recorded, not obtained, here - and approving is a different step from recording', () => {
   assert.match(caseMod.MRN_WORDS.record, /issued/);
   assert.match(caseMod.MRN_WORDS.record, /does not apply for it or obtain it/);
