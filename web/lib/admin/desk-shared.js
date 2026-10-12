@@ -134,8 +134,19 @@ export async function teamList({ fresh = false } = {}) {
   return teamRead.promise;
 }
 
-/** Whether this database has the per-person sign-in columns yet. */
-export const hasAccountColumns = () => columns === ACCOUNTS;
+/**
+ * Whether this database has the per-person sign-in columns yet.
+ *
+ * Answered from rows that have just been read (`select *` on ops_users), not
+ * from the latch above: an instance that was warm when the migration ran
+ * dropped to BASIC and would go on saying "no" until it retried, and the one
+ * screen that asks is the one an administrator is looking at while they wait.
+ * With no rows to look at - a desk with nobody on it - the latch is all there
+ * is, and it starts out saying yes.
+ */
+export const hasAccountColumns = (rows = null) => (Array.isArray(rows) && rows.length
+  ? Object.hasOwn(rows[0], 'username')
+  : columns === ACCOUNTS);
 
 /** Forgets the cached team, after a write to it. */
 export function invalidateTeam() {
@@ -174,7 +185,14 @@ export async function operatorFor(req) {
 
   // The token was issued against a password that has since been changed: the
   // session it belongs to ended when the password did.
-  if (auth && auth.pv !== (data.password_set_at ? Date.parse(data.password_set_at) || 0 : 0)) {
+  //
+  // Only asked where the answer can be known. An instance still reading the
+  // old columns has no password_set_at to compare against, and must not read
+  // "absent" as "zero" - that would sign out everybody who has a password, on
+  // whichever instances were warm when the migration ran. The signature, the
+  // expiry and `active` are checked either way.
+  if (auth && Object.hasOwn(data, 'password_set_at')
+    && auth.pv !== (data.password_set_at ? Date.parse(data.password_set_at) || 0 : 0)) {
     return { ok: false, reauth: true, error: 'Your password was changed. Sign in again.' };
   }
 

@@ -182,10 +182,11 @@ export async function settingsView(req, res) {
     document_types: DOC_TYPES,
     users: (users ?? []).map(userOut),
     roles: ROLES.map((r) => ({ role: r, words: ROLE_WORDS[r], can: ROLE_CAN[r] })),
-    // Whether this database has the per-person sign-in columns yet. False
-    // between the code reaching Vercel and `supabase db push` being run, and
-    // the screen says so rather than offering a password box that cannot work.
-    accounts: hasAccountColumns(),
+    // Whether this database has the per-person sign-in columns yet - read from
+    // the rows just fetched. False between the code reaching Vercel and the
+    // migration being applied, and the screen says so rather than offering a
+    // password box that cannot save.
+    accounts: hasAccountColumns(users),
     min_password: MIN_PASSWORD,
   });
 }
@@ -302,7 +303,7 @@ export async function userSave(req, res, who) {
 
   // The sign-in name. Given, or made from the name the obvious way; either
   // way it is checked against everybody else's before it is written.
-  const accounts = hasAccountColumns();
+  const accounts = hasAccountColumns(everyone);
   const credentials = {};
   if (accounts) {
     const asked = String(req.body?.username ?? '').trim();

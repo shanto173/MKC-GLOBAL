@@ -309,3 +309,81 @@ test('the old shared secret still opens every door, for the deployment that hold
   assert.equal((await call({ query: { view: 'me' }, secret: 'guess', operator: 'Sara' })).status, 401);
   assert.equal((await call({ query: { view: 'me' }, operator: 'Sara' })).status, 401);
 });
+
+// ---------------------------------------------------------------------------
+// A database that has not caught up with the code
+// ---------------------------------------------------------------------------
+
+test('on a desk whose database has not run the migration, everything still works on the shared secret', async () => {
+  // ops_users as it was before the accounts migration: no username, no password.
+  await setup({
+    users: [
+      { name: 'Sara', role: 'ops_agent', active: true },
+      { name: 'Ariful Islam', role: 'admin', active: true },
+    ],
+  });
+
+  const r = await signIn('Sara', SECRET);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.name, 'Sara');
+  assert.equal(r.body.needs_password, true);
+  assert.equal((await call({ query: { view: 'me' }, token: r.body.token })).status, 200);
+
+  // Settings says the columns are not there, so the screen can say so rather
+  // than offering a password box that cannot save.
+  const s = await call({ query: { view: 'settings' }, secret: SECRET, operator: 'Ariful Islam' });
+  assert.equal(s.body.accounts, false);
+
+  // And adding a person writes no credentials it cannot write.
+  const made = await call({
+    method: 'POST', secret: SECRET, operator: 'Ariful Islam',
+    body: { action: 'user_save', name: 'Mona', username: 'mona', password: 'a good long one', role: 'ops_agent' },
+  });
+  assert.equal(made.status, 200);
+  assert.equal(made.body.accounts, false);
+  assert.equal(rows('ops_users').find((u) => u.name === 'Mona').password_hash, undefined);
+});
+
+test('a token stays good on an instance that is still reading the old columns', async () => {
+  // Signed in against a database that has the columns...
+  const { body: { token } } = await signIn('sara', SARA_PASSWORD);
+  assert.ok(readToken(token).pv > 0, 'the token names the password it was issued against');
+
+  // ...and then served by a copy of ops_users without password_set_at, as an
+  // instance that was warm when the migration ran would read it. Absent is not
+  // "never set": the session must not be thrown away on a missing column.
+  invalidateTeam();
+  const full = db.from.bind(db);
+  db.from = (table) => (table === 'ops_users'
+    ? stripColumns(full(table), ['password_set_at', 'username', 'password_hash'])
+    : full(table));
+  try {
+    const me = await call({ query: { view: 'me' }, token });
+    assert.equal(me.status, 200);
+    assert.equal(me.body.name, 'Sara');
+  } finally {
+    db.from = full;
+    invalidateTeam();
+  }
+});
+
+/** A table read with some columns taken out of every row, as an older database answers. */
+function stripColumns(builder, columns) {
+  const strip = (rowsIn) => (Array.isArray(rowsIn)
+    ? rowsIn.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !columns.includes(k))))
+    : rowsIn);
+  return new Proxy(builder, {
+    get(target, prop) {
+      if (prop === 'then') {
+        return (resolve, reject) => target.then((out) => resolve({ ...out, data: strip(out.data) }), reject);
+      }
+      const value = target[prop];
+      if (typeof value !== 'function') return value;
+      return (...args) => {
+        const out = value.apply(target, args);
+        return out === target || (out && typeof out.then === 'function' && typeof out.select === 'function')
+          ? stripColumns(out, columns) : out;
+      };
+    },
+  });
+}
