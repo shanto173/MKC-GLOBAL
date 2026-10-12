@@ -120,3 +120,11 @@ begin
   return done;
 end;
 $$;
+
+-- This function writes rows into any table named in a payload it is given. It
+-- runs as whoever calls it, and RLS already stops anon and authenticated from
+-- reading the ledger or writing those tables - but a function with that reach
+-- has no business being on the public REST surface at all. Only the key the
+-- desk runs with may call it.
+revoke execute on function restore_deleted_record(bigint) from public, anon, authenticated;
+grant execute on function restore_deleted_record(bigint) to service_role;
