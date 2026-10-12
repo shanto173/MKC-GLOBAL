@@ -94,17 +94,24 @@ function harness(seed = {}) {
     command: (c) => send({ kind: 'command', command: c, text: c }),
     /** A file, as the transport hands it over: with a caption, or as one of a batch. */
     file: (doc, extra = {}) => send({ kind: 'document', document: doc, ...extra }),
-    /** Files a document straight into the store, as the transport would. */
-    upload(docType, { vin = null, bookingRef = null, fileName = 'f.pdf' } = {}) {
+    /**
+     * Files a document straight into the store, as the transport would.
+     *
+     * `extracted` is what the reader got off the page. It travels with the row
+     * in both shapes the flow sees a file in - on its own, and as one of a
+     * batch (recentUploads selects it) - so a test can exercise what the desk
+     * actually receives rather than a thinner stand-in.
+     */
+    upload(docType, { vin = null, bookingRef = null, fileName = 'f.pdf', extracted = null } = {}) {
       const row = {
         chat_id: CHAT, client_id: 1, channel: 'telegram', booking_ref: bookingRef,
         doc_type: docType, file_name: fileName, vin, status: 'received',
-        extraction_ok: true, uploaded_at: new Date().toISOString(),
+        extraction_ok: true, extracted, uploaded_at: new Date().toISOString(),
       };
       db._tables.booking_documents ??= [];
       const id = 1000 + db._tables.booking_documents.length;
       db._tables.booking_documents.push({ id, ...row, vin_norm: normalizeVin(vin) });
-      return { document: { id, doc_type: docType } };
+      return { document: { id, doc_type: docType, extracted } };
     },
     booking: () => db._tables.bookings?.[db._tables.bookings.length - 1] ?? null,
     bookings: () => db._tables.bookings ?? [],
@@ -779,6 +786,107 @@ test('the details written on a file are read, and the file counted, in one go', 
   // Nothing basic is missing any more, so the next question is the MRN one.
   assert.match(said(r), /Do you already have an MRN/);
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
+});
+
+// ---------------------------------------------------------------------------
+// What the papers themselves say
+//
+// The live failure this is written from: three papers sent together, all read,
+// every one of them naming the chassis, the make and where it loads - and the
+// bot's next words were "we are missing some information: chassis, make, port
+// of loading".
+// ---------------------------------------------------------------------------
+
+/** One paper of a matched set, with what the reader got off the page. */
+const paper = (h, type, extra = {}) => h.upload(type, {
+  vin: 'WDB9634031L894512',
+  extracted: {
+    ok: true, vin: 'WDB9634031L894512', make: 'Mercedes-Benz', model: 'Actros 1845 LS', ...extra,
+  },
+});
+
+/** The three of them arriving together, the last one speaking for the set. */
+const sendSet = (h, docs) =>
+  h.file(docs.at(-1), { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
+
+test('the papers answer the questions they contain, and only the destination is asked', async () => {
+  const h = harness();
+  await identify(h);
+
+  const r = await sendSet(h, [
+    paper(h, 'invoice', { origin_place: 'Klaipeda', incoterm: 'FOB Klaipeda' }),
+    paper(h, 'brief', { origin_place: 'Vilnius, Lithuania' }),
+    paper(h, 'mrn', { origin_place: 'Vilnius', mrn: '26LTVR254665734512' }),
+  ]);
+
+  const b = h.booking();
+  assert.equal(b.vin, 'WDB9634031L894512');
+  assert.equal(b.make, 'Mercedes-Benz');
+  assert.equal(b.model, 'Actros 1845 LS');
+  assert.equal(b.origin_port, 'Klaipeda', 'the invoice names the port of loading, the CMR a city inland');
+
+  assert.match(said(r), /Received: Invoice, Transport document, MRN/);
+  assert.match(said(r), /Read from your documents: chassis WDB9634031L894512 · make Mercedes-Benz Actros 1845 LS · loading Klaipeda/);
+  for (const asked of [/Chassis \/ VIN/, /Make \/ Brand/, /Port of loading/]) {
+    assert.doesNotMatch(said(r), asked, 'it is printed on every page they just sent');
+  }
+  // The one thing no paper of theirs decides.
+  assert.match(said(r), /Egyptian destination port/);
+  assert.equal(r.state, S.BOOK_DESTINATION);
+});
+
+test('a reading never overwrites what the client said themselves', async () => {
+  const h = harness();
+  await identify(h);
+  await h.text('W1T96340310484233');          // the chassis, typed
+  await h.text('MAN TGX');                    // the make, typed
+  await h.text('Hamburg');                    // where it loads, typed
+
+  await sendSet(h, [
+    paper(h, 'invoice', { origin_place: 'Klaipeda' }),
+    paper(h, 'brief', {}),
+  ]);
+
+  const b = h.booking();
+  assert.equal(b.vin, 'W1T96340310484233', 'the chassis they typed stands');
+  assert.equal(b.make, 'MAN');
+  assert.equal(b.origin_port, 'Hamburg');
+});
+
+test('two chassis numbers across one set are not adopted - that is the mismatch we exist to catch', async () => {
+  const h = harness();
+  await identify(h);
+
+  const r = await sendSet(h, [
+    paper(h, 'invoice', {}),
+    h.upload('brief', {
+      vin: 'YV2RT40A8FB712905',
+      extracted: { ok: true, vin: 'YV2RT40A8FB712905', make: 'Volvo' },
+    }),
+  ]);
+
+  assert.ok(!h.booking().vin, 'neither reading is written down');
+  assert.match(said(r), /chassis/i, 'and the chassis is asked for, as it was before');
+  assert.equal(r.state, S.BOOK_VIN);
+});
+
+test('a chassis read off a paper is looked up like a typed one, and a booked one ends it', async () => {
+  const h = harness({
+    bookings: [{
+      id: 1, booking_ref: 'MKY-BKG-OLD', status: 'pending_review', chat_id: 'telegram:777',
+      vin: 'WDB9634031L894512', vin_norm: 'WDB9634031L894512', make: 'Mercedes-Benz',
+      customer_name: 'Someone Else', origin_port: 'Klaipeda', destination_port: 'Port Said',
+      created_at: new Date().toISOString(),
+    }],
+  });
+  await identify(h);
+
+  const r = await sendSet(h, [paper(h, 'invoice', { origin_place: 'Klaipeda' })]);
+
+  assert.match(said(r), /Invoice received/, 'the file is still acknowledged');
+  assert.match(said(r), /already booked/, 'and the booking it already has is named');
+  assert.match(said(r), /MKY-BKG-OLD/);
+  assert.doesNotMatch(said(r), /Read from your documents/, 'nothing was adopted');
 });
 
 test('the caption is read ahead of the file, and the file then only counts', async () => {

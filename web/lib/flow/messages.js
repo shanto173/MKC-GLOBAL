@@ -389,6 +389,14 @@ What I need right now is ${needEn}.`,
     `📝 Noted from your message: ${notedEn.join(' · ')}.`,
   ),
 
+  // What the papers themselves said, said back. A client who sent an invoice
+  // naming the chassis must not then be asked for the chassis - and when the
+  // reading is wrong, this is where they see it, before it becomes a booking.
+  notedFromPapers: (notedAr, notedEn) => both(
+    `📄 وقرينا من المستندات: ${notedAr.join(' · ')}.`,
+    `📄 Read from your documents: ${notedEn.join(' · ')}.`,
+  ),
+
   documentUnknownType: (fileName = null) => both(
     fileName
       ? `📄 وصلني ${fileName} بس مش متأكد نوعه. هو إيه؟`

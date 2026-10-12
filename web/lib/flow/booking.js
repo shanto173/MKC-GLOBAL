@@ -391,9 +391,23 @@ function notedDetails(booking, fields) {
     ar.push(`الماركة ${vehicle}`);
     en.push(`make ${vehicle}`);
   }
-  if ((set.has('origin_port') || set.has('destination_port')) && (booking.origin_port || booking.destination_port)) {
-    ar.push(`خط الشحن ${booking.origin_port ?? '—'} ← ${booking.destination_port ?? '—'}`);
-    en.push(`route ${booking.origin_port ?? '—'} → ${booking.destination_port ?? '—'}`);
+  if (set.has('origin_port') || set.has('destination_port')) {
+    // One end of the route on its own is said as that end, not as a route with
+    // a dash where the other half should be: the papers name where a vehicle
+    // loads and almost never which Egyptian port it is bound for, so a line
+    // reading "route Klaipeda → —" would be the common case, not the rare one.
+    const from = booking.origin_port || null;
+    const to = booking.destination_port || null;
+    if (from && to) {
+      ar.push(`خط الشحن ${from} ← ${to}`);
+      en.push(`route ${from} → ${to}`);
+    } else if (from) {
+      ar.push(`الشحن من ${from}`);
+      en.push(`loading ${from}`);
+    } else if (to) {
+      ar.push(`ميناء الوصول ${to}`);
+      en.push(`destination ${to}`);
+    }
   }
   return { ar, en };
 }
@@ -1178,7 +1192,7 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
  * each with a shorter list of what is missing.
  */
 export async function handleDocumentArrived(session, { ingested, batch = [], noted = [] }, ctx) {
-  const booking = await bookingByRef(session.active_booking_ref);
+  let booking = await bookingByRef(session.active_booking_ref);
   if (!booking) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
   const mine = ingested?.document ?? null;
@@ -1206,6 +1220,16 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
   }
   for (const d of known) logEvent('document_received', { booking_ref: booking.booking_ref, doc_type: d.doc_type });
 
+  // What the papers say, onto a draft that does not say it yet - so the next
+  // question is the one thing they do not answer, not the four they do.
+  const read = await adoptFromPapers(session, booking, known, ctx);
+  if (read.ended) return reply([...leads, ...read.reply.messages], read.reply.patch);
+  booking = read.booking;
+  if (read.filled.length) {
+    const fromPapers = notedDetails(booking, read.filled);
+    if (fromPapers.en.length) leads.push(say(M.notedFromPapers(fromPapers.ar, fromPapers.en)));
+  }
+
   // A file we could not tell the type of is not guessed at. The client says
   // what it is - one at a time when several came together - and until they do
   // the file is stored but counted as nothing.
@@ -1215,6 +1239,103 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
   }
 
   return continueFrom(booking, ctx, { leads });
+}
+
+/**
+ * What the papers themselves say, written onto a draft that does not say it.
+ *
+ * WHY THIS EXISTS. In the live test a client sent an invoice, a CMR and an
+ * export declaration. All three were read; all three named the chassis, the
+ * make, the model and where the vehicle loads; the reading was stored on every
+ * document row - and the next thing the bot said was "we are missing some
+ * information: chassis, make, port of loading". Asking somebody for what they
+ * have just sent you is the fastest way to make a booking assistant feel like
+ * a form that does not listen.
+ *
+ * WHAT IT WILL AND WILL NOT TAKE.
+ *
+ * Only a field the draft has not got: anything the client typed, or the desk
+ * set, outranks a reading, always.
+ *
+ * The chassis goes through settleVin - the same door a typed one goes through
+ * - so the duplicate check, the audit entry and the "already booked" ending
+ * are the ones they have always been, and a vehicle we already hold still
+ * fills in its own make. Only when the papers agree with each other: two
+ * chassis numbers across one batch is the mismatch the desk exists to catch,
+ * and adopting either would hide it.
+ *
+ * The destination is never taken. An invoice names the buyer's office, a CMR
+ * names where the lorry unloads - in this test, "Klaipeda Port, Lithuania",
+ * the port it SAILS FROM. A forwarder that guessed the discharge port from an
+ * address would be wrong at exactly the moment it mattered, so that one
+ * question is still asked.
+ */
+async function adoptFromPapers(session, booking, papers, ctx) {
+  const filled = [];
+  let current = booking;
+  if (!papers.length || current.status !== 'draft') return { booking: current, filled };
+
+  // The invoice first: its loading place comes from the Incoterm - "FOB
+  // Klaipeda" - which is the agreed port. A CMR's is wherever the lorry was
+  // loaded, a yard inland, which is a city and not a port.
+  const ordered = [...papers].sort((a, b) => (a.doc_type === 'invoice' ? -1 : 0) - (b.doc_type === 'invoice' ? -1 : 0));
+  const said = (key) => {
+    for (const d of ordered) {
+      const value = String(d?.extracted?.[key] ?? '').trim();
+      if (value && value.length <= 120) return value;
+    }
+    return null;
+  };
+
+  if (!String(current.vin ?? '').trim()) {
+    // Seventeen characters exactly, not the six a typed answer is allowed:
+    // nobody is here to confirm a reading, so a half-caught number off a bad
+    // photograph has to fall through to the question rather than be written
+    // down as this vehicle's identity.
+    const vins = [...new Set(ordered
+      .map((d) => normalizeVin(d?.extracted?.vin ?? d?.vin ?? ''))
+      .filter((v) => v.length === 17 && looksLikeVin(v)))];
+    if (vins.length === 1) {
+      const settled = await settleVin(session, vins[0], ctx);
+      // Already booked ends the conversation with the existing reference, as a
+      // typed chassis does. Any other refusal - a database that did not answer
+      // - just leaves the chassis to be asked for, which is where we were.
+      if (settled.ended) return { booking: current, filled, ended: true, reply: settled.reply };
+      if (settled.ok) {
+        current = settled.draft;
+        filled.push('vin');
+      }
+    }
+  }
+
+  const patch = {};
+  if (!String(current.make ?? '').trim()) {
+    const make = said('make');
+    // The same normaliser the typed and pasted answers use, so مرسيدس, a
+    // reading and a typed "mercedes benz" all become one make.
+    if (make) Object.assign(patch, normaliseMake(make));
+  }
+  if (!String(current.model ?? '').trim() && !patch.model) {
+    const model = said('model');
+    if (model) patch.model = model;
+  }
+  if (!String(current.origin_port ?? '').trim()) {
+    const place = said('origin_place');
+    if (place) patch.origin_port = normalisePlace(place);
+  }
+
+  if (Object.keys(patch).length) {
+    const saved = await updateDraft(current.booking_ref, patch, { chatId: ctx.chatId });
+    if (saved.ok) {
+      current = saved.draft;
+      filled.push(...Object.keys(patch));
+      logEvent('booking_information_from_documents', {
+        booking_ref: current.booking_ref, fields: Object.keys(patch),
+      });
+    }
+  }
+
+  return { booking: current, filled: [...new Set(filled)] };
 }
 
 /**
