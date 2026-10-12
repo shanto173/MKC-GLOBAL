@@ -202,7 +202,9 @@ test('the preview counts exactly what would go, before anything goes', async () 
     notification_outbox: 1, operations_tasks: 1, internal_notes: 1, mrn_requests: 1, booking_documents: 2, bookings: 1,
   });
   assert.equal(r.body.files, 2);
-  assert.ok(r.body.words.includes('2 documents'), r.body.words.join(', '));
+  assert.deepEqual(r.body.words,
+    ['1 booking', '2 documents', '1 MRN application', '1 internal note', '1 task', '1 queued message', '2 files'],
+    'the booking first, then what goes with it, then the files');
   // Nothing at all was touched by looking.
   assert.equal(rows('bookings').length, 3);
   assert.equal(ledger().length, 0);
@@ -398,8 +400,10 @@ test('something put back is never purged', async () => {
 // Words
 // ---------------------------------------------------------------------------
 
-test('the counts are read back in words a person can weigh', () => {
-  assert.deepEqual(countWords({ bookings: 1, booking_documents: 3, chat_messages: 41 }, 4),
+test('the counts are read back in words a person can weigh, the record first', () => {
+  // The counts arrive in delete order - children first, the record last - and
+  // are read back the other way round, the way a person would say it.
+  assert.deepEqual(countWords({ chat_messages: 41, booking_documents: 3, bookings: 1 }, 4),
     ['1 booking', '3 documents', '41 messages', '4 files']);
   assert.deepEqual(countWords({ bookings: 1 }, 1), ['1 booking', '1 file']);
   assert.deepEqual(countWords({}, 0), []);

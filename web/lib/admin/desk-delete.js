@@ -255,7 +255,10 @@ const TABLE_WORDS = {
 
 export function countWords(counts, files = 0) {
   const parts = [];
-  for (const [table, n] of Object.entries(counts ?? {})) {
+  // Backwards through the delete order, so the record itself - deleted last,
+  // after its children - is named first: "1 booking, 1 document, 1 file"
+  // rather than "1 document, 1 booking".
+  for (const [table, n] of Object.entries(counts ?? {}).reverse()) {
     const words = TABLE_WORDS[table];
     if (!words || !n) continue;
     parts.push(`${n} ${n === 1 ? words[0] : words[1]}`);
