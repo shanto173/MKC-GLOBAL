@@ -29,7 +29,8 @@ export function inLanguage(language, ar, en) {
 
 const DOC_AR = {
   invoice: 'الفاتورة',
-  brief: 'مستند النقل (CMR أو البوليصة)',
+  brief: 'رخصة/ملكية السيارة (Brief)',
+  cmr: 'بوليصة النقل CMR',
   mrn: 'مستند الـ MRN',
   acid: 'شهادة ACID',
   eur1: 'شهادة EUR.1',
@@ -55,7 +56,8 @@ const reasonFor = (code) => REPLACEMENT_REASONS.find((r) => r.code === code) ?? 
  */
 const DOC_EN = {
   invoice: 'Invoice',
-  brief: 'transport document (CMR or bill of lading)',
+  brief: 'Brief - the vehicle title (Fahrzeugbrief)',
+  cmr: 'CMR transport document',
   mrn: 'MRN document',
   acid: 'ACID certificate',
   eur1: 'EUR.1 certificate',

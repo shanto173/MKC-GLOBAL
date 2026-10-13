@@ -50,8 +50,11 @@ MRN  26LTVR610172694233
 Declarant  UAB V.I.P INVESTMENT
 Invoice  INV-2026-4471`;
 
-test('a consignment note is a transport document, not the invoice it names', () => {
-  assert.equal(guessDocType(CMR), 'brief');
+test('a consignment note is a CMR, not the invoice it names - and not a Brief', () => {
+  // The Brief is the vehicle's title; a CMR is the journey. They were one type
+  // until an owner pointed out that the desk was calling a registration
+  // document a transport document.
+  assert.equal(guessDocType(CMR), 'cmr');
 });
 
 test('an invoice is an invoice, even though it cites a EUR.1', () => {
@@ -69,7 +72,7 @@ test('the heading decides, not a passing mention further down', () => {
   const asNote = `CMR CONSIGNMENT NOTE\nNo. 1\n\n${INVOICE.split('\n').slice(3).join('\n')}`;
 
   assert.equal(guessDocType(asInvoice), 'invoice');
-  assert.equal(guessDocType(asNote), 'brief');
+  assert.equal(guessDocType(asNote), 'cmr');
 });
 
 test('the transport document is recognised under its other names', () => {
@@ -77,8 +80,21 @@ test('the transport document is recognised under its other names', () => {
     'BILL OF LADING', 'SEA WAYBILL', 'PACKING LIST',
     'INTERNATIONALER FRACHTBRIEF', 'LETTRE DE VOITURE INTERNATIONALE',
   ]) {
-    assert.equal(guessDocType(`${heading}\nNo. 12345\nVIN W1T96340310484233`), 'brief', heading);
+    assert.equal(guessDocType(`${heading}\nNo. 12345\nVIN W1T96340310484233`), 'cmr', heading);
   }
+});
+
+test('and the vehicle title is recognised under its own names, which are different papers', () => {
+  for (const heading of [
+    'FAHRZEUGBRIEF', 'ZULASSUNGSBESCHEINIGUNG TEIL II', 'CARTE GRISE',
+    'VEHICLE REGISTRATION CERTIFICATE', 'LIBRETTO DI CIRCOLAZIONE',
+  ]) {
+    assert.equal(guessDocType(`${heading}\nNr. 12345\nFahrgestellnummer W1T96340310484233`), 'brief', heading);
+  }
+  // "brief" is inside both of these words and the match is a plain substring:
+  // a Frachtbrief is a CMR and must not be read as the vehicle's title.
+  assert.equal(guessDocType('INTERNATIONALER FRACHTBRIEF\nNo. 1\nVIN W1T96340310484233'), 'cmr');
+  assert.equal(guessDocType('VRACHTBRIEF\nNo. 1\nVIN W1T96340310484233'), 'cmr');
 });
 
 test('a document with no evidence at all is "other", not a guess', () => {
@@ -107,7 +123,8 @@ test('the specimen PDFs classify as the flow expects', { skip: built ? false : '
 
   const expected = {
     'test-invoice.pdf': 'invoice',
-    'test-cmr-transport.pdf': 'brief',
+    'test-brief-vehicle-title.pdf': 'brief',
+    'test-cmr-transport.pdf': 'cmr',
     'test-mrn-export-declaration.pdf': 'mrn',
     'test-acid-nafeza.pdf': 'acid',
   };

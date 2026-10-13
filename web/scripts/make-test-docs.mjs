@@ -162,6 +162,49 @@ async function invoice() {
 // consignment note is what actually accompanies a truck out of Lithuania, and
 // the reader classifies it as `brief` from the letters CMR.
 
+/**
+ * The Brief: the vehicle's own title.
+ *
+ * This is what MKY asks every customer for, with the invoice - it says what the
+ * vehicle is and who owns it, and without it there is nothing to apply for the
+ * MRN and the EUR.1 with. It is NOT the CMR below: that one names a journey and
+ * a carrier, and MKY issues its own.
+ */
+async function vehicleTitle() {
+  const { doc, done } = newDoc();
+  watermark(doc);
+
+  doc.font('Helvetica-Bold').fontSize(19).fillColor(INK).text('FAHRZEUGBRIEF', 50, 50);
+  doc.fontSize(12).text('ZULASSUNGSBESCHEINIGUNG TEIL II', 50, 74);
+  doc.font('Helvetica').fontSize(9.5).fillColor(MUTED)
+    .text('Vehicle registration certificate part II · Certificate of title', 50, 93);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(INK)
+    .text(`Nr. ${digits(seed * 3, 9)}    Ausgestellt: 2026-08-04`, 50, 112);
+
+  let y = heading(doc, 'A · FAHRZEUG / VEHICLE', 142);
+  y = row(doc, 'Fahrgestellnummer (VIN)', VIN, y, { size: 11 });
+  y = row(doc, 'Hersteller / Make', unit.make, y);
+  y = row(doc, 'Typ / Model', unit.model, y);
+  y = row(doc, 'Erstzulassung / First registered', `2016-03-11`, y);
+  y = row(doc, 'Art / Type', unit.type, y);
+  y = row(doc, 'Zulässige Gesamtmasse / Gross weight', unit.weight, y);
+
+  y = heading(doc, 'C · HALTER / KEEPER', y + 8);
+  y = row(doc, 'Name', seller.name, y);
+  y = row(doc, 'Anschrift / Address', seller.address, y);
+
+  y = heading(doc, 'ABMELDUNG / DEREGISTRATION', y + 8);
+  y = row(doc, 'Status', 'Deregistered for export', y);
+  y = row(doc, 'Date', '2026-09-15', y);
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+    .text('Specimen vehicle title generated for testing the MKY Global assistant. '
+      + 'It registers nothing and proves no ownership.', 50, y + 24, { width: 495 });
+
+  doc.end();
+  return done;
+}
+
 async function transportDocument() {
   const { doc, done } = newDoc();
   watermark(doc);
@@ -343,6 +386,7 @@ const PREFIX = (process.argv[8] || 'test').replace(/[^\w-]/g, '');
 
 const files = [
   [`${PREFIX}-invoice.pdf`, await invoice()],
+  [`${PREFIX}-brief-vehicle-title.pdf`, await vehicleTitle()],
   [`${PREFIX}-cmr-transport.pdf`, await transportDocument()],
   [`${PREFIX}-mrn-export-declaration.pdf`, await exportDeclaration()],
   [`${PREFIX}-acid-nafeza.pdf`, await acidRegistration()],
@@ -365,10 +409,17 @@ The matched set names chassis ${VIN}
 
 Send these three, in this order:
   ${PREFIX}-invoice.pdf
-  ${PREFIX}-cmr-transport.pdf
+  ${PREFIX}-brief-vehicle-title.pdf
   ${PREFIX}-mrn-export-declaration.pdf
 
-${PREFIX}-acid-nafeza.pdf is only asked for when bot_settings.acid_required is
-true. ${PREFIX}-invoice-WRONG-CHASSIS.pdf exercises the mismatch warning.
+The Brief is the vehicle's title, and with the invoice it is what MKY needs to
+obtain the MRN and the EUR.1. ${PREFIX}-mrn-export-declaration.pdf is only
+asked for when the customer has their own MRN; when MKY obtains it, the first
+two are the whole set.
+
+${PREFIX}-cmr-transport.pdf is the transport document - never required to book,
+and MKY issues its own. ${PREFIX}-acid-nafeza.pdf is only asked for when
+bot_settings.acid_required is true. ${PREFIX}-invoice-WRONG-CHASSIS.pdf
+exercises the mismatch warning.
 
   npm run testdocs -- <CHASSIS> "<CLIENT>" <MAKE> "<MODEL>" <CITY> <PORT> <PREFIX>`);

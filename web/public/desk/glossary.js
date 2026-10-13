@@ -19,9 +19,11 @@ export const GLOSSARY = {
   mrn: { term: 'MRN', text: 'The Movement Reference Number of the EU export declaration.' },
   acid: { term: 'ACID', text: 'Egypt’s Advance Cargo Information Declaration, registered on Nafeza before shipping.' },
   eur1: { term: 'EUR.1', text: 'The movement certificate proving EU origin for preferential duty.' },
-  cmr: { term: 'CMR', text: 'The international road consignment note.' },
-  // The bot's own word for the transport document (lib/extract.js, "brief").
-  brief: { term: 'Brief', text: 'The transport document for the vehicle: a CMR road consignment note, or a bill of lading.' },
+  cmr: { term: 'CMR', text: 'The international road consignment note. MKY issues its own; one from a customer is proof the vehicle reached the port.' },
+  // The vehicle's own title. It was described here, in the settings and to the
+  // customer as a transport document, which is two different papers under one
+  // name - and the one MKY cannot apply for an MRN without.
+  brief: { term: 'Brief', text: 'The vehicle’s title — a German Fahrzeugbrief, a carte grise, a libretto. It names the vehicle and its owner. Not a transport document.' },
 };
 
 /** The glossary entry for a document type or a field the bot reads, if it has one. */

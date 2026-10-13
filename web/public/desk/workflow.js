@@ -142,6 +142,7 @@ export const DOC_STATUS = {
 export const DOC_LABEL = {
   invoice: 'Invoice',
   brief: 'Brief',
+  cmr: 'CMR',
   mrn: 'MRN',
   acid: 'ACID',
   eur1: 'EUR.1',

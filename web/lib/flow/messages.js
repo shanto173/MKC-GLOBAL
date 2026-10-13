@@ -777,7 +777,11 @@ export const FIELD_LABELS = {
  */
 export const DOC_LABELS = {
   invoice: ['الفاتورة التجارية', 'Invoice'],
-  brief: ['مستند النقل', 'Transport document'],
+  // The Brief is the vehicle's title - the German Fahrzeugbrief and its
+  // equivalents - not a transport document. It was called one on every screen
+  // for months; an owner asked for the CMR and was sent a registration paper.
+  brief: ['رخصة/ملكية السيارة (Brief)', 'Brief (vehicle title)'],
+  cmr: ['بوليصة النقل CMR', 'CMR (transport document)'],
   mrn: ['رقم MRN', 'MRN'],
   acid: ['رقم ACID (نافذة)', 'ACID'],
   eur1: ['شهادة المنشأ EUR.1', 'EUR.1'],

@@ -202,8 +202,12 @@ export function classifyDocument(types) {
 function labelFor(type) {
   const map = {
     invoice: ['🧾', 'الفاتورة', 'Invoice'],
-    // The customer's word for it; "Brief" is the desk's.
-    brief: ['📑', 'مستند النقل', 'Transport document'],
+    // The vehicle's title. Called a transport document here until an owner
+    // pointed out that a Brief and a CMR are two different papers. Said short
+    // because a button title may be twenty characters and no more; the full
+    // name - "Brief (vehicle title)" - is what the messages around it use.
+    brief: ['📑', 'رخصة السيارة', 'Brief (title)'],
+    cmr: ['🚚', 'بوليصة النقل CMR', 'CMR'],
     mrn: ['📄', 'MRN', 'MRN'],
     acid: ['🆔', 'ACID', 'ACID'],
     eur1: ['📜', 'EUR.1', 'EUR.1'],

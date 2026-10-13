@@ -51,7 +51,7 @@ const titleOf = (id) => SECTIONS.find(([k]) => k === id)?.[1] ?? id;
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
-const DOC_WORDS = { invoice: 'Invoice', brief: 'Brief (CMR / transport document)', mrn: 'MRN document', acid: 'ACID certificate', eur1: 'EUR.1 certificate' };
+const DOC_WORDS = { invoice: 'Invoice', brief: 'Brief (vehicle title)', mrn: 'MRN document', acid: 'ACID certificate', eur1: 'EUR.1 certificate', cmr: 'CMR (transport document)' };
 const TIMEZONES = ['Africa/Cairo', 'Europe/Vilnius', 'Europe/Berlin', 'Europe/London', 'Asia/Dubai', 'UTC'];
 /** The fields the server may warn about, as a sentence names them. */
 const FIELD_WORDS = { direct_phone: 'direct line', operations_phone: 'desk number' };

@@ -29,7 +29,8 @@ const DOC_LABELS = {
   mrn: 'MRN / export declaration',
   eur1: 'EUR.1 certificate of origin',
   acid: 'ACID registration',
-  brief: 'transport document',
+  brief: 'vehicle title (Brief)',
+  cmr: 'CMR transport document',
   other: 'document',
 };
 
@@ -38,7 +39,8 @@ export const DOC_LABELS_AR = {
   mrn: 'رقم MRN / بيان التصدير',
   eur1: 'شهادة المنشأ EUR.1',
   acid: 'تسجيل ACID',
-  brief: 'مستند النقل',
+  brief: 'رخصة/ملكية السيارة (Brief)',
+  cmr: 'بوليصة النقل CMR',
   other: 'مستند',
 };
 
@@ -506,8 +508,12 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
   for (const doc of mine) {
     if (!byType.has(doc.doc_type)) byType.set(doc.doc_type, doc);
   }
-  // Origin paperwork satisfies the transport-document requirement either way.
-  if (byType.has('eur1') && !byType.has('brief')) byType.set('brief', byType.get('eur1'));
+  // A EUR.1 used to satisfy the "brief" requirement, from when a brief was
+  // believed to be a transport document and both were loosely "the origin
+  // paperwork". A Brief is the vehicle's title and a EUR.1 is a certificate of
+  // origin that MKY itself obtains: neither can stand for the other, and a
+  // booking that counted one as the other went to Operations without the one
+  // paper they need to apply for the MRN.
 
   const missing = required.filter((type) => !byType.has(type));
   const verified = mine.filter((d) => d.status === 'verified').map((d) => d.doc_type);
@@ -517,7 +523,7 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
   // it is no longer reported: the document step said "that invoice shows
   // another chassis" again with every later file, after the correct invoice
   // had arrived. One sent AFTER the right one is new, and is reported.
-  const sameKind = (a, b) => a === b || (['brief', 'eur1'].includes(a) && ['brief', 'eur1'].includes(b));
+  const sameKind = (a, b) => a === b;
   const newer = (a, b) => (a.uploaded_at && b.uploaded_at && a.uploaded_at !== b.uploaded_at
     ? a.uploaded_at > b.uploaded_at
     : Number(a.id) > Number(b.id));

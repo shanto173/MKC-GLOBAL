@@ -47,11 +47,25 @@ const DOC_TYPE_HINTS = [
   { type: 'mrn', words: ['export accompanying', 'document de însoţire de export', 'document de insotire', 'ausfuhrbegleitdokument', 'mrn', 'declarant', 'b.v. export'] },
   { type: 'eur1', words: ['eur.1', 'eur 1', 'movement certificate', 'certificat de circulaţie', 'certificat de circulatie', 'circulation des marchandises'] },
   { type: 'acid', words: ['acid', 'aci', 'nafeza', 'نافذة', 'الرقم التعريفي', 'مسجل'] },
-  // A transport document goes by half a dozen names on this lane and only one
-  // of them was listed, so a perfectly ordinary CMR read as "other".
-  { type: 'brief', words: ['cmr', 'consignment note', 'bill of lading', 'waybill', 'sea waybill',
-                           'packing list', 'frachtbrief', 'lettre de voiture', 'vrachtbrief',
-                           'krovinio važtaraštis', 'list przewozowy'] },
+  // THE BRIEF IS THE VEHICLE'S TITLE, NOT A TRANSPORT DOCUMENT.
+  //
+  // It was listed here as "cmr, consignment note, bill of lading…" and called
+  // "Brief (CMR / transport document)" on every screen, which is two different
+  // papers under one name. The Brief - Fahrzeugbrief, Zulassungsbescheinigung
+  // Teil II, carte grise, libretto - is what proves who owns the vehicle, and
+  // it is what MKY needs, with the invoice, to obtain the MRN and the EUR.1.
+  //
+  // Bare "brief" is deliberately not a word here: it is inside frachtbrief and
+  // vrachtbrief, which are CMRs, and the match is a plain substring.
+  { type: 'brief', words: ['fahrzeugbrief', 'kfz-brief', 'zulassungsbescheinigung',
+                           'vehicle registration', 'registration certificate', 'certificate of title',
+                           'carte grise', 'libretto di circolazione', 'dowód rejestracyjny',
+                           'registracijos liudijimas'] },
+  // The transport document. MKY issues its own; one from a customer is proof
+  // that the truck reached the port, and is never required to book.
+  { type: 'cmr', words: ['cmr', 'consignment note', 'bill of lading', 'waybill', 'sea waybill',
+                         'packing list', 'frachtbrief', 'lettre de voiture', 'vrachtbrief',
+                         'krovinio važtaraštis', 'list przewozowy'] },
 ];
 
 /**
@@ -200,7 +214,7 @@ Return ONLY a JSON object, no commentary, with these keys (use null when the
 document does not state something - never guess):
 
 {
-  "doc_type": "invoice" | "mrn" | "eur1" | "acid" | "brief" | "other",
+  "doc_type": "invoice" | "mrn" | "eur1" | "acid" | "brief" | "cmr" | "other",
   "vin": string|null,              // chassis / VIN exactly as printed
   "make": string|null,             // e.g. "Mercedes-Benz"
   "model": string|null,            // e.g. "Actros 1845"
@@ -244,8 +258,12 @@ MRN, and an invoice cites the EUR.1. Judge by the heading.
   mrn     - an export accompanying document / customs export declaration
   eur1    - a EUR.1 movement certificate
   acid    - an Egyptian ACID / Nafeza registration
-  brief   - a transport document: CMR or other consignment note, bill of lading,
-            sea waybill, packing list
+  brief   - the vehicle's own title / registration document: a German
+            Fahrzeugbrief or Zulassungsbescheinigung Teil II, a carte grise, a
+            libretto di circolazione, a dowod rejestracyjny. It names the
+            vehicle and who owns it. It is NOT a transport document.
+  cmr     - a transport document: a CMR consignment note, a bill of lading, a
+            sea waybill, a packing list. It names a journey and a carrier.
   other   - only when it is genuinely none of these. Prefer a considered type
             over "other": "other" makes us ask the client what they just sent.`;
 

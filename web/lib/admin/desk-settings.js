@@ -18,6 +18,8 @@ import { fingerprint, userVersion, ROLE_WORDS, ROLE_CAN, refuseStale, invalidate
 import { hashPassword, passwordProblem, normaliseUsername, usernameProblem, MIN_PASSWORD } from './desk-auth.js';
 import { DEFAULT_SAVED_REPLIES } from './desk-messages.js';
 
+// A CMR is deliberately not here: MKY issues its own, and one from a customer
+// is proof the truck reached the port - never a condition of booking.
 const DOC_TYPES = ['invoice', 'brief', 'mrn', 'acid', 'eur1'];
 const ROLES = ['ops_agent', 'ops_supervisor', 'admin', 'read_only'];
 
