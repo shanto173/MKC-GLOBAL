@@ -84,7 +84,10 @@ function withoutLanguageColumns(db) {
   };
 }
 
-function harness({ channel = 'telegram', settings = [], seed = {}, wrap = null, clientId } = {}) {
+// `userName: null` is a chat whose profile name we do not have, which is now
+// the only way the booking asks "what is your name?" - the tests of the
+// questions about the person go through it.
+function harness({ channel = 'telegram', settings = [], seed = {}, wrap = null, clientId, userName } = {}) {
   let db = createFakeDb({
     bot_settings: [...SETTINGS, ...settings],
     clients: [
@@ -106,6 +109,7 @@ function harness({ channel = 'telegram', settings = [], seed = {}, wrap = null, 
     web: { channel: 'web', chatId: 'web-1', clientId: null, userName: null },
   }[channel];
   Object.assign(ctx, { correlationId: 'test', now: IN_HOURS });
+  if (userName !== undefined) ctx.userName = userName;
   if (clientId !== undefined) ctx.clientId = clientId;
 
   const send = (input) => runFlow(input, ctx);
@@ -172,9 +176,14 @@ function assertEnglishOnly(r, label = '') {
 /** Walks a booking from the menu to the confirmation card, returning every reply. */
 async function bookToCard(h, { name = 'Nile Motors' } = {}) {
   const replies = [];
-  replies.push(await h.tap('menu:book'));
-  replies.push(await h.text(name));
-  replies.push(await h.text(PHONE));
+  const start = await h.tap('menu:book');
+  replies.push(start);
+  // Both are taken from the chat when it has them: the profile name always,
+  // and the number on WhatsApp, where the message arrives from it. Only what
+  // is actually asked for is answered.
+  let at = start;
+  if (at.state === S.BOOK_CLIENT_NAME) { at = await h.text(name); replies.push(at); }
+  if (at.state === S.BOOK_CLIENT_PHONE) { at = await h.text(PHONE); replies.push(at); }
   replies.push(await h.text(VIN));
   replies.push(await h.text('Mercedes-Benz'));
   replies.push(await h.text('Vilnius'));
@@ -254,7 +263,7 @@ test('"hi" first is asked; an answer in words is read for its script and then de
   // "I want to book" answers the question AND starts the booking, in English.
   const r = await h.text('I want to book');
   assert.equal(r.language, 'en');
-  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE);
   assertEnglishOnly(r, 'booking');
   assert.match(said(r), /Step 1 of 3/);
   assert.equal(h.client().language, 'en');
@@ -303,13 +312,13 @@ test('a first message with a chassis number is handled, in the language it was w
 test('"I want to book" as the very first message starts the booking - no question first', async () => {
   const h = harness({ channel: 'whatsapp' });
   const r = await h.text('I want to book');
-  assert.equal(r.state, S.BOOK_CLIENT_NAME);
+  assert.equal(r.state, S.BOOK_VIN);
   assert.equal(r.language, 'en');
   assertEnglishOnly(r, 'first message');
 
   const ar = harness({ channel: 'whatsapp' });
   const r2 = await ar.text('عايز أحجز شحنة');
-  assert.equal(r2.state, S.BOOK_CLIENT_NAME);
+  assert.equal(r2.state, S.BOOK_VIN);
   assert.equal(r2.language, 'ar');
   assertArabicOnly(r2, 'first message in Arabic');
 });
@@ -351,7 +360,7 @@ test('a file or an old button sent instead of an answer is dealt with, not dropp
   const h = harness();
   await h.command('/start');
   const r = await h.tap('menu:book');
-  assert.equal(r.state, S.BOOK_CLIENT_NAME, 'the booking starts');
+  assert.equal(r.state, S.BOOK_CLIENT_PHONE, 'the booking starts');
   assert.ok(said(r).includes(RULE), 'in both languages - nothing said which');
   assert.equal(h.client().language ?? null, null, 'and nothing was chosen for them');
 
@@ -532,9 +541,9 @@ test('without the language columns: never asked, bilingual, no loop, sessions st
 
   // And the conversation still moves and is still saved - without the column.
   const booked = await h.tap('menu:book');
-  assert.equal(booked.state, S.BOOK_CLIENT_NAME);
+  assert.equal(booked.state, S.BOOK_CLIENT_PHONE);
   const row = h.session();
-  assert.equal(row.current_state, S.BOOK_CLIENT_NAME);
+  assert.equal(row.current_state, S.BOOK_CLIENT_PHONE);
   assert.equal('language' in row, false, 'never named in a write');
 });
 
@@ -543,7 +552,7 @@ test('without the language columns: never asked, bilingual, no loop, sessions st
 // ---------------------------------------------------------------------------
 
 test('an Arabic booking is Arabic from the menu to the card - no English half anywhere', async () => {
-  const h = harness();
+  const h = harness({ userName: null });
   await h.command('/start');
   await h.tap('lang:ar');
   const replies = await bookToCard(h, { name: 'شركة النيل' });
@@ -596,7 +605,9 @@ test('an Arabic chat names the Egyptian ports in Arabic - in the list and on the
   await h.tap('lang:ar');
   const replies = await bookToCard(h, { name: 'شركة النيل' });
 
-  const asked = said(replies[5]);
+  // Found, not counted off: how many questions come before it depends on what
+  // the chat already told us about the person.
+  const asked = replies.map(said).find((t) => t.includes('ميناء بورسعيد')) ?? '';
   for (const port of ['ميناء الإسكندرية', 'ميناء بورسعيد', 'ميناء دمياط', 'ميناء العين السخنة', 'ميناء السويس']) {
     assert.ok(asked.includes(port), `${port} in: ${asked}`);
     assert.ok(matchPort(port), `${port} typed back is understood`);
@@ -626,7 +637,7 @@ test('an English booking is English from the menu to the card - no Arabic anywhe
 });
 
 test('before a choice, every message and card is exactly as bilingual as before', async () => {
-  const h = harness({ settings: [{ key: 'ask_language_first', value: false }] });
+  const h = harness({ settings: [{ key: 'ask_language_first', value: false }], userName: null });
   await h.command('/start');
   const replies = await bookToCard(h);
   const card = said(replies[replies.length - 1]);
@@ -646,58 +657,36 @@ test('before a choice, every message and card is exactly as bilingual as before'
 // WhatsApp's phone step
 // ---------------------------------------------------------------------------
 
-test('on WhatsApp the phone step offers the number being written from', async () => {
-  const h = harness({ channel: 'whatsapp' });
+test('on WhatsApp the number is taken from the chat, not asked for', async () => {
+  // It used to be offered on a button - "Use this number" - which is a whole
+  // exchange spent confirming what the message arrived with. It is taken, said
+  // back in the opening, and changeable on the confirmation card.
+  const h = harness({ channel: 'whatsapp', userName: null });
   await h.command('/start', 'hi');
   await h.tap('lang:en');
   await h.tap('menu:book');
   const asked = await h.text('Nile Motors');
 
-  assert.equal(asked.state, S.BOOK_CLIENT_PHONE);
-  assert.ok(asked.messages.every((m) => !m.keyboard), 'no Telegram reply keyboard');
-  assert.deepEqual(datas(asked), ['bk:phone:use', 'bk:phone:other', 'menu:home']);
-  // The number is said in full in the question; the button only has room to
-  // point at it - cut to 20 characters it hid the digits being confirmed.
-  assert.deepEqual(buttons(asked).map((b) => b.title), ['Use this number', 'Another number', 'Main menu']);
+  assert.equal(asked.state, S.BOOK_VIN, 'straight past the number, to the vehicle');
+  assert.equal(h.booking().customer_contact, '+201005551234', 'the sender’s number, in the one stored shape');
   assert.doesNotMatch(said(asked), /Share my number/);
-  assert.match(said(asked), /the number you are writing from \(\+20 100 555 1234\)/);
-
-  const used = await h.tap('bk:phone:use');
-  assert.equal(h.booking().customer_contact, '+201005551234', 'the sender\'s number, in the one stored shape');
-  assert.equal(used.state, S.BOOK_VIN);
-
-  // From an older message, the button is stale: the open question again.
-  const stale = await h.tap('bk:phone:use');
-  assert.equal(stale.state, S.BOOK_VIN);
-  assert.match(said(stale), /VIN \/ Chassis number/);
 });
 
-test('on WhatsApp "Another number" asks for it, and "yes" means the number being written from', async () => {
-  const h = harness({ channel: 'whatsapp' });
+test('the number taken from the chat is not one they are stuck with', async () => {
+  const h = harness({ channel: 'whatsapp', userName: null });
   await h.command('/start', 'hi');
   await h.tap('lang:ar');
   await h.tap('menu:book');
   const asked = await h.text('شركة النيل');
-  assertArabicOnly(asked, 'Arabic phone step');
+  assertArabicOnly(asked, 'Arabic, and straight to the vehicle');
+  assert.equal(asked.state, S.BOOK_VIN);
+  assert.equal(h.booking().customer_contact, '+201005551234');
   assert.doesNotMatch(said(asked), /شارك رقمي/);
-  assert.equal(buttons(asked)[0].title.length <= 20, true);
 
-  const other = await h.tap('bk:phone:other');
-  assert.equal(other.state, S.BOOK_CLIENT_PHONE);
-  assert.match(said(other), /اكتب رقمك/);
-
-  const typed = await h.text('+49 176 67221612');
-  assert.equal(typed.state, S.BOOK_VIN);
-  assert.equal(h.booking().customer_contact, '+4917667221612');
-
-  const g = harness({ channel: 'whatsapp' });
-  await g.command('/start', 'hi');
-  await g.tap('lang:en');
-  await g.tap('menu:book');
-  await g.text('Nile Motors');
-  const yes = await g.text('yes');
-  assert.equal(yes.state, S.BOOK_VIN);
-  assert.equal(g.booking().customer_contact, '+201005551234');
+  // "Use this number" / "Another number" still exist where they are useful:
+  // the edit path, which the test below this one covers in both languages.
+  const edit = await h.tap('bk:edit:phone');
+  assert.deepEqual(datas(edit).slice(0, 2), ['bk:phone:use', 'bk:phone:other']);
 });
 
 test('on WhatsApp the edited number is offered the same way', async () => {
@@ -714,7 +703,7 @@ test('on WhatsApp the edited number is offered the same way', async () => {
 });
 
 test('on Telegram the phone step is unchanged: the share button', async () => {
-  const h = harness();
+  const h = harness({ userName: null });
   await h.command('/start');
   await h.tap('lang:en');
   await h.tap('menu:book');

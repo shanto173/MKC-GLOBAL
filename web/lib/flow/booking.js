@@ -114,12 +114,7 @@ export async function startBooking(session, ctx) {
 
   // A draft with nothing on it - a Book tap that went nowhere - is not worth
   // an "unfinished request" question. It is simply the request, from the top.
-  if (draft && draftIsBlank(draft)) {
-    return reply(
-      say(M.bookingStartAskName(ctx.userName ?? null), kb.homeOnly()),
-      { active_flow: FLOWS.BOOKING, current_state: S.BOOK_CLIENT_NAME, active_booking_ref: draft.booking_ref, context: {} },
-    );
-  }
+  if (draft && draftIsBlank(draft)) return openBooking(draft, ctx);
 
   if (draft) {
     return reply(
@@ -129,6 +124,68 @@ export async function startBooking(session, ctx) {
   }
 
   return newDraft(session, ctx);
+}
+
+/**
+ * The first thing a booking says, and the first thing it asks.
+ *
+ * TWO QUESTIONS THAT ARE NO LONGER ASKED.
+ *
+ * On WhatsApp the person's name and the number they are writing from arrive
+ * with every message. The flow asked for both anyway - offering what it already
+ * had and waiting to be told it was right - which is two exchanges to learn
+ * nothing. They are taken, said back in the opening so a wrong one is visible
+ * at once, and either can be changed on the confirmation card before the
+ * booking is submitted.
+ *
+ * Telegram hands over no number, so there the question stands.
+ *
+ * What is asked first is the vehicle, and the quickest answer to it is a
+ * document: the chassis, the make, the model and the loading port are all
+ * printed on the invoice and on the Brief, and adoptFromPapers takes them.
+ */
+async function openBooking(draft, ctx) {
+  const patch = {};
+  const name = ctx.userName ? latinizeName(ctx.userName) || String(ctx.userName).trim() : null;
+  if (name && !draft.customer_name) patch.customer_name = name.slice(0, 120);
+  const phone = whatsappNumber(ctx);
+  if (phone && !looksLikePhone(draft.customer_contact)) patch.customer_contact = phone;
+
+  // Best effort: a draft that would not take the name is not worth failing a
+  // booking over - the questions below simply ask for what is still missing.
+  const saved = Object.keys(patch).length
+    ? await updateDraft(draft.booking_ref, patch, { chatId: ctx.chatId }).catch(() => ({ ok: false }))
+    : { ok: true, draft };
+  const current = saved.ok ? (saved.draft ?? draft) : draft;
+
+  // Whatever could not be taken is asked for in the usual order, under the
+  // opening it belongs to: a chat that taps Book and is answered with a bare
+  // "and a mobile number?" has not been told a booking has started. Telegram
+  // hands over no number, so this is its ordinary path, not an edge case.
+  const missing = missingBasics(current);
+  if (missing.includes('customer_name')) {
+    return reply(
+      say(M.bookingStartAskName(ctx.userName ?? null), kb.homeOnly()),
+      { active_flow: FLOWS.BOOKING, current_state: S.BOOK_CLIENT_NAME, active_booking_ref: current.booking_ref, context: {} },
+    );
+  }
+  if (missing.includes('customer_contact')) {
+    const next = await askNextBasic(current, ctx, { intro: true });
+    return reply(
+      [say(M.bookingStartYourDetails(current.customer_name ?? null)), ...next.messages],
+      { active_flow: FLOWS.BOOKING, active_booking_ref: current.booking_ref, context: {}, ...next.patch },
+    );
+  }
+
+  return reply(
+    say(M.bookingStartSendPapers(current.customer_name ?? null, current.customer_contact ?? null), kb.homeOnly()),
+    {
+      active_flow: FLOWS.BOOKING,
+      current_state: S.BOOK_VIN,
+      active_booking_ref: current.booking_ref,
+      context: {},
+    },
+  );
 }
 
 async function newDraft(session, ctx) {
@@ -145,15 +202,7 @@ async function newDraft(session, ctx) {
   });
   if (!created.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
 
-  return reply(
-    say(M.bookingStartAskName(ctx.userName ?? null), kb.homeOnly()),
-    {
-      active_flow: FLOWS.BOOKING,
-      current_state: S.BOOK_CLIENT_NAME,
-      active_booking_ref: created.draft.booking_ref,
-      context: {},
-    },
-  );
+  return openBooking(created.draft, ctx);
 }
 
 /** "I will type it" - the reply keyboard's other button, not a number. */

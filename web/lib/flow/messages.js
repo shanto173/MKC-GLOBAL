@@ -163,6 +163,39 @@ export const M = {
     '📦 Let us start your booking.\n\nStep 1 of 3 — your details.\n\n' + askNameEn(suggestion),
   ),
 
+  /**
+   * The opening, when we already know who is writing.
+   *
+   * On WhatsApp the profile name and the number they are writing from are both
+   * in hand, and asking for them was two exchanges to be told what we had just
+   * been told. They are taken, said back so a wrong one is obvious, and either
+   * can be changed on the confirmation card.
+   *
+   * The first question is not "what is the chassis number" either: the chassis,
+   * the make and the loading port are all printed on the invoice and on the
+   * Brief, so the quickest booking is the one where the customer sends the two
+   * papers they already have on their phone and answers one question.
+   */
+  bookingStartSendPapers: (name, phone = null) => both(
+    `📦 تمام${name ? ` يا ${name}` : ''}، يلا نبدأ الحجز.${phone ? `\n(هنكلمك على ${phone} - تقدر تغيره في الآخر.)` : ''}\n\n` +
+    '1️⃣ الخطوة الأولى من 3 - العربية.\n\n' +
+    '📎 ابعتلي **الفاتورة** أو **رخصة السيارة (Brief)** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
+    'أو لو تحب، اكتب رقم الشاسيه بس.',
+    `📦 Thank you${name ? `, ${name}` : ''} — let us start your booking.${phone ? `\n(We will call you on ${phone}; you can change it at the end.)` : ''}\n\n` +
+    'Step 1 of 3 — the vehicle.\n\n' +
+    '📎 Send me the **invoice** or the **Brief (vehicle title)** and I will read the chassis number, the make and the loading port off them.\n' +
+    'Or just type the chassis number, if you prefer.',
+  ),
+
+  /**
+   * The opening when the name was taken from the chat but the number cannot
+   * be: Telegram hands a bot no phone number, so this is its ordinary path.
+   */
+  bookingStartYourDetails: (name) => both(
+    `📦 تمام${name ? ` يا ${name}` : ''}، يلا نبدأ الحجز.\n\n1️⃣ الخطوة الأولى من 3 - بياناتك.`,
+    `📦 Thank you${name ? `, ${name}` : ''} — let us start your booking.\n\nStep 1 of 3 — your details.`,
+  ),
+
   askClientName: (suggestion) => both(askNameAr(suggestion), askNameEn(suggestion)),
 
   // Telegram hands over a verified number through the reply-keyboard button;
@@ -208,16 +241,13 @@ export const M = {
   // message, ending in the first question.
   detailsCompleteAskVin: (name, phone = null) => both(
     `✅ تمام${name ? ` يا ${name}` : ''}${phone ? `، وسجلت رقمك ${phone}` : ''}.\n\n` +
-    '2️⃣ الخطوة التانية من 3 - العربية وأوراقها.\n\n' +
-    'تقدر تبعت كل حاجة في رسالة واحدة: رقم الشاسيه والماركة وميناء الشحن وميناء الوصول - ' +
-    'وارفق المستندات (الفاتورة، مستند النقل، الـ MRN) مع نفس الرسالة. أو واحدة واحدة، نبدأ من هنا:\n\n' +
-    ASK_VIN_AR,
+    '1️⃣ الخطوة الأولى من 3 - العربية.\n\n' +
+    '📎 ابعتلي **الفاتورة** أو **رخصة السيارة (Brief)** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
+    'أو اكتب رقم الشاسيه بس - أو ابعت كل حاجة في رسالة واحدة مع المستندات مرفقة.',
     `✅ Thank you${name ? `, ${name}` : ''}${phone ? ` — I have ${phone} as your number` : ''}.\n\n` +
-    'Step 2 of 3 — the vehicle and its papers.\n\n' +
-    'You can send it all in one message: the chassis number, make, loading port and destination — ' +
-    'and attach the documents (invoice, transport document, MRN) to the same message. ' +
-    'Or one at a time, starting here:\n\n' +
-    ASK_VIN_EN,
+    'Step 1 of 3 — the vehicle.\n\n' +
+    '📎 Send me the **invoice** or the **Brief (vehicle title)** and I will read the chassis number, the make and the loading port off them.\n' +
+    'Or just type the chassis number — or send it all in one message with the documents attached.',
   ),
 
   // -- booking, step 2: the vehicle -------------------------------------------
