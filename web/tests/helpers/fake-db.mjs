@@ -87,8 +87,12 @@ const CHECKS = {
   booking_documents: [
     {
       name: 'booking_documents_status_check',
+      // The last three are a paper sent twice: waiting on the customer to say
+      // whether it replaces the one we hold, the one it replaced, and the
+      // extra copy when they kept the first (migration 20261013120000).
       ok: (r) => r.status === undefined
-        || ['received', 'pending_verification', 'verified', 'rejected', 'replacement_requested'].includes(r.status),
+        || ['received', 'pending_verification', 'verified', 'rejected', 'replacement_requested',
+          'pending_replace', 'replaced', 'duplicate'].includes(r.status),
     },
   ],
   notification_outbox: [

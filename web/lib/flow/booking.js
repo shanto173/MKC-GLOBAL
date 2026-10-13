@@ -28,7 +28,7 @@ import {
   lookupVehicle, submitDraft, cancelDraft, cancelAllDrafts, draftIsBlank,
   looksLikeVin, normalizeVin, matchPort,
 } from '../bookings.js';
-import { bookingDocumentState, fileDocuments, looseDocuments, bookingRefsOf } from '../documents.js';
+import { bookingDocumentState, fileDocuments, looseDocuments, bookingRefsOf, SET_ASIDE } from '../documents.js';
 import { canonicalMake, latinizeName } from '../tools.js';
 import { parsePastedFields, looksLikePaste, splitMakeModel, extractField } from './paste.js';
 import { classify, fieldsIn, answerIn } from './understand.js';
@@ -1287,6 +1287,14 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
     return askWhatItIs(session, booking, ctx, { document: first, remaining: rest.map((d) => d.id), leads });
   }
 
+  // A second copy of a paper we already hold waits to be asked about rather
+  // than taking the first one's place.
+  const again = await duplicatesAmong(booking, known, ctx);
+  if (again.length) {
+    const [first, ...rest] = again;
+    return askReplaces(session, booking, ctx, { pair: first, remaining: rest, leads });
+  }
+
   return continueFrom(booking, ctx, { leads });
 }
 
@@ -1496,6 +1504,125 @@ async function askWhatItIs(session, booking, ctx, { document, remaining = [], le
     [...leads, say(M.documentUnknownType(document?.file_name ?? null), kb.classifyDocument(choices))],
     { current_state: S.BOOK_DOCUMENT_CLASSIFY, context },
   );
+}
+
+/**
+ * Papers that have arrived of a type this booking already holds.
+ *
+ * WHY THE CUSTOMER IS ASKED RATHER THAN THE NEWEST SIMPLY WINNING.
+ *
+ * One type arriving twice is ordinary: a clearer scan of a dark photograph,
+ * the right vehicle's invoice after the wrong one, the same file sent again
+ * because they were not sure it arrived. Which of those it is, only they know.
+ * The newest used to win silently, which changed the booking under Operations
+ * - sometimes replacing a paper they had already checked - and told nobody.
+ *
+ * The new one is set aside the moment it is spotted, so nothing counts it
+ * until the question is answered.
+ */
+async function duplicatesAmong(booking, arrived, ctx) {
+  if (!arrived.length || booking.status !== 'draft') return [];
+  const { db } = await import('../supabase.js');
+  const arrivedIds = new Set(arrived.map((d) => d.id));
+
+  // The same papers bookingDocumentState counts: this booking's, and the ones
+  // still loose in this chat, which is how they arrive before anything has
+  // attached them. One filed against a different request is that one's.
+  const { data: rows, error } = await db()
+    .from('booking_documents')
+    .select('id, doc_type, file_name, status, uploaded_at, booking_ref, vin')
+    .eq('chat_id', String(ctx.chatId))
+    .is('deleted_at', null);
+  if (error || !rows?.length) return [];
+
+  // A paper for another vehicle is not this booking's paper of that type, so a
+  // right one arriving after a wrong one is not a replacement - it is the
+  // first one that counts. The mismatch warning is what speaks to the wrong
+  // one, and it already stops repeating itself once the right one is in.
+  const norm = booking.vin ? normalizeVin(booking.vin) : null;
+  const mine = (d) => !norm || !d.vin || normalizeVin(d.vin) === norm;
+  const held = rows.filter((d) => (!d.booking_ref || d.booking_ref === booking.booking_ref) && mine(d));
+
+  const pairs = [];
+  const taken = new Set();
+  for (const doc of arrived) {
+    if (!mine(doc)) continue;
+    // The oldest live paper of this type that did not arrive with this batch.
+    const existing = held
+      .filter((d) => d.doc_type === doc.doc_type && !arrivedIds.has(d.id) && !taken.has(d.id) && !SET_ASIDE.has(d.status))
+      .sort((a, b) => String(a.uploaded_at ?? '').localeCompare(String(b.uploaded_at ?? '')))[0];
+    if (!existing) continue;
+    taken.add(existing.id);
+    pairs.push({ incoming: doc.id, incomingFile: doc.file_name ?? null, existing: existing.id, existingFile: existing.file_name ?? null, type: doc.doc_type });
+  }
+
+  if (pairs.length) {
+    const { error: parked } = await db().from('booking_documents')
+      .update({ status: 'pending_replace' })
+      .in('id', pairs.map((p) => p.incoming));
+    if (parked) console.error('setting a repeated document aside failed:', parked.message);
+    logEvent('document_repeated', {
+      booking_ref: booking.booking_ref, chat_id: String(ctx.chatId), types: pairs.map((p) => p.type).join(','),
+    });
+  }
+  return pairs;
+}
+
+/** The question itself: one pair at a time, the rest kept for after the answer. */
+function askReplaces(session, booking, ctx, { pair, remaining = [], leads = [] }) {
+  const label = DOC_LABELS[pair.type]?.[1] ?? 'document';
+  const context = { ...session.context, pending_replace: pair };
+  if (remaining.length) context.pending_replace_rest = remaining;
+  else delete context.pending_replace_rest;
+
+  return reply(
+    [...leads, say(M.documentReplace(label, pair.existingFile, pair.incomingFile), kb.replaceDocument())],
+    { current_state: S.BOOK_DOCUMENT_REPLACE, context },
+  );
+}
+
+/** Their answer: which copy of a paper sent twice is the one that counts. */
+export async function handleReplaceAnswer(session, answer, ctx) {
+  const pair = session.context?.pending_replace ?? null;
+  const booking = await bookingByRef(session.active_booking_ref);
+  if (!booking) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
+  if (!pair) return continueFrom(booking, ctx);
+
+  const { db } = await import('../supabase.js');
+  const replace = answer === 'yes';
+  const label = DOC_LABELS[pair.type]?.[1] ?? 'document';
+
+  if (replace) {
+    await db().from('booking_documents')
+      .update({ status: 'received', replaces_id: pair.existing }).eq('id', pair.incoming);
+    await db().from('booking_documents').update({ status: 'replaced' }).eq('id', pair.existing);
+  } else {
+    await db().from('booking_documents').update({ status: 'duplicate' }).eq('id', pair.incoming);
+  }
+  logEvent(replace ? 'document_replaced_by_client' : 'document_duplicate_kept', {
+    booking_ref: booking.booking_ref, doc_type: pair.type,
+  });
+  await audit({
+    actor_type: 'client', actor_id: ctx.chatId,
+    action: replace ? 'document_replaced' : 'document_duplicate_discarded',
+    entity_type: 'booking_document', entity_id: String(pair.incoming),
+    metadata: { booking_ref: booking.booking_ref, doc_type: pair.type, replaces: String(pair.existing) },
+  });
+
+  const lead = say(replace ? M.documentReplaced(label) : M.documentKeptFirst(label));
+
+  // The next one, when several of a batch were repeats.
+  const rest = session.context?.pending_replace_rest ?? [];
+  if (rest.length) {
+    const [next, ...later] = rest;
+    return askReplaces({ ...session, context: { ...session.context } }, booking, ctx, { pair: next, remaining: later, leads: [lead] });
+  }
+
+  const context = { ...session.context };
+  delete context.pending_replace;
+  delete context.pending_replace_rest;
+  const next = await continueFrom(booking, ctx, { leads: [lead] });
+  return reply(next.messages, { ...next.patch, context });
 }
 
 /** The client telling us what an unreadable file was. */

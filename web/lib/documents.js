@@ -24,6 +24,13 @@ export function resetDocumentsForTests() {
   mediaColumns = null;
 }
 
+/**
+ * Statuses that are on file but are not this booking's paper of that type.
+ * `rejected` is Operations' decision; the other three are the customer's,
+ * about which copy of a paper sent twice is the one that counts.
+ */
+export const SET_ASIDE = new Set(['rejected', 'pending_replace', 'replaced', 'duplicate']);
+
 const DOC_LABELS = {
   invoice: 'commercial invoice',
   mrn: 'MRN / export declaration',
@@ -494,7 +501,10 @@ export async function bookingDocumentState({ bookingRef = null, chatId, vin = nu
   const mismatched = [];
   const mine = [];
   for (const doc of data ?? []) {
-    if (doc.status === 'rejected') continue;      // Operations refused it; it is not received
+    // Not received, each for its own reason: Operations refused it; it is a
+    // second copy waiting on the customer to say whether it replaces the first
+    // one; the first one, which it did replace; or the extra copy they kept.
+    if (SET_ASIDE.has(doc.status)) continue;
     if (norm && doc.vin && normalizeVin(doc.vin) !== norm) {
       mismatched.push(doc);
       continue;

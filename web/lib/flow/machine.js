@@ -584,7 +584,7 @@ async function bookingCallback(session, action, arg, ctx) {
   // Every branch below needs a live draft. A button pressed on a card from
   // yesterday, whose request has since been submitted or cancelled, must not
   // silently start editing something else.
-  const needsDraft = ['mrn', 'confirm', 'edit', 'docs', 'doctype', 'cancel', 'draft', 'phone'].includes(action);
+  const needsDraft = ['mrn', 'confirm', 'edit', 'docs', 'doctype', 'replace', 'cancel', 'draft', 'phone'].includes(action);
   if (needsDraft && session.active_booking_ref) {
     const current = await bookingByRef(session.active_booking_ref);
     if (!current) {
@@ -615,6 +615,9 @@ async function bookingCallback(session, action, arg, ctx) {
 
     case 'doctype':
       return booking.handleDocumentClassified(session, arg, ctx);
+
+    case 'replace':
+      return booking.handleReplaceAnswer(session, arg, ctx);
 
     // "Add to that booking", for papers sent with nothing open.
     case 'fileto':

@@ -192,6 +192,21 @@ export function documentStep({ canSkip = false } = {}) {
   return rows(...buttons);
 }
 
+/**
+ * A paper arrived that we already hold one of: does it replace it?
+ *
+ * Said as the two outcomes rather than yes/no, because "no" to "does this
+ * replace it?" is easy to read backwards when it arrives as a notification on
+ * a phone an hour later.
+ */
+export function replaceDocument() {
+  return rows(
+    button('♻️', 'آه، استبدلها', 'Yes, replace it', 'bk:replace:yes'),
+    button('📎', 'لأ، خلي الأولى', 'No, keep the first', 'bk:replace:no'),
+    homeButton(),
+  );
+}
+
 /** When a file arrives that we cannot classify, the client tells us what it is. */
 export function classifyDocument(types) {
   const buttons = types.map((t) => labelFor(t));

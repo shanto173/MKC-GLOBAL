@@ -117,7 +117,7 @@ function harness(seed = {}, { userName = 'Nile Motors' } = {}) {
       db._tables.booking_documents ??= [];
       const id = 1000 + db._tables.booking_documents.length;
       db._tables.booking_documents.push({ id, ...row, vin_norm: normalizeVin(vin) });
-      return { document: { id, doc_type: docType, extracted } };
+      return { document: { id, doc_type: docType, file_name: fileName, extracted } };
     },
     booking: () => db._tables.bookings?.[db._tables.bookings.length - 1] ?? null,
     bookings: () => db._tables.bookings ?? [],
@@ -935,6 +935,73 @@ test('a chassis read off a paper is looked up like a typed one, and a booked one
   assert.match(said(r), /already booked/, 'and the booking it already has is named');
   assert.match(said(r), /MKY-BKG-OLD/);
   assert.doesNotMatch(said(r), /Read from your documents/, 'nothing was adopted');
+});
+
+// ---------------------------------------------------------------------------
+// A paper sent twice
+// ---------------------------------------------------------------------------
+
+test('a second invoice does not quietly take the first one\'s place - the customer is asked', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+  const first = await h.file(h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'invoice-dark.pdf' }));
+  assert.doesNotMatch(said(first), /already have/, 'the first one of its kind is just received');
+
+  const again = await h.file(h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'invoice-clear.pdf' }));
+  assert.match(said(again), /We already have an Invoice \(invoice-dark\.pdf\)/);
+  assert.match(said(again), /Does invoice-clear\.pdf replace it\?/);
+  assert.equal(again.state, S.BOOK_DOCUMENT_REPLACE);
+
+  const docs = h.db._tables.booking_documents;
+  assert.equal(docs.at(-1).status, 'pending_replace', 'set aside until they answer');
+  assert.equal(docs.at(-2).status, 'received', 'and the first one still counts meanwhile');
+
+  const replaced = await h.tap('bk:replace:yes');
+  assert.match(said(replaced), /the new Invoice replaces the old one/);
+  assert.equal(docs.at(-1).status, 'received');
+  assert.equal(docs.at(-1).replaces_id, docs.at(-2).id, 'and says what it came in place of');
+  assert.equal(docs.at(-2).status, 'replaced');
+  assert.doesNotMatch(said(replaced), /Invoice/i.test('x') ? /Invoice$/ : /^$/, 'the flow carries on from there');
+});
+
+test('or they keep the first, and the extra copy is kept on file without counting', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+  await h.file(h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'one.pdf' }));
+  await h.file(h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'two.pdf' }));
+
+  const kept = await h.tap('bk:replace:no');
+  assert.match(said(kept), /we will use the first Invoice/i);
+
+  const docs = h.db._tables.booking_documents;
+  assert.equal(docs.at(-1).status, 'duplicate');
+  assert.equal(docs.at(-2).status, 'received', 'the first one is untouched');
+
+  // And the booking still counts exactly one invoice, so the next question is
+  // about what is actually outstanding.
+  const { bookingDocumentState } = await import('../lib/documents.js');
+  const state = await bookingDocumentState({ bookingRef: h.booking().booking_ref, chatId: CHAT, vin: 'W1T96340310484233' });
+  assert.deepEqual(state.received_types, ['invoice']);
+});
+
+test('three papers at once, two of them repeats: each is asked about in turn', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+  await h.file(h.upload('invoice', { vin: 'W1T96340310484233', fileName: 'inv1.pdf' }));
+  await h.file(h.upload('brief', { vin: 'W1T96340310484233', fileName: 'brief1.pdf' }));
+
+  const docs = ['invoice', 'brief', 'mrn'].map((t) => h.upload(t, { vin: 'W1T96340310484233', fileName: `${t}2.pdf` }));
+  const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
+
+  assert.match(said(r), /We already have an Invoice/, 'the first repeat is asked about');
+  assert.equal(r.state, S.BOOK_DOCUMENT_REPLACE);
+
+  const second = await h.tap('bk:replace:yes');
+  assert.match(said(second), /We already have a Brief/, 'then the next one');
+  assert.equal(second.state, S.BOOK_DOCUMENT_REPLACE);
+
+  const done = await h.tap('bk:replace:no');
+  assert.doesNotMatch(said(done), /We already have/, 'and the MRN was not a repeat at all');
 });
 
 // ---------------------------------------------------------------------------

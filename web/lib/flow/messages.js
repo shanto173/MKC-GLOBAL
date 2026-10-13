@@ -427,6 +427,31 @@ What I need right now is ${needEn}.`,
     `📄 Read from your documents: ${notedEn.join(' · ')}.`,
   ),
 
+  /**
+   * A second copy of a paper we already hold.
+   *
+   * It used to take the first one's place without a word, which changed a
+   * booking under Operations - sometimes a paper they had already checked. The
+   * customer is asked, because only they know whether this is a better scan of
+   * the same thing or a different vehicle's invoice sent by mistake.
+   */
+  documentReplace: (label, existingFile, newFile) => both(
+    `📄 عندنا ${label} بالفعل${existingFile ? ` (${existingFile})` : ''}.\n\n` +
+    `${newFile ? `${newFile} ` : 'الملف الجديد ده '}يستبدلها؟`,
+    `📄 We already have ${label === 'Invoice' ? 'an' : 'a'} ${label}${existingFile ? ` (${existingFile})` : ''}.\n\n` +
+    `Does ${newFile ? `${newFile}` : 'this new file'} replace it?`,
+  ),
+
+  documentReplaced: (label) => both(
+    `✅ تمام، استبدلنا ${label}. اللي قبلها اتسجلت عندنا بس مش هتتحسب.`,
+    `✅ Done — the new ${label} replaces the old one. The first is kept on file but no longer counts.`,
+  ),
+
+  documentKeptFirst: (label) => both(
+    `✅ تمام، هنكمل بـ ${label} الأولى. الملف الجديد محفوظ عندنا بس مش هيتحسب.`,
+    `✅ Fine — we will use the first ${label}. The new file is kept on file but does not count.`,
+  ),
+
   documentUnknownType: (fileName = null) => both(
     fileName
       ? `📄 وصلني ${fileName} بس مش متأكد نوعه. هو إيه؟`
