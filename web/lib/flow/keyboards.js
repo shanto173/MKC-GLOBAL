@@ -175,9 +175,9 @@ export function alreadyBooked() {
 
 export function mrnChoice() {
   return rows(
-    button('1️⃣', 'عندي MRN', 'I already have an MRN', 'bk:mrn:existing', { en: 'I have an MRN' }),
-    button('2️⃣', 'MKY تستخرجه', 'I need MKY to issue the MRN', 'bk:mrn:mky_issue', { en: 'MKY issues my MRN' }),
-    homeButton(),
+    button('📋', 'MKY: MRN + CMR', 'MKY: the MRN and the CMR', 'bk:mrn:mky_both', { en: 'MKY: MRN + CMR' }),
+    button('📄', 'MKY: الـ MRN بس', 'MKY: the MRN only', 'bk:mrn:mky_issue', { en: 'MKY: MRN only' }),
+    button('✅', 'عندي MRN', 'I have my own MRN', 'bk:mrn:existing', { en: 'I have an MRN' }),
   );
 }
 

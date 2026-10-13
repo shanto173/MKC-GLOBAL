@@ -809,8 +809,10 @@ test('before a choice the buttons read exactly as they did', () => {
     [{ text: '📱 شارك رقمي / Share my number', request_contact: true }],
     [{ text: '✏️ هكتبه بنفسي / I will type it' }],
   ]);
-  // Bilingual titles are the English ones.
-  assert.deepEqual(kb.mrnChoice().flat().map((b) => b.title), ['I have an MRN', 'MKY issues my MRN', 'Main menu']);
+  // Bilingual titles are the English ones. Three answers to one question -
+  // MKY does the MRN and the CMR, the MRN only, or they have their own - and
+  // WhatsApp carries three buttons, so the home button gives up its place.
+  assert.deepEqual(kb.mrnChoice().flat().map((b) => b.title), ['MKY: MRN + CMR', 'MKY: MRN only', 'I have an MRN']);
 });
 
 test('a title too long for WhatsApp is refused at build time', () => {

@@ -455,7 +455,7 @@ test('a block with everything in it, pasted at the name step, goes straight to t
   assert.equal(b.customer_contact, PHONE_STORED);
   assert.equal(b.vin, 'WMA06XZZ8KM745219');
   assert.equal(b.destination_port, 'Port Said');
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
@@ -682,8 +682,11 @@ test('the MRN question is asked once the basics are in, with two choices', async
   await h2.text('Mercedes-Benz');
   await h2.text('Vilnius');
   const q = await h2.text('Alexandria');
-  assert.match(said(q), /Do you already have an MRN/);
-  assert.deepEqual(buttons(q), ['bk:mrn:existing', 'bk:mrn:mky_issue', 'menu:home']);
+  assert.match(said(q), /do you have your own MRN/);
+  // One question, three answers: MKY does the MRN and the CMR, MKY does the
+  // MRN only, or they have their own. WhatsApp carries three buttons at most,
+  // which is why the home button gives up its place here.
+  assert.deepEqual(buttons(q), ['bk:mrn:mky_both', 'bk:mrn:mky_issue', 'bk:mrn:existing']);
 });
 
 test('TEST 7 - "I have the MRN" asks for invoice, brief and MRN', async () => {
@@ -832,7 +835,7 @@ test('the details written on a file are read, and the file counted, in one go', 
   assert.match(said(r), /Received: Invoice/);
   assert.match(said(r), /Noted from your message: chassis W1T96340310484233 · make MAN TGX · route Hamburg → Port Said/);
   // Nothing basic is missing any more, so the next question is the MRN one.
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
@@ -1108,7 +1111,7 @@ test('the same sentence typed at the chassis question fills every field it names
   assert.equal(b.customer_name, 'Giza Freight Lines');
   assert.match(said(r), /This unit is new/);
   assert.match(said(r), /Noted from your message: client Giza Freight Lines · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
 });
 
 test('a make and a client are read out of a sentence, and a place is not made a city by accident', async () => {
@@ -1259,7 +1262,7 @@ test('an MRN among the papers answers the MRN question', async () => {
   const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
 
   assert.equal(h.booking().mrn_choice, 'existing', 'they sent one, so they have one');
-  assert.doesNotMatch(said(r), /Do you already have an MRN/);
+  assert.doesNotMatch(said(r), /do you have your own MRN/);
   assert.match(said(r), /We have everything we need/);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
@@ -2215,7 +2218,7 @@ test('regression: editing the route asks for the destination, not the MRN questi
 
   const afterPol = await h.text('Klaipeda');
   assert.match(said(afterPol), /Egyptian destination port/);
-  assert.doesNotMatch(said(afterPol), /Do you already have an MRN/);
+  assert.doesNotMatch(said(afterPol), /do you have your own MRN/);
   assert.doesNotMatch(said(afterPol), /Perfect! Let us continue/);
   assert.equal(afterPol.state, S.BOOK_EDIT_DESTINATION);
 
@@ -2627,7 +2630,7 @@ test('regression: a pasted table is read, not refused as "too long"', async () =
   assert.equal(b.destination_port, 'Port Said');
 
   // Everything was supplied, so the next thing asked is the MRN question.
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
   assert.equal(r.state, S.BOOK_MRN_CHOICE);
 });
 
@@ -2644,7 +2647,7 @@ test('a table pasted at the chassis step carries the chassis and the rest', asyn
   assert.equal(b.make, 'Volvo');
   assert.equal(b.customer_name, 'Delta Trans Egypt');
   assert.equal(b.destination_port, 'Port Said');
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
 });
 
 test('a pasted chassis still faces the duplicate check, it is not just stored', async () => {
@@ -2853,7 +2856,7 @@ test('the other fields are read out of a sentence too', async () => {
 
   const r = await h.text('destination is Port Said please');
   assert.equal(h.booking().destination_port, 'Port Said');
-  assert.match(said(r), /Do you already have an MRN/);
+  assert.match(said(r), /do you have your own MRN/);
 });
 
 test('a sentence with no chassis keeps what it DID contain, and asks again', async () => {
@@ -3029,7 +3032,7 @@ test('a whole booking works in Arabic, and the paperwork values come out Latin',
   // Latin guess is worse than Arabic somebody can read.
   assert.equal(b.customer_name, 'شركة النيل للنقل');
 
-  assert.match(said(r), /عندك رقم MRN/, 'and the reply is in Arabic');
+  assert.match(said(r), /الأوراق الجمركية/, 'and the reply is in Arabic');
 });
 
 test('every reply carries both languages', async () => {

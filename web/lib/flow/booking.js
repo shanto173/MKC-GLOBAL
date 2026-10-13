@@ -1119,14 +1119,21 @@ export async function handleDestination(session, text, ctx, { editing = false } 
 // Step 3 - MRN and documents
 // ---------------------------------------------------------------------------
 
-export async function handleMrnChoice(session, choice, ctx) {
-  if (!['existing', 'mky_issue'].includes(choice)) {
+export async function handleMrnChoice(session, answer, ctx) {
+  if (!['existing', 'mky_issue', 'mky_both'].includes(answer)) {
     return reply(say(M.askMrnChoice(), kb.mrnChoice()));
   }
 
+  // One question, two answers: who obtains the MRN (which decides what the
+  // customer must send), and whether MKY issues the CMR as well. A customer
+  // with their own MRN who wants our CMR is rare enough to arrange in the
+  // chat; the desk can set it either way.
+  const choice = answer === 'mky_both' ? 'mky_issue' : answer;
+  const cmr = answer === 'mky_both' ? 'mky_issue' : 'own';
+
   const saved = await updateDraft(
     session.active_booking_ref,
-    { mrn_choice: choice, mrn_needed: choice === 'mky_issue', current_step: S.BOOK_DOCUMENTS },
+    { mrn_choice: choice, cmr_choice: cmr, mrn_needed: choice === 'mky_issue', current_step: S.BOOK_DOCUMENTS },
     { chatId: ctx.chatId },
   );
   if (!saved.ok) return reply(say(M.recoverableError(ctx.correlationId), kb.errorRecovery()));
@@ -1149,6 +1156,7 @@ export async function handleMrnChoice(session, choice, ctx) {
     });
 
     const messages = [say(M.mrnMkyChosen())];
+    if (cmr === 'mky_issue') messages.push(say(M.cmrMkyChosen()));
     if (opened.ok && opened.request) {
       messages.push(say(M.mrnRequestOpened(opened.request.request_ref)));
       operationsNotifier().notifyMRNRequest(opened.request, saved.draft).catch(() => null);

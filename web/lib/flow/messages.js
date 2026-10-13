@@ -335,9 +335,19 @@ What I need right now is ${needEn}.`,
   basicsComplete: () => both('✅ تمام! يلا نكمل. 🚀', '✅ Perfect! Let us continue. 🚀'),
 
   // -- booking, step 3: MRN + documents -------------------------------------
+  // MKY obtains the MRN and the EUR.1 from the invoice and the Brief, and
+  // issues its own CMR. Asked as one question, because a booking is meant to
+  // take two or three steps, not six.
   askMrnChoice: () => both(
-    '📄 عندك رقم MRN بالفعل؟',
-    '📄 Do you already have an MRN?',
+    '📄 الأوراق الجمركية - نعملها إحنا ولا عندك MRN؟\n'
+    + '(لو إحنا اللي هنعملها، محتاجين الفاتورة ورخصة السيارة بس.)',
+    '📄 The customs paperwork — shall we take care of it, or do you have your own MRN?\n'
+    + '(If we do it, we need only the invoice and the Brief.)',
+  ),
+
+  cmrMkyChosen: () => both(
+    '🚚 وهنطلعلك بوليصة النقل (CMR) من عندنا كمان.',
+    '🚚 We will issue the CMR for you as well.',
   ),
 
   mrnExistingChosen: (labelsAr, labelsEn) => both(
