@@ -619,6 +619,9 @@ async function bookingCallback(session, action, arg, ctx) {
     case 'replace':
       return booking.handleReplaceAnswer(session, arg, ctx);
 
+    case 'email':
+      return booking.handleEmailOffer(session, arg, ctx);
+
     // "Add to that booking", for papers sent with nothing open.
     case 'fileto':
       return booking.fileToBooking(session, arg, ctx);
@@ -685,6 +688,7 @@ async function handleText(session, text, ctx) {
     case S.BOOK_POL: return booking.handleBasicField(session, 'origin_port', text, ctx);
     case S.BOOK_DESTINATION: return booking.handleDestination(session, text, ctx);
     case S.BOOK_MRN_SUPPORTING_INFO: return booking.handleMrnSupportingInfo(session, text, ctx);
+    case S.BOOK_EMAIL: return booking.handleEmail(session, text, ctx);
 
     case S.BOOK_EDIT_VIN: return booking.handleVin(session, text, ctx, { editing: true });
     case S.BOOK_EDIT_MAKE: return booking.handleBasicField(session, 'make', text, ctx, { editing: true });

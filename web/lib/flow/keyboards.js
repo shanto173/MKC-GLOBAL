@@ -192,6 +192,14 @@ export function documentStep({ canSkip = false } = {}) {
   return rows(...buttons);
 }
 
+/** After submitting: the confirmation by email as well, or not. */
+export function emailOffer() {
+  return rows(
+    button('✉️', 'آه، ابعتلي إيميل', 'Yes, email it to me', 'bk:email:yes'),
+    button('📱', 'لأ، هنا كفاية', 'No, here is fine', 'bk:email:no'),
+  );
+}
+
 /**
  * A paper arrived that we already hold one of: does it replace it?
  *

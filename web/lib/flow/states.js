@@ -47,6 +47,7 @@ export const S = {
   BOOK_EDIT_POL: 'BOOK_EDIT_POL',
   BOOK_EDIT_DESTINATION: 'BOOK_EDIT_DESTINATION',
   BOOK_CANCEL_CONFIRM: 'BOOK_CANCEL_CONFIRM',
+  BOOK_EMAIL: 'BOOK_EMAIL',
   BOOK_SUBMITTED: 'BOOK_SUBMITTED',
 
   // -- tracking ------------------------------------------------------------
@@ -95,6 +96,7 @@ export const AWAITING_TEXT = new Set([
   S.BOOK_POL,
   S.BOOK_DESTINATION,
   S.BOOK_MRN_SUPPORTING_INFO,
+  S.BOOK_EMAIL,
   S.BOOK_EDIT_VIN,
   S.BOOK_EDIT_MAKE,
   S.BOOK_EDIT_CLIENT_NAME,

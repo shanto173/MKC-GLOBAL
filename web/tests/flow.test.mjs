@@ -3270,3 +3270,47 @@ test('a hello, or a menu word, is not taken as the answer', async () => {
   await h.text('menu');
   assert.equal(h.bookings()[0].status, 'needs_client_action');
 });
+
+// ---------------------------------------------------------------------------
+// The email address, asked for after the booking has gone
+// ---------------------------------------------------------------------------
+
+test('the email is asked for after submitting, so it never adds a step to the booking', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  const sent = await h.tap('bk:confirm');
+
+  assert.match(said(sent), /Booking request received/);
+  assert.match(said(sent), /confirmation by email as well/);
+  assert.equal(sent.state, S.BOOK_EMAIL);
+  assert.deepEqual(buttons(sent), ['bk:email:yes', 'bk:email:no']);
+  assert.equal(h.booking().status, 'pending_review', 'and the booking went either way');
+});
+
+test('an address given is kept on the booking and on the customer, and said back', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  await h.tap('bk:email:yes');
+
+  const bad = await h.text('not an address');
+  assert.match(said(bad), /does not look like an email/);
+  assert.equal(bad.state, S.BOOK_EMAIL);
+
+  const r = await h.text('ops@deltamotors.eg');
+  assert.match(said(r), /we will email the confirmation to ops@deltamotors\.eg/i);
+  assert.match(said(r), /destination port/, 'and what else it will be used for');
+  assert.equal(r.state, S.BOOK_SUBMITTED);
+  assert.equal(h.booking().customer_email, 'ops@deltamotors.eg');
+  assert.equal(h.db._tables.clients[0].email, 'ops@deltamotors.eg', 'so the next booking does not ask again');
+});
+
+test('"no, here is fine" ends it, and a customer we already have an address for is not asked', async () => {
+  const h = harness();
+  await bookUpTo(h);
+  await h.tap('bk:confirm');
+  const no = await h.tap('bk:email:no');
+  assert.match(said(no), /we will keep you posted here/i);
+  assert.equal(no.state, S.BOOK_SUBMITTED);
+  assert.ok(!h.booking().customer_email);
+});

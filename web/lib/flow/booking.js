@@ -1976,10 +1976,60 @@ export async function handleConfirm(session, ctx) {
   // The reference is KEPT on the session. Cleared, a second tap on the same
   // card found no request and apologised for a technical fault, when what had
   // actually happened was that the booking went through the first time.
+  //
+  // And then the one optional question: an email address for the confirmation.
+  // Asked here, after the request has gone, because it is not a condition of
+  // booking - a customer who ignores it has still booked.
+  const onFile = emailOnFile(submitted ?? booking);
   return reply(
-    say(M.submitted(ref), kb.afterSubmitted()),
-    { active_flow: null, current_state: S.BOOK_SUBMITTED, active_booking_ref: ref, context: {} },
+    [
+      say(M.submitted(ref)),
+      onFile ? say(M.emailNoted(onFile), kb.afterSubmitted()) : say(M.askEmail(), kb.emailOffer()),
+    ],
+    {
+      active_flow: null,
+      current_state: onFile ? S.BOOK_SUBMITTED : S.BOOK_EMAIL,
+      active_booking_ref: ref,
+      context: {},
+    },
   );
+}
+
+/** An address already on the booking - asked for once, not at every booking. */
+const emailOnFile = (booking) => (EMAIL.test(String(booking?.customer_email ?? '')) ? booking.customer_email : null);
+
+/**
+ * "Yes, email it to me" / "No, here is fine", and then the address itself.
+ *
+ * Only two emails are ever sent from this: the confirmation when Operations
+ * confirms, and the notice when the shipment reaches the destination port.
+ * Nothing in between - the chat is where a conversation belongs.
+ */
+export async function handleEmailOffer(session, answer, ctx) {
+  if (answer !== 'yes') {
+    return reply(say(M.emailSkipped(), kb.afterSubmitted()), { current_state: S.BOOK_SUBMITTED });
+  }
+  return reply(say(M.askEmailAddress(), kb.homeOnly()), { current_state: S.BOOK_EMAIL });
+}
+
+/** The address they typed. */
+export async function handleEmail(session, text, ctx) {
+  const typed = String(text ?? '').trim();
+  const email = typed.match(EMAIL)?.[0] ?? null;
+  if (!email) return reply(say(M.emailInvalid(), kb.homeOnly()), { current_state: S.BOOK_EMAIL });
+
+  const ref = session.active_booking_ref;
+  // On the booking, so the confirmation goes where THIS booking asked, and on
+  // the customer, so the next booking does not ask again.
+  if (ref) {
+    const { db } = await import('../supabase.js');
+    const { error } = await db().from('bookings').update({ customer_email: email }).eq('booking_ref', ref);
+    if (error) console.error('saving the email failed:', error.message);
+  }
+  await rememberClientContact(ctx.clientId, { email }).catch(() => null);
+  logEvent('booking_email_given', { booking_ref: ref ?? null });
+
+  return reply(say(M.emailNoted(email), kb.afterSubmitted()), { current_state: S.BOOK_SUBMITTED });
 }
 
 // ---------------------------------------------------------------------------

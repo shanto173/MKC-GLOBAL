@@ -549,6 +549,39 @@ What I need right now is ${needEn}.`,
     'Your PDF copy follows. The team will check the request and come back to you to confirm the booking. 😊',
   ),
 
+  /**
+   * Asked after the request has gone, never before it.
+   *
+   * A customer booking on WhatsApp is already where we can reach them; an
+   * email address is for the confirmation they file, forward to their broker,
+   * or print. Asking for it during the booking would be a step; asking after
+   * it costs them nothing and they can ignore it.
+   */
+  askEmail: () => both(
+    '📧 تحب نبعتلك تأكيد الحجز على الإيميل كمان؟',
+    '📧 Would you like the confirmation by email as well?',
+  ),
+
+  askEmailAddress: () => both(
+    '📧 ابعتلي الإيميل بتاعك.',
+    '📧 Send me your email address.',
+  ),
+
+  emailInvalid: () => both(
+    '⚠️ الإيميل ده شكله مش مظبوط. ابعته تاني من فضلك - زي name@company.com.',
+    '⚠️ That does not look like an email address. Please send it again — for example name@company.com.',
+  ),
+
+  emailNoted: (email) => both(
+    `✅ تمام، هنبعت تأكيد الحجز على ${email} أول ما الفريق يأكده - وكمان لما الشحنة توصل ميناء الوصول.`,
+    `✅ Noted — we will email the confirmation to ${email} as soon as the team confirms it, and again when the shipment reaches the destination port.`,
+  ),
+
+  emailSkipped: () => both(
+    '✅ تمام، هنكلمك هنا.',
+    '✅ Fine — we will keep you posted here.',
+  ),
+
   submittedAlready: (ref) => both(
     `الطلب ${ref} اتبعت لفريق العمليات بالفعل. مش محتاج تبعته تاني.`,
     `Request ${ref} is already with our Operations Team. There is no need to send it again.`,

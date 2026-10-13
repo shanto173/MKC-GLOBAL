@@ -41,9 +41,10 @@
 
 import { config } from '../config.js';
 import { db } from '../supabase.js';
+import { defer } from '../background.js';
 import { audit } from '../audit.js';
 import { enqueue, drain } from '../outbox.js';
-import { customerReached } from '../notify.js';
+import { customerReached, notifyShipmentArrived } from '../notify.js';
 import { createTask, completeTask, closeTasksForTicket } from '../operations.js';
 import { requiredDocuments } from '../settings.js';
 import { openMrnRequest } from '../mrn.js';
@@ -219,6 +220,14 @@ async function me(req, res) {
 // ---------------------------------------------------------------------------
 
 /** The permission each action needs. Checked before anything is read. */
+/**
+ * The milestones that mean "it is at the customer's port".
+ *
+ * Both are here and only one email goes: whichever is reached first sends it,
+ * and notifyShipmentArrived will not send a second for the same shipment.
+ */
+const ARRIVED = new Set(['Arrived at destination port', 'Delivered']);
+
 const NEEDS = {
   take: 'assign_self', assign: 'assign_self', unassign: 'assign_self', priority: 'priority',
   start_review: 'status', status: 'status',
@@ -999,6 +1008,20 @@ async function shipmentUpdate(req, res, who) {
     actor_type: 'operator', actor_id: who.name, action: 'shipment_updated',
     entity_type: 'shipment', entity_id: body.shipment_id, metadata: { fields: Object.keys(changes), told: tell },
   });
+
+  // Reaching the destination port is the one milestone that is emailed as
+  // well as said in the chat: it is the moment the customer has something to
+  // do - clearance, collection - and the one they forward to their broker.
+  if (ARRIVED.has(String(changes.status ?? ''))) {
+    const { data: s } = await db().from('shipments').select('*').eq('shipment_id', body.shipment_id).maybeSingle();
+    const { data: b } = s?.booking_ref
+      ? await db().from('bookings').select('*').eq('booking_ref', s.booking_ref).maybeSingle()
+      : { data: null };
+    if (b) {
+      defer(notifyShipmentArrived(s, b, { status: changes.status })
+        .catch((err) => console.error('arrival email failed:', err?.message)));
+    }
+  }
 
   let told = null;
   if (tell) {

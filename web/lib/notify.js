@@ -20,6 +20,7 @@ import { enqueue, drain } from './outbox.js';
 import { sendToChat, phrase, channelOf } from './channels.js';
 import { currentLanguage, withLanguage } from './lang.js';
 import { storedLanguage } from './flow/language.js';
+import { audit } from './audit.js';
 import { bookingLanguage } from './i18n.js';
 import { TICKET_REOPEN } from './flow/messages.js';
 import * as kb from './flow/keyboards.js';
@@ -85,7 +86,7 @@ export async function notifyBooking(booking, { skipCustomerTelegram = false } = 
   const attachments = pdf ? [{ filename, content: pdf.toString('base64') }] : [];
 
   // -- email the customer ----------------------------------------------------
-  const customerEmail = extractEmail(booking.customer_contact);
+  const customerEmail = emailFor(booking);
   const opsRecipients = (config.mail.opsEmail ?? '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
@@ -299,7 +300,7 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
     catch (err) { console.error('decision pdf failed:', err.message); }
   }
 
-  const email = extractEmail(booking.customer_contact);
+  const email = emailFor(booking);
   if (email && config.mail.apiKey) {
     try {
       await sendEmail({
@@ -343,6 +344,58 @@ export async function notifyBookingDecision(booking, decision, note = '', { ship
  * Tells the customer their ticket is closed, in the chat they raised it from.
  * The desk's note goes with it, so "resolved" means something specific.
  */
+/**
+ * The shipment has reached the destination port: one email, once.
+ *
+ * The only two emails a customer gets are the confirmation and this. The chat
+ * carries everything in between, because that is where they are - an inbox
+ * filling with "in transit" is how a company teaches people to ignore it.
+ *
+ * Sent at most once per shipment. Both "arrived at destination port" and
+ * "delivered" reach it, and whichever comes first is the one that goes: the
+ * audit trail is the record that it did.
+ */
+export async function notifyShipmentArrived(shipment, booking, { status = null } = {}) {
+  const email = emailFor(booking);
+  if (!email || !config.mail.apiKey) return { ok: false, skipped: true };
+
+  const { data: already } = await db().from('audit_logs')
+    .select('id').eq('action', 'delivery_email_sent').eq('entity_id', String(shipment?.shipment_id ?? ''))
+    .limit(1);
+  if (already?.length) return { ok: true, already: true };
+
+  const port = shipment?.destination_port || booking?.destination_port || 'the destination port';
+  const vehicle = [booking?.make, booking?.model].filter(Boolean).join(' ');
+  try {
+    await sendEmail({
+      to: [email],
+      subject: `Arrived at ${port} - ${booking?.booking_ref ?? shipment?.shipment_id}`,
+      html: wrap(`
+        <div style="font-size:16px;font-weight:700;margin-bottom:4px">Your shipment has arrived</div>
+        <div style="font-size:13px;color:#475569;margin-bottom:18px">
+          ${escapeHtml(vehicle || 'Your vehicle')} has reached <strong>${escapeHtml(port)}</strong>.
+          ${escapeHtml(status ? `Status: ${status}.` : '')}
+        </div>
+        ${detailTable(booking ?? {})}
+        <div style="margin-top:20px;font-size:13px;color:#475569">
+          Our team will be in touch about clearance and collection. Reply to this email,
+          or write to us in the chat you booked from.
+        </div>
+      `),
+    });
+  } catch (err) {
+    console.error('arrival email failed:', err?.message);
+    return { ok: false, error: err?.message };
+  }
+
+  await audit({
+    actor_type: 'system', actor_id: null, action: 'delivery_email_sent',
+    entity_type: 'shipment', entity_id: String(shipment?.shipment_id ?? ''),
+    metadata: { booking_ref: booking?.booking_ref ?? null, status: status ?? null },
+  });
+  return { ok: true, to: email };
+}
+
 export async function notifyTicketResolved(ticket, { operator = 'operations' } = {}) {
   const result = { telegram: false, errors: [] };
   const note = String(ticket.resolution_note ?? '').trim();
@@ -602,4 +655,16 @@ function escapeHtml(s) {
 function extractEmail(contact) {
   const m = String(contact || '').match(/[^\s<>@]+@[^\s<>@]+\.[a-z]{2,}/i);
   return m ? m[0] : null;
+}
+
+/**
+ * Where this booking's email goes.
+ *
+ * customer_email is the address the customer gave for this booking, after
+ * submitting it. customer_contact is looked at too because for years that was
+ * the only field an address could land in - a client who typed one at the
+ * phone question - and those bookings should not lose their copy.
+ */
+function emailFor(booking) {
+  return extractEmail(booking?.customer_email) ?? extractEmail(booking?.customer_contact);
 }
