@@ -104,20 +104,62 @@ const RULES = {
   },
   required_booking_documents: (v) => docList(v, { allowMrn: true }),
   required_booking_documents_mky_mrn: (v) => docList(v, { allowMrn: false }),
+  custom_documents: (v) => customDocs(v),
   acid_required: (v) => (typeof v === 'boolean' ? { value: v } : { error: 'Choose yes or no.' }),
   whatsapp_window_hours: (v) => (Number(v) > 0 && Number(v) <= 24 ? { value: Number(v) } : { error: 'WhatsApp’s window is at most 24 hours.' }),
   whatsapp_templates: (v) => templates(v),
   saved_replies: (v) => replies(v),
 };
 
-function docList(v, { allowMrn }) {
+async function docList(v, { allowMrn }) {
   if (!Array.isArray(v)) return { error: 'Choose the documents from the list.' };
   const list = [...new Set(v.map(String))];
-  const bad = list.filter((t) => !DOC_TYPES.includes(t));
+  const known = await knownDocTypes();
+  const bad = list.filter((t) => !known.includes(t));
   if (bad.length) return { error: `Unknown document type: ${bad.join(', ')}.` };
   if (!allowMrn && list.includes('mrn')) return { error: 'When MKY obtains the MRN the customer cannot be asked to send one.' };
   return { value: list };
 }
+
+/** The five the system knows, plus whatever Operations has added themselves. */
+async function knownDocTypes() {
+  const cfg = await settings().catch(() => ({}));
+  const custom = Array.isArray(cfg.custom_documents) ? cfg.custom_documents : [];
+  return [...DOC_TYPES, ...custom.map((d) => String(d?.key ?? '')).filter(Boolean)];
+}
+
+/**
+ * Papers Operations adds themselves: a packing list, a power of attorney,
+ * whatever this lane turns out to need.
+ *
+ * The key is made from the label and then never changes, because it is what
+ * the required lists and every document row already filed under it hold.
+ * Renaming the label renames what the customer is asked for; it does not
+ * orphan the papers that came in under the old name.
+ */
+function customDocs(v) {
+  if (!Array.isArray(v)) return { error: 'The extra documents must be a list.' };
+  if (v.length > 12) return { error: 'Twelve extra documents is as many as a customer will read.' };
+  const out = [];
+  const seen = new Set();
+  for (const item of v) {
+    const label = String(item?.label ?? '').trim().replace(/\s+/g, ' ');
+    if (!label) return { error: 'Every extra document needs a name.' };
+    if (label.length > 40) return { error: `“${label.slice(0, 20)}…” is too long a name - keep it under 40 characters.` };
+    const key = String(item?.key ?? '').trim() || slug(label);
+    if (!key) return { error: `“${label}” has no letters or numbers in it to make a name from.` };
+    if (DOC_TYPES.includes(key) || key === 'cmr' || key === 'other' || key === 'mky') {
+      return { error: `“${label}” is one the system already knows. Tick it in the list instead.` };
+    }
+    if (seen.has(key)) return { error: `“${label}” is in the list twice.` };
+    seen.add(key);
+    out.push({ key, label });
+  }
+  return { value: out };
+}
+
+/** A key out of a label: lower case, words joined by underscores. */
+const slug = (label) => String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
 
 function templates(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: 'Templates must be a list of events and names.' };
@@ -181,7 +223,14 @@ export async function settingsView(req, res) {
     changed,
     warnings: warningsFor(values),
     template_events: TEMPLATE_EVENTS.map((e) => ({ event: e, words: TEMPLATE_WORDS[e] })),
-    document_types: DOC_TYPES,
+    // Each type with the words the desk shows for it, so a document Operations
+    // added themselves is drawn exactly like the five that came with the
+    // system - and the screen never has to know which is which.
+    document_types: [
+      ...DOC_TYPES.map((key) => ({ key, label: null, custom: false })),
+      ...(Array.isArray(values.custom_documents) ? values.custom_documents : [])
+        .map((d) => ({ key: d.key, label: d.label, custom: true })),
+    ],
     users: (users ?? []).map(userOut),
     roles: ROLES.map((r) => ({ role: r, words: ROLE_WORDS[r], can: ROLE_CAN[r] })),
     // Whether this database has the per-person sign-in columns yet - read from
@@ -224,7 +273,9 @@ export async function settingsWrite(req, res, who) {
   for (const key of keys) {
     const rule = RULES[key];
     if (!rule) { errors[key] = 'This setting cannot be changed here.'; continue; }
-    const out = rule(changes[key]);
+    // Some rules read the settings (a required list is checked against the
+    // extra documents that exist), so every rule is awaited.
+    const out = await rule(changes[key]);
     if (out.error) errors[key] = out.error; else clean[key] = out.value;
   }
   if ('support_hours_start' in clean || 'support_hours_end' in clean) {

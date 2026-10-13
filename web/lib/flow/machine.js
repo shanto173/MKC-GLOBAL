@@ -27,7 +27,7 @@ import { loadSession, startSessionWrite, sessionAfter } from './store.js';
 import { defer } from '../background.js';
 import { flowReady } from './ready.js';
 import { storedLanguage, rememberLanguage, languageSupported } from './language.js';
-import { M, DOC_LABELS } from './messages.js';
+import { M, DOC_LABELS, docAr, docEn } from './messages.js';
 import * as kb from './keyboards.js';
 import { parseCallback } from './keyboards.js';
 import * as booking from './booking.js';
@@ -472,8 +472,8 @@ function filesOf(input) {
 async function acknowledge(session, answered, documents, ctx, { first }) {
   const known = documents.filter((d) => d.doc_type && d.doc_type !== 'other');
   const named = [...new Set(known.map((d) => d.doc_type))];
-  const labelsAr = [...named.map((t) => DOC_LABELS[t]?.[0] ?? t), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[0])];
-  const labelsEn = [...named.map((t) => DOC_LABELS[t]?.[1] ?? t), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[1])];
+  const labelsAr = [...named.map((t) => docAr(t)), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[0])];
+  const labelsEn = [...named.map((t) => docEn(t)), ...documents.filter((d) => !known.includes(d)).map((d) => d.file_name ?? DOC_LABELS.other[1])];
   const words = first ? M.answerPassedOn(answered, labelsAr, labelsEn) : M.answerAdded(answered);
 
   if (ANSWER_IDLE.has(session.current_state)) {

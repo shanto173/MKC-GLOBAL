@@ -694,7 +694,7 @@ test('TEST 7 - "I have the MRN" asks for invoice, brief and MRN', async () => {
   const r = await bookUpTo(h, { documents: false, mrn: 'existing' });
 
   assert.match(said(r), /Invoice/);
-  assert.match(said(r), /Brief \(vehicle title\)/);
+  assert.match(said(r), /Brief/);
   assert.match(said(r), /MRN/);
   assert.equal(h.booking().mrn_choice, 'existing');
 });
@@ -734,7 +734,7 @@ test('TEST 9 - several documents outstanding gives the "just a little more" list
   const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
 
   assert.match(said(r), /Just a little more/);
-  assert.match(said(r), /Brief \(vehicle title\)/);
+  assert.match(said(r), /Brief/);
   assert.match(said(r), /MRN/);
   assert.doesNotMatch(said(r), /Almost there/);
 });
@@ -812,7 +812,7 @@ test('the vehicle step offers the quickest answer first: the papers they already
   // The chassis, the make and the loading port are printed on both of these,
   // and the reader takes them - so sending one paper answers three questions.
   assert.match(said(r), /invoice/i);
-  assert.match(said(r), /Brief \(vehicle title\)/);
+  assert.match(said(r), /Brief/);
   assert.match(said(r), /type the chassis number/i);
   assert.match(said(r), /send it all in one message/i);
   // One message, not an intro and then a question.
@@ -876,7 +876,7 @@ test('the papers answer the questions they contain, and only the destination is 
   assert.equal(b.model, 'Actros 1845 LS');
   assert.equal(b.origin_port, 'Klaipeda', 'the invoice names the port of loading, the CMR a city inland');
 
-  assert.match(said(r), /Received: Invoice, Brief \(vehicle title\), MRN/);
+  assert.match(said(r), /Received: Invoice, Brief, MRN/);
   assert.match(said(r), /Read from your documents: chassis WDB9634031L894512 · make Mercedes-Benz Actros 1845 LS · loading Klaipeda/);
   for (const asked of [/Chassis \/ VIN/, /Make \/ Brand/, /Port of loading/]) {
     assert.doesNotMatch(said(r), asked, 'it is printed on every page they just sent');
@@ -1087,7 +1087,7 @@ test('the caption is read ahead of the file, and the file then only counts', asy
   // Then the three files, the last of which speaks.
   const docs = ['brief', 'invoice', 'mrn'].map((t) => h.upload(t, { vin: 'XLRTEH4350G741552' }));
   const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
-  assert.match(said(r), /Received: Brief \(vehicle title\), Invoice, MRN/);
+  assert.match(said(r), /Received: Brief, Invoice, MRN/);
   // And what the caption said, read back in the same message - whichever of
   // the three files ended up speaking.
   assert.match(said(r), /Noted from your message: client Giza Freight Lines · chassis XLRTEH4350G741552 · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
@@ -1162,7 +1162,7 @@ test('a paper sent before the chassis is kept, and the chassis asked for next', 
   await h.text('Alexandria');
   const docs = await h.tap('bk:mrn:existing');
   assert.doesNotMatch(said(docs), /• Invoice/);
-  assert.match(said(docs), /Brief \(vehicle title\)/);
+  assert.match(said(docs), /Brief/);
 });
 
 test('three papers sent together get one answer, once all of them are read', async () => {
@@ -1183,7 +1183,7 @@ test('three papers sent together get one answer, once all of them are read', asy
 
   // The last to finish answers for all three.
   const r = await h.file(mrn, { speak: true, batch });
-  assert.match(said(r), /Received: Invoice, Brief \(vehicle title\), MRN/);
+  assert.match(said(r), /Received: Invoice, Brief, MRN/);
   assert.doesNotMatch(said(r), /Just a little more/);
   assert.doesNotMatch(said(r), /Almost there/);
   assert.match(said(r), /We have everything we need/);
@@ -1239,7 +1239,7 @@ test('a file that could not be read, among several, is asked about in turn', asy
   assert.equal(r.state, S.BOOK_DOCUMENT_CLASSIFY);
 
   const next = await h.tap('bk:doctype:brief');
-  assert.match(said(next), /Brief \(vehicle title\) received/);
+  assert.match(said(next), /Brief received/);
   assert.match(said(next), /I have scan-2\.pdf, but I am not sure what it is/);
   assert.equal(next.state, S.BOOK_DOCUMENT_CLASSIFY);
 
@@ -1786,7 +1786,7 @@ test('TEST 24 - contact/documents computes what is missing from the database', a
   await h.tap('ct:docs');
   const r = await h.tap('ct:docs:missing');
 
-  assert.match(said(r), /Brief \(vehicle title\)/);
+  assert.match(said(r), /Brief/);
   assert.match(said(r), /MRN/);
   assert.doesNotMatch(said(r), /Invoice/);
 });
@@ -1801,8 +1801,11 @@ test('a Brief is the vehicle title everywhere, and a CMR is the transport docume
   // apply for the MRN, and the CMR is the journey, which it issues itself.
   const h = harness();
   const list = await bookUpTo(h, { documents: false });
-  assert.match(said(list), /Brief \(vehicle title\)|رخصة\/ملكية السيارة/);
-  assert.doesNotMatch(said(list), /Transport document/, 'a Brief is never called that again');
+  // Called "Brief" and nothing else, in both languages: it is the trade's own
+  // name for the document, and an explanation bolted onto a label is noise in
+  // a list of three things to send.
+  assert.match(said(list), /Brief/);
+  assert.doesNotMatch(said(list), /Transport document|vehicle title/, 'a Brief is never called those again');
 
   const kb = await import('../lib/flow/keyboards.js');
   const titles = kb.classifyDocument(['invoice', 'brief', 'cmr']).flat().map((b) => b.text);
@@ -1811,7 +1814,7 @@ test('a Brief is the vehicle title everywhere, and a CMR is the transport docume
 
   const { replacementRequest } = await import('../lib/admin/desk-messages.js');
   const asked = replacementRequest('brief', 'wrong_vin');
-  assert.match(asked.requested, /vehicle title/i);
+  assert.match(asked.requested, /Brief/);
   assert.doesNotMatch(asked.requested, /transport document/i);
 
   const { DOC_LABEL } = await import('../lib/ops/workflow.js');
@@ -3345,4 +3348,50 @@ test('…and "from" works as the split too, while an answer that does not split 
   assert.equal(g.booking().make, 'DAF');
   assert.ok(!g.booking().origin_port, 'nothing is invented for the port');
   assert.match(said(only), /Where does it ship from/, 'which is then asked on its own');
+});
+
+test('a document Operations added themselves is asked for by the name they gave it', async () => {
+  // Settings: a packing list, added by Operations, and required.
+  const h = harness({
+    bot_settings: [
+      ...SETTINGS.filter((s) => s.key !== 'required_booking_documents'),
+      { key: 'custom_documents', value: [{ key: 'packing_list', label: 'Packing list' }] },
+      { key: 'required_booking_documents', value: ['invoice', 'brief', 'packing_list'] },
+    ],
+  });
+  await identify(h);
+  await h.text('W1T96340310484233');
+  await h.text('MAN TGX / Hamburg');
+  await h.text('Alexandria');
+  const asked = await h.tap('bk:mrn:existing');
+
+  // Their words, not a key: "packing_list" is what the database holds, and is
+  // never what a customer is shown.
+  assert.match(said(asked), /Packing list/);
+  assert.doesNotMatch(said(asked), /packing_list/);
+
+  // And it is genuinely outstanding: the booking is not complete without it.
+  const invoice = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
+  assert.match(said(invoice), /Packing list/, 'still asked for after the others arrive');
+
+  // The customer sends it; the reader cannot know what a packing list is, so
+  // the bot asks - and offers it by the name Operations gave it, never by the
+  // key, which is a database word with an underscore in it.
+  const sent = await h.file(h.upload('other', { vin: 'W1T96340310484233', fileName: 'packing.pdf' }));
+  const choices = sent.messages.flatMap((m) => (m.inline ?? []).flat());
+  assert.ok(choices.some((b) => b.callback_data === 'bk:doctype:packing_list'), 'it is one of the choices');
+  const chosen = choices.find((b) => b.callback_data === 'bk:doctype:packing_list');
+  assert.match(chosen.text, /Packing list/);
+  assert.doesNotMatch(chosen.text, /packing_list/);
+
+  // And saying so files it as that, acknowledged by the same name.
+  const after = await h.tap('bk:doctype:packing_list');
+  assert.equal(h.db._tables.booking_documents.at(-1).doc_type, 'packing_list');
+  assert.match(said(after), /Packing list received/);
+
+  // Which completes what the booking was waiting for.
+  const { bookingDocumentState } = await import('../lib/documents.js');
+  const state = await bookingDocumentState({ bookingRef: h.booking().booking_ref, chatId: CHAT, vin: 'W1T96340310484233' });
+  assert.deepEqual(state.missing, ['brief'], 'it counted like any other requirement; only the Brief is still to come');
+  assert.ok(state.received_types.includes('packing_list'));
 });

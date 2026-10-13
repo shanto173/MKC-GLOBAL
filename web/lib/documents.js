@@ -36,7 +36,7 @@ const DOC_LABELS = {
   mrn: 'MRN / export declaration',
   eur1: 'EUR.1 certificate of origin',
   acid: 'ACID registration',
-  brief: 'vehicle title (Brief)',
+  brief: 'Brief',
   cmr: 'CMR transport document',
   other: 'document',
 };
@@ -46,7 +46,7 @@ export const DOC_LABELS_AR = {
   mrn: 'رقم MRN / بيان التصدير',
   eur1: 'شهادة المنشأ EUR.1',
   acid: 'تسجيل ACID',
-  brief: 'رخصة/ملكية السيارة (Brief)',
+  brief: 'Brief',
   cmr: 'بوليصة النقل CMR',
   other: 'مستند',
 };

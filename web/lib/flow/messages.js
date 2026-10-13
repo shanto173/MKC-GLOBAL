@@ -28,6 +28,7 @@ import { DESTINATION_PORTS_AR, config } from '../config.js';
 /** The company, as the customer reads it: COMPANY_NAME, by default "MKY Global Forwarding". */
 const company = () => config.companyName;
 import { languageSupported } from './language.js';
+import { customDocumentLabel } from '../settings.js';
 
 /** An Egyptian port in Arabic, for the Arabic half; anything else as it is. */
 const portAr = (port) => DESTINATION_PORTS_AR[port] ?? port;
@@ -179,11 +180,11 @@ export const M = {
   bookingStartSendPapers: (name, phone = null) => both(
     `📦 تمام${name ? ` يا ${name}` : ''}، يلا نبدأ الحجز.${phone ? `\n(هنكلمك على ${phone} - تقدر تغيره في الآخر.)` : ''}\n\n` +
     '1️⃣ الخطوة الأولى من 3 - العربية.\n\n' +
-    '📎 ابعتلي **الفاتورة** أو **رخصة السيارة (Brief)** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
+    '📎 ابعتلي **الفاتورة** أو **Brief** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
     'أو لو تحب، اكتب رقم الشاسيه بس.',
     `📦 Thank you${name ? `, ${name}` : ''} — let us start your booking.${phone ? `\n(We will call you on ${phone}; you can change it at the end.)` : ''}\n\n` +
     'Step 1 of 3 — the vehicle.\n\n' +
-    '📎 Send me the **invoice** or the **Brief (vehicle title)** and I will read the chassis number, the make and the loading port off them.\n' +
+    '📎 Send me the **invoice** or the **Brief** and I will read the chassis number, the make and the loading port off them.\n' +
     'Or just type the chassis number, if you prefer.',
   ),
 
@@ -242,11 +243,11 @@ export const M = {
   detailsCompleteAskVin: (name, phone = null) => both(
     `✅ تمام${name ? ` يا ${name}` : ''}${phone ? `، وسجلت رقمك ${phone}` : ''}.\n\n` +
     '1️⃣ الخطوة الأولى من 3 - العربية.\n\n' +
-    '📎 ابعتلي **الفاتورة** أو **رخصة السيارة (Brief)** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
+    '📎 ابعتلي **الفاتورة** أو **Brief** وأنا هقرا منهم رقم الشاسيه والماركة وميناء الشحن.\n' +
     'أو اكتب رقم الشاسيه بس - أو ابعت كل حاجة في رسالة واحدة مع المستندات مرفقة.',
     `✅ Thank you${name ? `, ${name}` : ''}${phone ? ` — I have ${phone} as your number` : ''}.\n\n` +
     'Step 1 of 3 — the vehicle.\n\n' +
-    '📎 Send me the **invoice** or the **Brief (vehicle title)** and I will read the chassis number, the make and the loading port off them.\n' +
+    '📎 Send me the **invoice** or the **Brief** and I will read the chassis number, the make and the loading port off them.\n' +
     'Or just type the chassis number — or send it all in one message with the documents attached.',
   ),
 
@@ -354,7 +355,7 @@ What I need right now is ${needEn}.`,
   // take two or three steps, not six.
   askMrnChoice: () => both(
     '📄 الأوراق الجمركية - نعملها إحنا ولا عندك MRN؟\n'
-    + '(لو إحنا اللي هنعملها، محتاجين الفاتورة ورخصة السيارة بس.)',
+    + '(لو إحنا اللي هنعملها، محتاجين الفاتورة والـ Brief بس.)',
     '📄 The customs paperwork — shall we take care of it, or do you have your own MRN?\n'
     + '(If we do it, we need only the invoice and the Brief.)',
   ),
@@ -892,7 +893,7 @@ export const DOC_LABELS = {
   // The Brief is the vehicle's title - the German Fahrzeugbrief and its
   // equivalents - not a transport document. It was called one on every screen
   // for months; an owner asked for the CMR and was sent a registration paper.
-  brief: ['رخصة/ملكية السيارة (Brief)', 'Brief (vehicle title)'],
+  brief: ['Brief', 'Brief'],
   cmr: ['بوليصة النقل CMR', 'CMR (transport document)'],
   mrn: ['رقم MRN', 'MRN'],
   acid: ['رقم ACID (نافذة)', 'ACID'],
@@ -900,6 +901,17 @@ export const DOC_LABELS = {
   other: ['مستند', 'Document'],
 };
 
+/**
+ * One document's name, in each language.
+ *
+ * A type the system knows has its own two words. One Operations added
+ * themselves - a packing list, a power of attorney - is called what they typed
+ * into Settings, in both languages: they named it for their own customers, and
+ * translating somebody's own words for them would be worse than not.
+ */
+export const docAr = (type) => DOC_LABELS[type]?.[0] ?? customDocumentLabel(type) ?? type;
+export const docEn = (type) => DOC_LABELS[type]?.[1] ?? customDocumentLabel(type) ?? type;
+
 /** One document's name, in the turn's language - English when none was chosen. */
 export const docLabel = (type, lang = currentLanguage() ?? 'en') =>
-  (DOC_LABELS[type] ?? DOC_LABELS.other)[lang === 'ar' ? 0 : 1];
+  (lang === 'ar' ? docAr(type) : docEn(type));

@@ -1638,3 +1638,66 @@ test('only somebody who may check a paper may issue one of ours', async () => {
   const r = await post({ action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'cmr', values: {} }, 'Viewer2');
   assert.equal(r.status, 403);
 });
+
+// ---------------------------------------------------------------------------
+// Documents Operations adds themselves
+// ---------------------------------------------------------------------------
+
+test('a document Operations adds becomes one the bot can be told to ask for', async () => {
+  const added = await post({
+    action: 'settings_write',
+    changes: { custom_documents: [{ label: 'Packing list' }, { label: 'Power of attorney' }] },
+    versions: { custom_documents: (await get({ view: 'settings' }, 'Ariful')).body.versions.custom_documents },
+  }, 'Ariful');
+  assert.equal(added.status, 200);
+
+  const after = await get({ view: 'settings' }, 'Ariful');
+  // The key is made from the name once, and is what every list and every filed
+  // document holds from then on.
+  assert.deepEqual(after.body.values.custom_documents, [
+    { key: 'packing_list', label: 'Packing list' },
+    { key: 'power_of_attorney', label: 'Power of attorney' },
+  ]);
+  // And the screen draws them exactly like the five that came with the system.
+  const types = after.body.document_types;
+  assert.deepEqual(types.filter((t) => t.custom).map((t) => t.label), ['Packing list', 'Power of attorney']);
+  assert.equal(types.find((t) => t.key === 'invoice').custom, false);
+
+  // Which means it can be required.
+  const required = await post({
+    action: 'settings_write',
+    changes: { required_booking_documents: ['invoice', 'brief', 'mrn', 'packing_list'] },
+    versions: { required_booking_documents: after.body.versions.required_booking_documents },
+  }, 'Ariful');
+  assert.equal(required.status, 200);
+});
+
+test('a name the system already uses, or no name at all, is refused in words', async () => {
+  const v = (await get({ view: 'settings' }, 'Ariful')).body.versions;
+  const clash = await post({
+    action: 'settings_write',
+    changes: { custom_documents: [{ label: 'Invoice' }] },
+    versions: { custom_documents: v.custom_documents },
+  }, 'Ariful');
+  assert.equal(clash.status, 400);
+  assert.match(clash.body.errors.custom_documents, /already knows/);
+
+  const empty = await post({
+    action: 'settings_write',
+    changes: { custom_documents: [{ label: '   ' }] },
+    versions: { custom_documents: v.custom_documents },
+  }, 'Ariful');
+  assert.equal(empty.status, 400);
+  assert.match(empty.body.errors.custom_documents, /needs a name/);
+});
+
+test('a required list cannot name a document that does not exist', async () => {
+  const v = (await get({ view: 'settings' }, 'Ariful')).body.versions;
+  const r = await post({
+    action: 'settings_write',
+    changes: { required_booking_documents: ['invoice', 'unicorn'] },
+    versions: { required_booking_documents: v.required_booking_documents },
+  }, 'Ariful');
+  assert.equal(r.status, 400);
+  assert.match(r.body.errors.required_booking_documents, /Unknown document type: unicorn/);
+});

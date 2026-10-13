@@ -20,7 +20,7 @@
  */
 
 import { S, FLOWS, BASIC_FIELDS } from './states.js';
-import { M, FIELD_LABELS, DOC_LABELS, both, pair, portName } from './messages.js';
+import { M, FIELD_LABELS, DOC_LABELS, docAr, docEn, both, pair, portName } from './messages.js';
 import { pick, routeArrow, currentLanguage } from '../lang.js';
 import * as kb from './keyboards.js';
 import {
@@ -1255,8 +1255,8 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
     return reply(messages, { current_state: S.BOOK_FINAL_CONFIRMATION });
   }
 
-  const ar = state.missing.map((t) => DOC_LABELS[t]?.[0] ?? t);
-  const en = state.missing.map((t) => DOC_LABELS[t]?.[1] ?? t);
+  const ar = state.missing.map((t) => docAr(t));
+  const en = state.missing.map((t) => docEn(t));
 
   // Nothing received yet is a first ask, not a nag; after that the wording
   // changes with how much is left, which is what tells a client they are nearly
@@ -1301,12 +1301,12 @@ export async function handleDocumentArrived(session, { ingested, batch = [], not
   const leads = [];
   if (arrived.length === 1 && known.length === 1 && !details.en.length) {
     const type = known[0].doc_type;
-    leads.push(say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type)));
+    leads.push(say(M.documentReceived(docAr(type), docEn(type))));
   } else if (known.length) {
     const types = [...new Set(known.map((d) => d.doc_type))];
     leads.push(say(M.documentsReceived(
-      types.map((t) => DOC_LABELS[t]?.[0] ?? t),
-      types.map((t) => DOC_LABELS[t]?.[1] ?? t),
+      types.map((t) => docAr(t)),
+      types.map((t) => docEn(t)),
       details.ar,
       details.en,
     )));
@@ -1463,8 +1463,8 @@ function paperLabels({ ingested, batch = [] }) {
   const unknown = arrived.filter((d) => !d.doc_type || d.doc_type === 'other');
   return {
     ids: arrived.map((d) => d.id).filter((id) => id != null),
-    labelsAr: [...types.map((t) => DOC_LABELS[t]?.[0] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])],
-    labelsEn: [...types.map((t) => DOC_LABELS[t]?.[1] ?? t), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])],
+    labelsAr: [...types.map((t) => docAr(t)), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[0])],
+    labelsEn: [...types.map((t) => docEn(t)), ...unknown.map((d) => d.file_name ?? DOC_LABELS.other[1])],
   };
 }
 
@@ -1616,7 +1616,7 @@ async function duplicatesAmong(booking, arrived, ctx) {
 
 /** The question itself: one pair at a time, the rest kept for after the answer. */
 function askReplaces(session, booking, ctx, { pair, remaining = [], leads = [] }) {
-  const label = DOC_LABELS[pair.type]?.[1] ?? 'document';
+  const label = docEn(pair.type);
   const context = { ...session.context, pending_replace: pair };
   if (remaining.length) context.pending_replace_rest = remaining;
   else delete context.pending_replace_rest;
@@ -1636,7 +1636,7 @@ export async function handleReplaceAnswer(session, answer, ctx) {
 
   const { db } = await import('../supabase.js');
   const replace = answer === 'yes';
-  const label = DOC_LABELS[pair.type]?.[1] ?? 'document';
+  const label = docEn(pair.type);
 
   if (replace) {
     await db().from('booking_documents')
@@ -1685,7 +1685,7 @@ export async function handleDocumentClassified(session, type, ctx) {
   }
 
   const leads = type && type !== 'other'
-    ? [say(M.documentReceived(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type))]
+    ? [say(M.documentReceived(docAr(type), docEn(type)))]
     : [];
 
   // The next of the files that came together, if any is still unnamed.
@@ -1729,7 +1729,7 @@ export async function confirmationCard(booking, documentState = null) {
   // and are never translated.
   const docLines = (state?.required ?? []).map((type) => {
     const have = state.received_types?.includes(type);
-    const label = pair(DOC_LABELS[type]?.[0] ?? type, DOC_LABELS[type]?.[1] ?? type);
+    const label = pair(docAr(type), docEn(type));
     return `${have ? '✅' : '❌'} ${label}`;
   });
 
@@ -1936,8 +1936,8 @@ export async function handleConfirm(session, ctx) {
   const holdForMrn = mrnPending && config.allow_submit_while_mrn_pending === false;
 
   if (docs.ok && !docs.complete) {
-    const ar = docs.missing.map((t) => DOC_LABELS[t]?.[0] ?? t);
-    const en = docs.missing.map((t) => DOC_LABELS[t]?.[1] ?? t);
+    const ar = docs.missing.map((t) => docAr(t));
+    const en = docs.missing.map((t) => docEn(t));
     return reply([
       say(M.submitBlockedDocuments(ar, en)),
       say(M.documentsStillMissing(ar, en), kb.documentStep({ canSkip: false })),

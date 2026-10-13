@@ -51,7 +51,7 @@ const titleOf = (id) => SECTIONS.find(([k]) => k === id)?.[1] ?? id;
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourWords = (n) => `${String(n).padStart(2, '0')}:00`;
-const DOC_WORDS = { invoice: 'Invoice', brief: 'Brief (vehicle title)', mrn: 'MRN document', acid: 'ACID certificate', eur1: 'EUR.1 certificate', cmr: 'CMR (transport document)' };
+const DOC_WORDS = { invoice: 'Invoice', brief: 'Brief', mrn: 'MRN document', acid: 'ACID certificate', eur1: 'EUR.1 certificate', cmr: 'CMR (transport document)' };
 const TIMEZONES = ['Africa/Cairo', 'Europe/Vilnius', 'Europe/Berlin', 'Europe/London', 'Asia/Dubai', 'UTC'];
 /** The fields the server may warn about, as a sentence names them. */
 const FIELD_WORDS = { direct_phone: 'direct line', operations_phone: 'desk number' };
@@ -346,12 +346,22 @@ export function renderSettings({ main }) {
   // -- documents -----------------------------------------------------------------
   function docsCard() {
     const v = data.values;
+    // What Operations has added themselves, held here while the card is open so
+    // a name typed and a box ticked are saved by the same press.
+    let extra = (v.custom_documents ?? []).map((d) => ({ ...d }));
+    const types = () => [
+      ...data.document_types.filter((t) => !t.custom),
+      ...extra.map((d) => ({ key: d.key, label: d.label, custom: true })),
+    ];
+    const wordsFor = (t) => t.label ?? DOC_WORDS[t.key] ?? t.key;
+
     const list = (key, label, allowMrn) => {
       const chosen = new Set(v[key] ?? []);
-      return h('fieldset', { class: 'checks' }, h('legend', { class: 'label' }, label),
+      return h('fieldset', { class: 'checks', 'data-list': key }, h('legend', { class: 'label' }, label),
         // The info dot sits beside the label, not in it: a tap on it must not tick the box.
-        data.document_types.filter((t) => allowMrn || t !== 'mrn').map((t) => h('span', { class: 'check-row' }, h('label', { class: 'check' },
-          h('input', { type: 'checkbox', name: key, value: t, checked: chosen.has(t) }), h('span', {}, DOC_WORDS[t] ?? t)), infoDot(t))),
+        types().filter((t) => allowMrn || t.key !== 'mrn').map((t) => h('span', { class: 'check-row' }, h('label', { class: 'check' },
+          h('input', { type: 'checkbox', name: key, value: t.key, checked: chosen.has(t.key) }), h('span', {}, wordsFor(t))),
+        t.custom ? null : infoDot(t.key))),
         errorSlot(key));
     };
     const acid = h('input', { type: 'checkbox', id: 's-acid', checked: v.acid_required === true });
@@ -364,6 +374,8 @@ export function renderSettings({ main }) {
         list('required_booking_documents_mky_mrn', 'When MKY gets the MRN for them', false)),
       h('span', { class: 'check-row' }, h('label', { class: 'check', for: 's-acid' }, acid, h('span', {}, 'An ACID certificate is required at booking time')), infoDot('acid')),
       errorSlot('acid_required'),
+      adder(),
+      errorSlot('custom_documents'),
       actions('docs', button));
     watch('docs', form);
     form.addEventListener('submit', (e) => {
@@ -373,8 +385,66 @@ export function renderSettings({ main }) {
         required_booking_documents: picked('required_booking_documents'),
         required_booking_documents_mky_mrn: picked('required_booking_documents_mky_mrn'),
         acid_required: acid.checked,
+        custom_documents: extra,
       }, button, drawnVersions);
     });
+
+    /**
+     * "Add another document": a name, and it joins both lists as something
+     * that can be ticked. The bot then asks the customer for it by that name,
+     * and the case page checks for it like any other.
+     *
+     * Removing one leaves the papers already sent under it alone - they stay on
+     * the booking; it is only no longer asked for.
+     */
+    function adder() {
+      const name = h('input', { type: 'text', class: 'input', placeholder: 'Packing list', 'aria-label': 'Name of the document to add', maxlength: '40' });
+      const addBtn = h('button', { class: 'btn', type: 'button' }, icon('plus', { size: 15 }), 'Add this document');
+      const addIt = () => {
+        const label = name.value.trim().replace(/\s+/g, ' ');
+        if (!label) return;
+        const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
+        if (!key) return toast('That name has no letters or numbers to make a name from.', 'warn');
+        if (types().some((t) => t.key === key)) return toast('That document is already on the list.', 'warn');
+        extra = [...extra, { key, label }];
+        name.value = '';
+        redrawLists();
+        form.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      addBtn.addEventListener('click', addIt);
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addIt(); } });
+
+      return h('div', { class: 'doc-adder' },
+        h('p', { class: 'muted small' }, 'Anything else this lane needs - a packing list, a power of attorney. The bot asks the customer for it by the name you give it here.'),
+        h('div', { class: 'doc-adder-row' }, name, addBtn),
+        extra.length
+          ? h('ul', { class: 'doc-extra' }, extra.map((d) => h('li', {},
+            h('span', {}, d.label),
+            h('button', {
+              class: 'link-btn', type: 'button', title: `Remove ${d.label}`,
+              onclick: () => {
+                extra = extra.filter((x) => x.key !== d.key);
+                redrawLists();
+                form.dispatchEvent(new Event('input', { bubbles: true }));
+              },
+            }, 'Remove'))))
+          : null);
+    }
+
+    /** Both tick lists and the adder again, keeping what is ticked. */
+    function redrawLists() {
+      for (const [key, label, allowMrn] of [
+        ['required_booking_documents', 'When the customer has their own MRN', true],
+        ['required_booking_documents_mky_mrn', 'When MKY gets the MRN for them', false],
+      ]) {
+        const old = form.querySelector(`fieldset[data-list="${key}"]`);
+        if (!old) continue;
+        v[key] = [...form.querySelectorAll(`input[name="${key}"]:checked`)].map((i) => i.value);
+        old.replaceWith(list(key, label, allowMrn));
+      }
+      const adderEl = form.querySelector('.doc-adder');
+      if (adderEl) adderEl.replaceWith(adder());
+    }
     add(c, form);
     return c;
   }

@@ -26,6 +26,7 @@
 
 import { currentLanguage } from '../lang.js';
 import { displayPhone } from '../phone.js';
+import { customDocumentLabel } from '../settings.js';
 
 const MAX_CALLBACK_BYTES = 64;
 
@@ -228,17 +229,23 @@ function labelFor(type) {
     // The vehicle's title. Called a transport document here until an owner
     // pointed out that a Brief and a CMR are two different papers. Said short
     // because a button title may be twenty characters and no more; the full
-    // name - "Brief (vehicle title)" - is what the messages around it use.
-    brief: ['📑', 'رخصة السيارة', 'Brief (title)'],
+    // name is just that: Brief. It is what the trade calls the document and
+    // what MKY asks for, in both languages.
+    brief: ['📑', 'Brief', 'Brief'],
     cmr: ['🚚', 'بوليصة النقل CMR', 'CMR'],
     mrn: ['📄', 'MRN', 'MRN'],
     acid: ['🆔', 'ACID', 'ACID'],
     eur1: ['📜', 'EUR.1', 'EUR.1'],
   };
   const known = map[type];
-  // A type the settings name but this table does not is shown as it is
-  // spelled there, and its title cut to fit rather than refused.
-  if (!known) return cb(String(type), `bk:doctype:${type}`, fit(type));
+  // A document Operations added themselves is called what they named it in
+  // Settings - never its key, which is a database word with underscores in it.
+  // A type with no name anywhere is shown as it is spelled, cut to fit rather
+  // than refused.
+  if (!known) {
+    const named = customDocumentLabel(type) ?? String(type);
+    return cb(named, `bk:doctype:${type}`, fit(named));
+  }
   const [emoji, ar, en] = known;
   return button(emoji, ar, en, `bk:doctype:${type}`);
 }

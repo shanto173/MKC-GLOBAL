@@ -20,7 +20,7 @@
 
 import { db } from '../supabase.js';
 import { S, FLOWS } from './states.js';
-import { M, both, pair, docLabel, DOC_LABELS } from './messages.js';
+import { M, both, pair, docLabel, docAr, docEn, DOC_LABELS } from './messages.js';
 import * as kb from './keyboards.js';
 import { config, DEPARTMENTS } from '../config.js';
 import { operationsContact, supportHours } from '../settings.js';
@@ -218,8 +218,8 @@ export async function handleDocumentsChoice(session, choice, ctx) {
       ), kb.homeOnly()), { current_state: S.CONTACT_DOCUMENT_MENU });
     }
 
-    const ar = state.missing.map((t) => DOC_LABELS[t]?.[0] ?? t);
-    const en = state.missing.map((t) => DOC_LABELS[t]?.[1] ?? t);
+    const ar = state.missing.map((t) => docAr(t));
+    const en = state.missing.map((t) => docEn(t));
     const message = state.missing.length === 1
       ? M.documentsOneMissing(ar[0], en[0])
       : M.documentsStillMissing(ar, en);

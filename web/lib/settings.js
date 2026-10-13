@@ -25,6 +25,10 @@ const FALLBACK = {
   required_booking_documents: ['invoice', 'brief', 'mrn'],
   required_booking_documents_mky_mrn: ['invoice', 'brief'],
   required_mrn_documents: [],
+  // Papers Operations has added themselves, beyond the five the system knows:
+  // [{ key: 'packing_list', label: 'Packing list' }]. The key is what a
+  // required list holds; the label is what the customer is asked for.
+  custom_documents: [],
   acid_required: false,
   allow_submit_while_mrn_pending: true,
   allowed_file_types: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic'],
@@ -81,6 +85,22 @@ async function load() {
 }
 
 /** All settings, cached. */
+/**
+ * The label for a document type, for the few places that have to name one
+ * synchronously - the bot listing what it still needs, mid-sentence.
+ *
+ * Read from the last-loaded settings, which on every one of those paths has
+ * just been read (requiredDocuments does it). A type nobody has named is
+ * returned as it is spelled, which is what happened before custom documents
+ * existed at all.
+ */
+export function customDocumentLabel(key) {
+  const list = cache?.custom_documents;
+  if (!Array.isArray(list)) return null;
+  const found = list.find((d) => d?.key === key);
+  return found?.label ?? null;
+}
+
 export async function settings({ fresh = false } = {}) {
   if (!fresh && cache && Date.now() - cachedAt < TTL_MS) return cache;
   // Several messages arriving together must not each start their own read.
