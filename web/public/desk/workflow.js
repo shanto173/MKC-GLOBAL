@@ -204,6 +204,13 @@ export function readiness(booking = {}, documents = {}, mrn = null) {
 
   // The MRN line only exists when MKY was asked to obtain it. A client who has
   // their own MRN sends it as a document, and it is already in the list above.
+  //
+  // IT DOES NOT BLOCK THE BOOKING. MKY applies for the MRN itself, on its own
+  // timetable, and holding the confirmation until the declaration comes back
+  // kept customers waiting for a decision that had already been made. The
+  // booking is confirmed when the vehicle and its papers are in order; the MRN
+  // is MKY's own work, and it stays on the checklist and in "what happens
+  // next" until it is done.
   if (booking.mrn_choice === 'mky_issue') {
     const issued = has(booking.mrn_number) || mrn?.status === 'issued';
     items.push({
@@ -211,7 +218,7 @@ export function readiness(booking = {}, documents = {}, mrn = null) {
       label: 'MRN issued by MKY',
       ok: issued,
       note: issued ? null : (mrn ? `application ${String(mrn.status).replace(/_/g, ' ')}` : 'not started'),
-      blocking: true,
+      blocking: false,
     });
   }
 
@@ -246,10 +253,28 @@ export function readiness(booking = {}, documents = {}, mrn = null) {
  * @returns {{code: string, label: string, owner: 'ops'|'client'|'none',
  *            detail: string, action: string|null}}
  */
+/** MKY was asked for the MRN and has not recorded one yet. */
+export function mrnOutstanding(booking = {}, mrn = null) {
+  if (booking.mrn_choice !== 'mky_issue') return false;
+  return !String(booking.mrn_number ?? '').trim() && mrn?.status !== 'issued';
+}
+
 export function nextAction(booking = {}, documents = {}, mrn = null) {
   const status = booking.status;
 
+  // A confirmed booking whose MRN MKY still owes is not finished work. It is
+  // no longer in the customer's way - they have their confirmation - but it is
+  // squarely in ours until the declaration is lodged and the number recorded.
   if (status === 'confirmed') {
+    if (mrnOutstanding(booking, mrn)) {
+      return {
+        code: 'PROCESS_MRN',
+        label: 'Issue the MRN',
+        owner: 'ops',
+        detail: mrn ? `Application ${mrn.request_ref} is ${String(mrn.status).replace(/_/g, ' ')}.` : 'No application has been opened yet.',
+        action: 'process_mrn',
+      };
+    }
     return { code: 'NONE', label: 'Nothing outstanding', owner: 'none', detail: 'Booked, and the customer has been told.', action: null };
   }
   if (['rejected', 'cancelled', 'expired'].includes(status)) {
@@ -325,15 +350,10 @@ export function nextAction(booking = {}, documents = {}, mrn = null) {
     };
   }
 
-  if (booking.mrn_choice === 'mky_issue' && !ready.items.find((i) => i.key === 'mrn')?.ok) {
-    return {
-      code: 'PROCESS_MRN',
-      label: 'Record the MRN once it is issued',
-      owner: 'ops',
-      detail: mrn ? `Application ${mrn.request_ref} is ${String(mrn.status).replace(/_/g, ' ')}.` : 'No application has been opened yet.',
-      action: 'process_mrn',
-    };
-  }
+  // The MRN used to come in here, before confirming, and so a booking with
+  // everything in order waited on MKY's own customs work before the customer
+  // was told anything. Confirm first; the MRN is picked up again above, once
+  // the booking is confirmed, and stays on the checklist meanwhile.
 
   if (!String(booking.booking_ref ?? '').trim()) {
     return {

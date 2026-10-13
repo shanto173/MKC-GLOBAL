@@ -114,7 +114,11 @@ test('the MRN line appears only when MKY is the one obtaining it', () => {
   const line = mky.items.find((i) => i.key === 'mrn');
   assert.ok(line);
   assert.equal(line.ok, false);
-  assert.equal(mky.complete, false);
+  // And it does not hold the booking up. MKY applies for the MRN itself, on
+  // its own timetable; the customer was being made to wait for a decision that
+  // had already been made.
+  assert.equal(line.blocking, false);
+  assert.equal(mky.complete, true, 'the vehicle and its papers are what make a booking ready');
 });
 
 test('an issued MRN completes the booking', () => {
@@ -162,10 +166,22 @@ test('asked for something that is not a missing document, it is still the client
   assert.equal(nextAction({ ...BASE, status: 'under_review' }, ALL_DOCS).owner, 'ops');
 });
 
-test('MKY-issued MRN becomes the next action once the papers are in', () => {
-  const n = nextAction({ ...BASE, mrn_choice: 'mky_issue' }, MKY_DOCS(['invoice', 'brief'], ['invoice', 'brief']));
-  assert.equal(n.code, 'PROCESS_MRN');
-  assert.equal(n.action, 'process_mrn');
+test('an MKY MRN is not what a booking waits for - it is confirmed, then issued', () => {
+  // Before: the papers were in, and the next thing to do was MKY's own customs
+  // application - so the customer heard nothing until it came back.
+  const before = nextAction({ ...BASE, mrn_choice: 'mky_issue' }, MKY_DOCS(['invoice', 'brief'], ['invoice', 'brief']));
+  assert.equal(before.code, 'CONFIRM_BOOKING', 'confirm first; the customer has waited long enough');
+
+  // After confirming it is ours, and still outstanding until the number is in.
+  const after = nextAction({ ...BASE, status: 'confirmed', mrn_choice: 'mky_issue' }, MKY_DOCS(['invoice', 'brief'], ['invoice', 'brief']));
+  assert.equal(after.code, 'PROCESS_MRN');
+  assert.equal(after.action, 'process_mrn');
+  assert.equal(after.owner, 'ops');
+  assert.equal(after.label, 'Issue the MRN');
+
+  // And a confirmed booking with the number recorded is finished.
+  const done = nextAction({ ...BASE, status: 'confirmed', mrn_choice: 'mky_issue', mrn_number: '26LTVR610172694233' }, ALL_DOCS);
+  assert.equal(done.code, 'NONE');
 });
 
 test('everything in and no reference yet means create the booking', () => {
@@ -275,24 +291,25 @@ test('the whole roadmap scenario, step by step', () => {
   let n = nextAction(booking, docs, { status: 'submitted', request_ref: 'MKY-MRN-1' });
   assert.equal(n.code, 'REVIEW_DOCUMENTS', 'first: somebody checks what arrived');
 
-  // Documents checked.
+  // Documents checked. The MRN is MKY's own work and no longer stands between
+  // the customer and their confirmation.
   docs = { ...docs, verified_types: ['invoice', 'brief'] };
   booking = { ...booking, status: 'under_review' };
   n = nextAction(booking, docs, { status: 'submitted', request_ref: 'MKY-MRN-1' });
-  assert.equal(n.code, 'PROCESS_MRN', 'then: the MRN');
-
-  // MRN issued.
-  booking = { ...booking, mrn_number: '26LTVR610172694233' };
-  n = nextAction(booking, docs, { status: 'issued' });
   assert.equal(n.code, 'CREATE_BOOKING', 'then: record the reference');
 
   // Reference recorded.
   booking = { ...booking, booking_ref: 'MKY-2026-00123' };
-  n = nextAction(booking, docs, { status: 'issued' });
-  assert.equal(n.code, 'CONFIRM_BOOKING', 'then: confirm');
+  n = nextAction(booking, docs, { status: 'submitted', request_ref: 'MKY-MRN-1' });
+  assert.equal(n.code, 'CONFIRM_BOOKING', 'then: confirm, with the MRN still to come');
 
-  // Confirmed.
+  // Confirmed - and the MRN is what is left, ours to finish.
   booking = { ...booking, status: 'confirmed' };
+  n = nextAction(booking, docs, { status: 'submitted', request_ref: 'MKY-MRN-1' });
+  assert.equal(n.code, 'PROCESS_MRN', 'then: issue the MRN');
+
+  // MRN issued and recorded.
+  booking = { ...booking, mrn_number: '26LTVR610172694233' };
   n = nextAction(booking, docs, { status: 'issued' });
   assert.equal(n.code, 'NONE', 'and then nothing is outstanding');
   assert.equal(readiness(booking, docs, { status: 'issued' }).complete, true);
