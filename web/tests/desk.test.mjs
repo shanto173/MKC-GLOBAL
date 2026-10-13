@@ -1540,3 +1540,101 @@ test('no file of the desk ever builds HTML from data', () => {
     assert.doesNotMatch(src, /\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/, `${file} must set text, never HTML`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The papers MKY issues
+// ---------------------------------------------------------------------------
+
+test('the CMR form opens filled in from the booking and its papers, and nothing is invented', async () => {
+  const r = await get({ view: 'mky_document', ref: 'MKY-BKG-1', kind: 'cmr' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'new', 'nothing issued yet');
+
+  const v = r.body.values;
+  assert.equal(v.marks, 'YV2RT40A8FB712905', 'the chassis, as the marks a CMR carries');
+  assert.equal(v.goods, 'Volvo FH');
+  assert.equal(v.consignee, 'Nile Motors');
+  assert.equal(v.annexed, 'Invoice, Brief, MRN', 'what is on file, not what might be');
+  assert.equal(v.packages, '1');
+  // Nothing we do not hold: the invoice in this booking names no weight, so the
+  // weight is blank for a person to type rather than guessed.
+  assert.equal(v.weight, '');
+  assert.equal(v.taking_over, '');
+
+  // The box numbers come with it, so the screen and the paper read alike.
+  assert.equal(r.body.fields.find((f) => f.key === 'sender').box, 1);
+  assert.equal(r.body.fields.find((f) => f.key === 'carrier').box, 16);
+});
+
+test('a draft is saved and comes back; what the operator cleared stays cleared', async () => {
+  const first = await post({
+    action: 'mky_document_save', ref: 'MKY-BKG-1', kind: 'cmr',
+    values: { sender: 'UAB V.I.P INVESTMENT', goods: '', taking_over: 'Vilnius, 2026-10-13' },
+  });
+  assert.equal(first.status, 200);
+
+  const again = await get({ view: 'mky_document', ref: 'MKY-BKG-1', kind: 'cmr' });
+  assert.equal(again.body.status, 'draft');
+  assert.equal(again.body.values.sender, 'UAB V.I.P INVESTMENT');
+  assert.equal(again.body.values.taking_over, 'Vilnius, 2026-10-13');
+  assert.equal(again.body.values.goods, '', 'a field they emptied is not refilled from the booking');
+});
+
+test('issuing is refused while an essential is blank, and says which', async () => {
+  const r = await post({
+    action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'cmr',
+    values: { sender: 'UAB V.I.P INVESTMENT', consignee: '', delivery_place: '', goods: 'Volvo FH', carrier: 'MKY' },
+  });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /Still blank: Consignee, Place of delivery/);
+  assert.deepEqual(r.body.blank, ['consignee', 'delivery_place']);
+});
+
+test('an issued CMR is a document on the booking, with a number that survives re-issuing', async () => {
+  const values = {
+    sender: 'UAB V.I.P INVESTMENT', consignee: 'Nile Motors', delivery_place: 'Alexandria Port',
+    goods: 'Volvo FH', carrier: 'MKY Global Forwarding', marks: 'YV2RT40A8FB712905',
+  };
+  const r = await post({ action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'cmr', values });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'issued');
+  assert.match(r.body.document_no, /^MKY-CMR-/);
+
+  // Filed against the booking, as ours - never among the papers the customer
+  // is asked for, and never counted as one of theirs.
+  const filed = rows('booking_documents').find((d) => d.doc_type === 'mky' && d.booking_ref === 'MKY-BKG-1');
+  assert.ok(filed, 'it is a document on the booking');
+  assert.equal(filed.status, 'verified');
+  assert.equal(filed.chat_id, null, 'so the bot never counts it among the customer’s');
+  assert.equal(filed.extracted.kind, 'cmr');
+  assert.equal(filed.mime_type, 'application/pdf');
+
+  // Issuing again keeps the number: a CMR number that changed under a driver
+  // who already has a copy is worse than no number at all.
+  const again = await post({ action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'cmr', values: { ...values, goods: 'Volvo FH 500' } });
+  assert.equal(again.body.document_no, r.body.document_no);
+  assert.equal(rows('booking_documents').filter((d) => d.doc_type === 'mky').length, 1, 'and one document, not two');
+
+  const trail = rows('audit_logs').filter((a) => a.action === 'mky_document_issued');
+  assert.equal(trail.length, 2);
+  assert.equal(trail[0].actor_id, 'Sara');
+});
+
+test('the MRN sheet records the number exactly as customs issued it, and never makes one up', async () => {
+  const blank = await get({ view: 'mky_document', ref: 'MKY-BKG-1', kind: 'mrn' });
+  assert.equal(blank.body.values.mrn_number, '', 'this booking has no MRN recorded');
+  assert.match(blank.body.note, /never generated here/);
+
+  const refused = await post({
+    action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'mrn',
+    values: { exporter: 'UAB', consignee: 'Nile Motors', vehicle: 'Volvo FH' },
+  });
+  assert.equal(refused.status, 409, 'without the MRN itself there is nothing to issue');
+  assert.match(refused.body.error, /Still blank: MRN/);
+});
+
+test('only somebody who may check a paper may issue one of ours', async () => {
+  rows('ops_users').push({ id: 11, name: 'Viewer2', role: 'viewer', active: true });
+  const r = await post({ action: 'mky_document_issue', ref: 'MKY-BKG-1', kind: 'cmr', values: {} }, 'Viewer2');
+  assert.equal(r.status, 403);
+});

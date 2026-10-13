@@ -28,6 +28,7 @@ import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
 import { infoDot } from './glossary.js';
 import { deleteDialog } from './delete.js';
+import { issueDialog, ISSUE_WORDS, canIssue } from './issue.js';
 
 const TURN_TONE = { ops: 'blue', client: 'amber', none: 'green' };
 const TURN_WORDS = { ops: 'Our turn', client: 'Customer’s turn', none: 'Nothing to do' };
@@ -215,6 +216,7 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
       warnings(),
       type === 'booking' && data.asked ? askedCard() : null,
       type === 'booking' ? documentsCard() : null,
+      type === 'booking' ? issuedCard() : null,
       type === 'booking' && data.mrn ? mrnCard() : null,
       type === 'request' ? requestCard() : null,
       type === 'mrn' ? applicationCard() : null,
@@ -386,6 +388,36 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
             ? h('button', { class: 'link-btn', type: 'button', onclick: () => openDoc(d.id) }, d.label)
             : h('span', {}, d.label)))))))
       : h('p', { class: 'muted', style: { marginTop: '12px' } }, 'No answer yet.'));
+  }
+
+  /**
+   * The papers MKY issues itself, as against the ones the customer sends.
+   *
+   * Opened whenever somebody wants them - a booking does not have to be
+   * confirmed first, and confirming does not wait for them. Each opens a form
+   * filled in from the booking and its documents, which can be saved half-done
+   * and come back to.
+   */
+  function issuedCard() {
+    const b = data.booking ?? {};
+    const mine = (data.documents ?? []).filter((d) => d.doc_type === 'mky');
+    const wanted = b.cmr_choice === 'mky_issue';
+    return card('issued-title', 'Papers we issue', {
+      ic: 'file',
+      sub: wanted ? 'The customer asked us to issue the CMR' : null,
+    },
+    h('p', { class: 'muted small' }, 'Filled in from this booking and its documents. Save a draft and come back to it; issue it when it is right.'),
+    h('div', { class: 'issue-row' }, ...['cmr', 'mrn'].map((kind) => {
+      const words = ISSUE_WORDS[kind];
+      const issued = mine.find((d) => d.extracted?.kind === kind);
+      return h('button', {
+        class: `btn${kind === 'cmr' && wanted && !issued ? ' btn-primary' : ''}`,
+        type: 'button',
+        disabled: !canIssue(),
+        title: canIssue() ? null : 'Your role cannot do this.',
+        onclick: () => issueDialog({ ref: data.header.ref, kind, onDone: () => after(null) }),
+      }, icon(words.ic, { size: 15 }), issued ? `${words.title} — issued` : words.opens);
+    })));
   }
 
   function mrnCard() {

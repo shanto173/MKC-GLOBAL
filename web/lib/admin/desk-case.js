@@ -389,6 +389,9 @@ export async function bookingCase(req, res, who) {
       booking_ref: booking.booking_ref,
       status: booking.status,
       mrn_choice: booking.mrn_choice ?? null,
+      // Whether the customer asked MKY to issue the CMR as well, which the
+      // case page says on the card for the papers we issue.
+      cmr_choice: booking.cmr_choice ?? null,
       mrn_number: booking.mrn_number ?? null,
       channel: booking.channel ?? channelOf(booking.chat_id, null),
       chat_id: booking.chat_id ?? null,

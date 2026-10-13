@@ -69,6 +69,7 @@ import {
 } from './desk-chat.js';
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
 import { signIn, setPassword, tokenOf, readToken } from './desk-auth.js';
+import { mkyDocumentView, saveMkyDocument, issueMkyDocument } from './desk-mky-docs.js';
 import { deletePreview, deletedView, deleteRecord, restoreRecord } from './desk-delete.js';
 import { chatFilesView } from './desk-media.js';
 import { chatUpload, sendFiles } from './desk-files.js';
@@ -99,6 +100,8 @@ const VIEWS = {
   search,
   settings: settingsView,
   delete_preview: deletePreview,
+  // The CMR or MRN sheet MKY issues for a booking, as the form stands.
+  mky_document: mkyDocumentView,
   deleted: deletedView,
 };
 
@@ -236,6 +239,9 @@ const NEEDS = {
   // Anyone may set their own password; setPassword checks for itself before
   // letting somebody set another person's.
   set_password: 'read',
+  // Issuing a CMR or an MRN sheet is the same trust as checking a paper:
+  // whoever may verify a document may issue one of ours.
+  mky_document_save: 'documents', mky_document_issue: 'documents',
 };
 
 /** Actions where the version the operator saw is checked before anything is written. */
@@ -279,6 +285,8 @@ async function act(req, res) {
     case 'message_client':
     case 'send_message': return sendMessage(req, res, who);
     case 'send_reopen_template': return sendReopenTemplate(req, res, who);
+    case 'mky_document_save': return saveMkyDocument(req, res, who);
+    case 'mky_document_issue': return issueMkyDocument(req, res, who);
     case 'bot_hold': return setChatHold(req, res, who);
     case 'chat_upload': return chatUpload(req, res, who);
     case 'send_files': return sendFiles(req, res, who);

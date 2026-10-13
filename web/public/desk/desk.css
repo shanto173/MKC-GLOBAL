@@ -1522,3 +1522,15 @@ a.result:hover .result-title { color: var(--brand-700); }
 .roles dt { font-weight: var(--w-semibold); }
 .roles dd { margin: 0; color: var(--ink-2); }
 @media (max-width: 760px) { .roles, .glossary { grid-template-columns: minmax(0, 1fr); } .roles dd, .glossary dd { margin-bottom: var(--sp-2); } .changed-by { margin-left: 0; } }
+
+/* The papers MKY issues (public/desk/issue.js): a form of ordinary fields, two
+   to a row where they are short, and the CMR's own box numbers beside the
+   labels so the screen and the paper read the same. */
+.issue-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.issue-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
+.issue-grid .field-wide { grid-column: 1 / -1; }
+.issue-grid label { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--ink-2); margin-bottom: 4px; }
+.issue-box { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 4px; background: var(--surface-2, #eef2f6); color: var(--ink-3); font-size: 11px; font-weight: 600; }
+.issue-grid .field-hint { margin: 3px 0 0; font-size: 12px; color: var(--ink-3); }
+.issue-foot { margin: var(--sp-3) 0 0; }
+@media (max-width: 720px) { .issue-grid { grid-template-columns: 1fr; } }
