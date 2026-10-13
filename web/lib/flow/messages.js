@@ -285,6 +285,20 @@ export const M = {
   ),
 
   askMake: () => both('🚗 الماركة إيه؟ (مرسيدس، فولفو، سكانيا…)', '🚗 What is the vehicle Make / Brand?'),
+
+  /**
+   * Both at once, when both are missing - which only happens when the customer
+   * typed a chassis number instead of sending a paper. Two questions became
+   * one, with the shape of the answer shown rather than guessed at: the split
+   * is on the slash, a new line, or the word "from", and nothing else. An
+   * answer that does not split is simply the make, and the port is asked next.
+   */
+  askMakeAndPort: () => both(
+    '🚗 الماركة إيه، وهتشحن من فين؟\n' +
+    'تقدر تبعت الاتنين في سطر واحد - مثلاً: مرسيدس أكتروس / كلايبيدا',
+    '🚗 What is the vehicle, and where does it load?\n' +
+    'Both in one line is fine — for example: Mercedes Actros / Klaipeda',
+  ),
   askPol: () => both(
     '🌍 هتشحن من فين؟ اكتب المدينة أو ميناء الشحن (فيلنيوس، كلايبيدا، أنتويرب…).',
     '🌍 Where does it ship from? The city or port of loading (Vilnius, Klaipeda, Antwerp…).',

@@ -389,3 +389,19 @@ test('the label is MKY’s own: their logo, their red and blue, and what a yard 
   assert.doesNotMatch(label, /DOCUMENTS/, 'the checklist belongs on the case page');
   assert.doesNotMatch(label, /INCOTERM|GROSS WEIGHT/);
 });
+
+test('everything MKY issues carries the same letterhead', () => {
+  const root = path.join(DESK, '..', '..');
+  const papers = {
+    'the shipping label': 'api/admin/label.js',
+    'the booking confirmation': 'lib/pdf.js',
+    'the CMR and the MRN sheet': 'lib/mky-docs.js',
+  };
+  for (const [what, file] of Object.entries(papers)) {
+    const src = readFileSync(path.join(root, file), 'utf8');
+    assert.match(src, /mky-logo\.png/, `${what} carries the badge`);
+    // Their two colours, not the desk's old blue.
+    assert.ok(/#0070c0|#c00000|#d80b00/i.test(src), `${what} is in their colours`);
+    assert.doesNotMatch(src, /#0b4a6f/, `${what} has left the old blue behind`);
+  }
+});

@@ -10,6 +10,7 @@
  */
 
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from './config.js';
@@ -17,13 +18,18 @@ import { companyPhone } from './settings.js';
 import { t, bookingLanguage } from './i18n.js';
 import { hasArabic, drawBidiLine, drawBidiParagraph, ARABIC_WORD_SPACING } from './rtl.js';
 
-const FONT_DIR = fileURLToPath(new URL('../assets/fonts/', import.meta.url));
+const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
+const FONT_DIR = path.join(ASSETS, 'fonts');
+const LOGO = path.join(ASSETS, 'mky-logo.png');
 const AMIRI = path.join(FONT_DIR, 'Amiri-Regular.ttf');
 const AMIRI_BOLD = path.join(FONT_DIR, 'Amiri-Bold.ttf');
 
 const INK = '#12202e';
 const MUTED = '#5b6b7c';
-const BRAND = '#0b4a6f';
+// MKY's own two, read out of the label they print - the same pair the shipping
+// label and the desk's papers use, so everything that leaves here matches.
+const BRAND = '#0070c0';
+const ACCENT = '#c00000';
 const LINE = '#d8e0e8';
 
 const LEFT = 50;
@@ -132,14 +138,28 @@ function drawConfirmation(b, opts) {
     };
 
     // ---- header ----------------------------------------------------------
+    //
+    // The letterhead MKY's own label carries: the badge, the name, and the red
+    // rule under it. A customer who has seen one of their labels should
+    // recognise this sheet without reading a word of it.
     doc.rect(0, 0, 595, 96).fill(BRAND);
+    const logoW = 60;
+    let nameX = LEFT;
+    try {
+      if (fs.existsSync(LOGO)) {
+        doc.image(LOGO, rtl ? RIGHT - logoW : LEFT, 18, { height: logoW });
+        if (!rtl) nameX = LEFT + logoW + 14;
+      }
+    } catch { /* the sheet is still the sheet without it */ }
 
-    line(config.companyName, LEFT, 28, RIGHT - LEFT, {
+    line(config.companyName, nameX, 28, RIGHT - nameX, {
       align: rtl ? 'right' : 'left', size: 20, font: BOLD, color: '#ffffff',
     });
-    line(s.tagline, LEFT, 56, RIGHT - LEFT, {
+    line(s.tagline, nameX, 56, RIGHT - nameX, {
       align: rtl ? 'right' : 'left', size: 9.5, color: '#cfe2ee',
     });
+    // The rule that runs under the head of everything MKY prints.
+    doc.save().lineWidth(3).strokeColor(ACCENT).moveTo(0, 96).lineTo(595, 96).stroke().restore();
     line(title(s), LEFT, 28, RIGHT - LEFT, {
       align: rtl ? 'left' : 'right', size: 15, font: BOLD, color: '#ffffff',
     });

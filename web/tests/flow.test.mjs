@@ -527,7 +527,7 @@ test('a number shared while another question is open is kept, and that question 
   const r = await h.send({ kind: 'contact', phone: '+201222333444' });
 
   assert.equal(h.booking().customer_contact, '+201222333444');
-  assert.match(said(r), /Make \/ Brand/);
+  assert.match(said(r), /What is the vehicle, and where does it load\?/, 'the open question, asked again');
   assert.equal(r.state, S.BOOK_MAKE);
   // It did NOT become a support ticket.
   assert.equal((h.db._tables.support_tickets ?? []).length, 0);
@@ -3313,4 +3313,36 @@ test('"no, here is fine" ends it, and a customer we already have an address for 
   assert.match(said(no), /we will keep you posted here/i);
   assert.equal(no.state, S.BOOK_SUBMITTED);
   assert.ok(!h.booking().customer_email);
+});
+
+test('typing a chassis instead of sending a paper asks the make and the port together', async () => {
+  const h = harness();
+  await identify(h);
+  const asked = await h.text('W1T96340310484233');
+  assert.match(said(asked), /What is the vehicle, and where does it load\?/);
+  assert.match(said(asked), /Mercedes Actros \/ Klaipeda/, 'and shows the shape of the answer');
+
+  // Both in one line, split where the question said it would be.
+  const both = await h.text('MAN TGX / Hamburg');
+  assert.equal(h.booking().make, 'MAN');
+  assert.equal(h.booking().model, 'TGX');
+  assert.equal(h.booking().origin_port, 'Hamburg');
+  assert.match(said(both), /Egyptian destination port/, 'straight on to the one thing left');
+});
+
+test('…and "from" works as the split too, while an answer that does not split is just the make', async () => {
+  const h = harness();
+  await identify(h);
+  await h.text('W1T96340310484233');
+  await h.text('Scania R 450 from Antwerp');
+  assert.equal(h.booking().make, 'Scania');
+  assert.equal(h.booking().origin_port, 'Antwerp');
+
+  const g = harness();
+  await identify(g);
+  await g.text('XLRTE47MS0E938264');
+  const only = await g.text('DAF XF 480');
+  assert.equal(g.booking().make, 'DAF');
+  assert.ok(!g.booking().origin_port, 'nothing is invented for the port');
+  assert.match(said(only), /Where does it ship from/, 'which is then asked on its own');
 });

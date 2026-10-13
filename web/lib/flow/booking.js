@@ -57,6 +57,14 @@ const reply = (messages, patch = {}) => ({
 const isYes = (text) => /^(y|yes|yeah|yep|ok|okay|sure|correct|right|confirm|تمام|نعم|ايوه|أيوه|ماشي|أكيد|صح)\b/i
   .test(String(text ?? '').trim());
 
+/**
+ * Where "Mercedes Actros / Klaipeda" comes apart: the slash, a new line, or
+ * the word "from". Exactly what the question offers as the shape of an answer,
+ * and nothing else - a make with any of these inside it does not exist, and
+ * guessing at a comma would cut "Actros 1845, 2016" in half.
+ */
+const SPLIT_MAKE_PORT = /\s*\/\s*|\n+|\s+from\s+/i;
+
 /** An email address, wherever it sits in a message. */
 const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 
@@ -828,7 +836,13 @@ export async function askNextBasic(booking, ctx, { listMissing = false, notedPho
       intro ? M.detailsCompleteAskVin(booking.customer_name ?? null, notedPhone) : M.askVin(),
       kb.homeOnly(),
     ),
-    make: () => say(M.askMake(), kb.homeOnly()),
+    // Both at once when both are missing, which is the typed-a-chassis path:
+    // the papers answer them together, so a customer who typed should not be
+    // asked twice either.
+    make: () => say(
+      missing.includes('origin_port') ? M.askMakeAndPort() : M.askMake(),
+      kb.homeOnly(),
+    ),
     origin_port: () => say(M.askPol(), kb.homeOnly()),
     destination_port: () => say(M.askDestination(DESTINATION_PORTS), kb.homeOnly()),
   };
@@ -1016,12 +1030,35 @@ async function handlePaste(session, value, ctx) {
 
 /** Make, client name and port of loading: free text, stored as given. */
 export async function handleBasicField(session, field, text, ctx, { editing = false } = {}) {
-  const value = String(text ?? '').trim();
+  let value = String(text ?? '').trim();
   if (!value) return reply(say(M.notUnderstood(), kb.homeOnly()));
 
   if (!editing && looksLikePaste(value)) {
     const pasted = await handlePaste(session, value, ctx);
     if (pasted) return pasted;
+  }
+
+  // "Mercedes Actros / Klaipeda" - the two answers the combined question asks
+  // for, split where the question said they would be. Split before anything
+  // else reads the sentence, because "Scania R 450 from Antwerp" otherwise
+  // reads as somebody answering a different question and the make is lost -
+  // but after the paste check, because a pasted table has newlines in it too
+  // and is a different thing entirely.
+  //
+  // Deterministic on purpose: a model has no business deciding which half of a
+  // sentence is the make. An answer that does not split is simply the make,
+  // and the port is asked next as it always was.
+  let alsoPort = null;
+  if (field === 'make' && !editing) {
+    const [head, ...tail] = value.split(SPLIT_MAKE_PORT);
+    const rest = tail.join(' ').trim();
+    if (rest && head.trim()) {
+      const open = await bookingByRef(session.active_booking_ref);
+      if (open && !String(open.origin_port ?? '').trim()) {
+        value = head.trim();
+        alsoPort = normalisePlace(rest);
+      }
+    }
   }
 
   // The answer to the question that was asked, out of whatever was written
@@ -1057,6 +1094,7 @@ export async function handleBasicField(session, field, text, ctx, { editing = fa
   // One normaliser per field, shared with the paste and sentence paths, so all
   // three agree about what مرسيدس and فيلنيوس mean.
   if (field === 'make') Object.assign(fields, normaliseMake(resolvedValue));
+  if (alsoPort) fields.origin_port = alsoPort;
   if (field === 'origin_port') fields.origin_port = normalisePlace(resolvedValue);
 
   const saved = await updateDraft(session.active_booking_ref, fields, { chatId: ctx.chatId });

@@ -21,6 +21,7 @@
  */
 
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { db } from './supabase.js';
@@ -28,11 +29,16 @@ import { storeAt, BUCKET } from './storage.js';
 import { companyPhone } from './settings.js';
 import { config } from './config.js';
 
-const FONT_DIR = fileURLToPath(new URL('../assets/fonts/', import.meta.url));
+const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
+const FONT_DIR = path.join(ASSETS, 'fonts');
 const AMIRI = path.join(FONT_DIR, 'Amiri-Regular.ttf');
+const LOGO = path.join(ASSETS, 'mky-logo.png');
 
-// The CMR is a red form the world over, and MKY's is the same red.
+// The CMR is a red form the world over, and MKY's is the same red. The blue is
+// theirs, read out of the label they print, and the two together are what their
+// paperwork looks like.
 const CMR_RED = '#d80b00';
+const BRAND_BLUE = '#0070c0';
 const INK = '#101820';
 const MUTED = '#5b6b7c';
 const RULE = '#9aa7b4';
@@ -311,6 +317,18 @@ function newDoc() {
 
 const hasArabicText = (v) => /[؀-ۿ]/.test(String(v ?? ''));
 
+/**
+ * MKY's badge in the head of a paper they issue.
+ *
+ * The same one that is on their label and their confirmation sheet: a customer
+ * who has seen one should recognise the others without reading a word.
+ */
+function badge(doc, x, y) {
+  try {
+    if (fs.existsSync(LOGO)) doc.image(LOGO, x + 3, y + 2, { height: 22 });
+  } catch { /* the paper is still the paper without it */ }
+}
+
 /** One labelled box of the form, with its CMR number in the corner. */
 function box(doc, { x, y, w, h, box: n, label, value }) {
   doc.save().lineWidth(0.7).strokeColor(RULE).rect(x, y, w, h).stroke().restore();
@@ -330,9 +348,10 @@ async function cmrPdf({ fields, documentNo, bookingRef, issuedAt }) {
   const right = L + W / 2 + 3;
 
   doc.save().rect(L, 36, W, 26).fill(CMR_RED).restore();
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('CMR', L + 8, 42);
+  badge(doc, L, 36);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('CMR', L + 30, 42);
   doc.font('Helvetica').fontSize(8).fillColor('#ffffff')
-    .text('INTERNATIONAL CONSIGNMENT NOTE · LETTRE DE VOITURE INTERNATIONALE', L + 48, 45, { width: W - 160 });
+    .text('INTERNATIONAL CONSIGNMENT NOTE · LETTRE DE VOITURE INTERNATIONALE', L + 70, 45, { width: W - 180 });
   doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
     .text(documentNo, L + W - 150, 45, { width: 142, align: 'right' });
 
@@ -394,8 +413,9 @@ async function mrnPdf({ fields, documentNo, bookingRef, issuedAt }) {
   const L = 36;
   const W = 523;
 
-  doc.save().rect(L, 36, W, 26).fill('#0b4a6f').restore();
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('EXPORT DECLARATION', L + 8, 42);
+  doc.save().rect(L, 36, W, 26).fill(BRAND_BLUE).restore();
+  badge(doc, L, 36);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('EXPORT DECLARATION', L + 30, 42);
   doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
     .text(documentNo, L + W - 150, 45, { width: 142, align: 'right' });
 
