@@ -674,17 +674,27 @@ test('a closed window with no template configured still lets a person try', asyn
   assert.match(chat.body.composer.warning, /No reply-request template is set up yet/);
 });
 
-test('WhatsApp refusing a message as outside the window is said in words, the draft is the operator’s to keep', async () => {
+test('WhatsApp refusing a message as outside the window keeps it and sends it when they write', async () => {
+  // Meta will not carry a message to somebody who has not written for 24 hours
+  // (131047), and nothing on our side can change that. What changed is what
+  // happens next: the message is held rather than reported as not delivered,
+  // and the outbox sends it the moment the customer writes - releaseHeld picks
+  // up exactly these rows.
   const fake = fakeChannels({ result: { ok: false, status: 'needs_template', error: '131047: Re-engagement message', code: 131047 } });
   channelsState.deployed = true;
   channelsState.api = fake.api;
   const r = await post({ action: 'send_message', channel: 'whatsapp', chat_id: WA, text: 'Hello', action_key: 'k-wa-meta-001' });
-  assert.equal(r.status, 409);
-  assert.equal(r.body.status, 'needs_template');
-  assert.match(r.body.error, /24 hours/);
-  assert.ok(r.body.composer, 'the composer as it is now comes back with the refusal');
+
+  assert.equal(r.status, 200, 'not an error the operator has to do something about');
+  assert.equal(r.body.status, 'queued');
+  assert.match(r.body.words, /goes the moment they do/);
+
   const ledger = rows('notification_outbox').find((o) => o.idempotency_key === 'desk:k-wa-meta-001');
-  assert.equal(ledger.status, 'failed', 'recorded as not sent');
+  assert.equal(ledger.status, 'pending', 'waiting, not failed');
+  assert.equal(ledger.delivery_status, 'needs_template', 'which is what releaseHeld looks for');
+  assert.equal(ledger.payload.text, 'Hello', 'and what goes is what was typed');
+  assert.equal(ledger.payload.queued_key, 'desk:k-wa-meta-001');
+  assert.ok(new Date(ledger.available_at) > new Date(), 'not retried by itself in the meantime');
 });
 
 test('a customer who wrote STOP: composer disabled, saying when', async () => {
@@ -1458,12 +1468,14 @@ test('a closed WhatsApp window warns, and does not shut the box', () => {
   assert.equal(c.window_closed, true);
   assert.equal(c.template_offer, true);
   assert.equal(c.reason, null, 'nothing is being refused, so there is nothing to explain away');
-  assert.match(c.warning, /^Delta last wrote .+\. More than 24 hours on, WhatsApp usually accepts only an approved template, so a normal message may bounce back - send the reply-request template instead, or try anyway\.$/);
+  // What will happen, not what might: the message is kept and sent when they
+  // write. Meta's rule is Meta's; what the desk controls is not losing it.
+  assert.match(c.warning, /^Delta last wrote .+\. More than 24 hours on, WhatsApp only carries an approved template, so what you write now is saved and sent the moment they reply - or send the reply-request template to prompt them\.$/);
   // No template set up: still open, and the warning says there is no fallback.
   const bare = composerState({ ...base, templateAvailable: false, window: { open: false } });
   assert.equal(bare.mode, 'text');
   assert.equal(bare.template_offer, false);
-  assert.match(bare.warning, /No reply-request template is set up yet\.$/);
+  assert.match(bare.warning, /No reply-request template is set up yet to prompt them with\.$/);
 });
 
 test('the composer rule, case by case', () => {

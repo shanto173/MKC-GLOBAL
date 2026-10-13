@@ -33,7 +33,7 @@
 import { config, whatsappConfigured } from './config.js';
 import * as telegram from './telegram.js';
 import * as wa from './whatsapp.js';
-import { logOutbound, isSchemaMissing } from './chatlog.js';
+import { logOutbound, deliverQueued, isSchemaMissing } from './chatlog.js';
 import { currentLanguage, normaliseLanguage, withLanguage } from './lang.js';
 import { storedLanguage } from './flow/language.js';
 import { sessionKey } from './flow/store.js';
@@ -550,9 +550,28 @@ async function sendTemplateMessage(target, template, { payload = {}, document = 
 // Sending
 // ---------------------------------------------------------------------------
 
-/** The chat log, written in the background - a reply never waits on it. */
+/**
+ * The chat log, written in the background - a reply never waits on it.
+ *
+ * `queuedKey` means this send is the delivery of a message already in the log
+ * as queued - a desk message WhatsApp would not carry until the customer
+ * wrote. That row becomes this one rather than a second copy of it; if it has
+ * gone, the message is logged as any other.
+ */
 function record(target, entry) {
-  defer(logOutbound({
+  if (entry.queuedKey) {
+    defer(deliverQueued({
+      channel: target.channel, chatId: target.chatId, queuedKey: entry.queuedKey,
+      providerMessageId: entry.providerMessageId ?? null,
+      status: entry.status ?? 'sent', error: entry.error ?? null,
+    }).then((r) => (r.updated ? null : logOutbound(logFields(target, entry)))));
+    return;
+  }
+  defer(logOutbound(logFields(target, entry)));
+}
+
+function logFields(target, entry) {
+  return {
     channel: target.channel,
     chatId: target.chatId,
     clientId: target.clientId ?? null,
@@ -566,12 +585,23 @@ function record(target, entry) {
     providerMessageId: entry.providerMessageId ?? null,
     status: entry.status ?? 'sent',
     error: entry.error ?? null,
-  }));
+  };
 }
 
 function failedFrom(res, target, log, extra = {}) {
   const error = res?.error ?? 'WhatsApp refused the message';
-  record(target, { ...log, ...extra, status: 'failed', error: res?.code ? `${res.code}: ${error}` : error });
+  // A person's own message that Meta will not carry until the customer writes
+  // again is not a failure to report in red: the desk holds it and sends it the
+  // moment the window reopens, so the chat shows it waiting, with the key that
+  // the delivery will find it by.
+  const waiting = Boolean(log.queuedKey) && res?.code === wa.WINDOW_CLOSED;
+  record(target, {
+    ...log, ...extra,
+    queuedKey: null,
+    payload: waiting ? { ...(extra.payload ?? {}), queued_key: log.queuedKey } : extra.payload,
+    status: waiting ? 'queued' : 'failed',
+    error: waiting ? null : (res?.code ? `${res.code}: ${error}` : error),
+  });
   return {
     ok: false,
     status: 'failed',
@@ -692,7 +722,11 @@ async function sendWhatsApp(target, message, opts) {
   if (!waIdOf(target.chatId)) return { ok: false, status: 'failed', error: `not a WhatsApp chat: ${target.chatId}`, permanent: true };
 
   const author = opts.author ?? 'bot';
-  const log = { author, staffName: opts.staffName, bookingRef: opts.bookingRef, language: opts.language };
+  const log = {
+    author, staffName: opts.staffName, bookingRef: opts.bookingRef, language: opts.language,
+    // Set by the desk: this send may be held and finished later, under this key.
+    queuedKey: opts.queuedKey ?? null,
+  };
   const proactive = author !== 'bot' && !opts.answering;
 
   // The bot answering a message the client has just sent is inside the window

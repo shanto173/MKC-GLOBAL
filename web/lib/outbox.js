@@ -235,6 +235,10 @@ export async function drain({ limit = 20, send = sendMessage, sendFile = sendDoc
           bookingRef: row.payload?.booking_ref ?? null,
           allowTemplate: true,
           answering: ANSWERS_CLIENT.has(row.event_type),
+          // A desk message that was waiting for the customer to write: its
+          // place in the chat is already there, as queued, and this delivery
+          // fills that row in rather than adding a second copy of it.
+          queuedKey: row.payload?.queued_key ?? null,
           // Held because Meta said the window was closed: it stays closed until
           // the client writes again, whatever our clock says.
           closedUnlessClientWroteAfter: row.delivery_status === 'needs_template' ? row.updated_at ?? null : null,

@@ -119,6 +119,54 @@ export function logOutbound(m) {
 }
 
 /**
+ * A message that was waiting for the customer to write, now that it has gone.
+ *
+ * WhatsApp will not carry a new message to somebody who has not written for 24
+ * hours, so one a person at the desk sends outside that window is kept - shown
+ * in the chat as queued - and sent the moment the customer replies. When it
+ * goes, THIS row becomes the sent one. Logging the delivery as a second
+ * message would show the colleague's one sentence twice, hours apart, which
+ * reads like it was sent twice.
+ *
+ * `queuedKey` is the desk's own idempotency key for that send, carried in the
+ * row's payload. Returns `updated: false` when there is no such row, and the
+ * caller logs the delivery as a new message, which is the old behaviour.
+ */
+export async function deliverQueued({ channel, chatId, queuedKey, providerMessageId = null, status = 'sent', error = null }) {
+  if (!queuedKey || tablePresent === false) return { ok: false, updated: false };
+  try {
+    const { data, error: readErr } = await db().from('chat_messages')
+      .select('id')
+      .eq('channel', channel).eq('chat_id', String(chatId)).eq('status', 'queued')
+      .eq('payload->>queued_key', String(queuedKey))
+      .limit(1);
+    if (readErr) {
+      if (isSchemaMissing(readErr)) tablePresent = false;
+      else console.error('queued message read failed:', readErr.message);
+      return { ok: false, updated: false };
+    }
+    const row = data?.[0];
+    if (!row) return { ok: true, updated: false };
+
+    const { error: writeErr } = await db().from('chat_messages')
+      .update({
+        status,
+        error: clip(error, 500),
+        provider_message_id: clip(providerMessageId, 300),
+      })
+      .eq('id', row.id);
+    if (writeErr) {
+      console.error('queued message update failed:', writeErr.message);
+      return { ok: false, updated: false };
+    }
+    return { ok: true, updated: true };
+  } catch (err) {
+    console.error('queued message update threw:', err?.message);
+    return { ok: false, updated: false };
+  }
+}
+
+/**
  * Adds to the payload of one logged message, found by the provider's id: where
  * a voice note was stored, or why it was not. The row is written in the
  * background, so it is looked for a few times before giving up.

@@ -971,7 +971,13 @@ export function mountConversation(container, {
       ta.value = '';
       draft.set(draftKey, '');
       grow();
-      toast(r.status === 'queued' ? 'Queued — it will be tried again automatically.' : r.duplicate ? 'Already sent.' : 'Sent.');
+      // `held` is the 24-hour window: WhatsApp will not carry it until the
+      // customer writes, so it waits rather than bouncing, and the message
+      // says so in those words rather than "it will be tried again".
+      toast(r.held ? (r.words ?? 'Saved — it goes the moment they reply.')
+        : r.status === 'queued' ? 'Queued — it will be tried again automatically.'
+          : r.duplicate ? 'Already sent.' : 'Sent.',
+      r.held ? 'info' : 'ok', r.held ? { timeout: 9000 } : undefined);
       onSent?.();
       await load({ quiet: true });
     } catch (err) {

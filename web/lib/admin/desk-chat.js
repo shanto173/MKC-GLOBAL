@@ -30,6 +30,14 @@ import { filesOf, placeOf, contactsOf } from './desk-media.js';
 import { OUTBOUND_LIMITS, OUTBOUND_ACCEPT, DESK_UPLOAD_MAX_BYTES, MAX_FILES_PER_SEND, CAPTION_MAX } from '../chat-files.js';
 
 export const MAX_TEXT = 4096;
+
+/**
+ * How long a message held for a closed WhatsApp window sits before the drain
+ * looks at it again on its own. The customer writing is what really releases
+ * it; this is only so a chat that goes quiet for a month does not have the
+ * outbox retrying a message nobody is waiting for every few minutes.
+ */
+const HOLD_UNTIL_THEY_WRITE_MS = 24 * 60 * 60 * 1000;
 const CHANNELS = ['telegram', 'whatsapp'];
 
 const shortDate = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Africa/Cairo' });
@@ -137,9 +145,12 @@ export function composerState({ channel, chatId, customer, window: win, connecte
     // Whether there is a template to fall back on, which is what the screen
     // offers beside the warning and after a refusal.
     template_offer: Boolean(closed && templateAvailable),
+    // Say what will actually happen, which is no longer "it may bounce back":
+    // the message is kept and sent the moment they write. The template is
+    // still the way to make that happen sooner, so it is still offered.
     warning: closed
-      ? `${last} More than 24 hours on, WhatsApp usually accepts only an approved template, so a normal message may bounce back`
-        + `${templateAvailable ? ' - send the reply-request template instead, or try anyway.' : '. No reply-request template is set up yet.'}`
+      ? `${last} More than 24 hours on, WhatsApp only carries an approved template, so what you write now is saved and sent the moment they reply`
+        + `${templateAvailable ? ' - or send the reply-request template to prompt them.' : '. No reply-request template is set up yet to prompt them with.'}`
       : null,
     note: channel === 'telegram' ? 'Telegram · no time limit'
       : win?.known === false ? 'We cannot tell when they last wrote. If 24 hours have passed, WhatsApp will refuse and you will see why.'
@@ -202,6 +213,9 @@ export async function sendToCustomer({
   // approved template with the right words in it) - there the template is the
   // better outcome, not a consolation after a bounce.
   ignoreWindow = !allowTemplate,
+  // And if Meta refuses it for being outside the window, keep it rather than
+  // report it as not delivered: it goes when the customer next writes.
+  holdWhenClosed = !allowTemplate,
 }) {
   const body = String(text ?? '').trim();
   if (!body) return { ok: false, status: 'empty', words: 'The message is empty.' };
@@ -252,6 +266,10 @@ export async function sendToCustomer({
       { text: body },
       {
         author: 'staff', staffName: who.name, bookingRef, language, eventType, allowTemplate, answering, ignoreWindow,
+        // If WhatsApp will not carry it until the customer writes, the chat
+        // log shows it waiting under this key and the delivery fills that same
+        // row in (lib/chatlog.js, deliverQueued).
+        queuedKey: holdWhenClosed ? key : null,
         // What a template would be filled with if the window has closed.
         payload: { ...(templatePayload ?? {}), text: body, message: body, reference: templatePayload?.reference ?? bookingRef ?? entity },
       },
@@ -261,18 +279,48 @@ export async function sendToCustomer({
   }
 
   const status = result?.ok ? 'sent' : (result?.status && result.status !== 'sent' ? result.status : 'failed');
+
+  // WHATSAPP WILL NOT CARRY IT YET - SO IT WAITS, RATHER THAN BOUNCING.
+  //
+  // Outside the 24-hour window Meta refuses a message that is not an approved
+  // template (error 131047). Nothing on our side can change that, and the
+  // operations team was left with a red "Not delivered" and a message to
+  // retype later. The row becomes a held one instead: the outbox already sends
+  // everything held for a chat the moment the customer writes
+  // (releaseHeld, called by the WhatsApp transport on every inbound message),
+  // and this row's payload IS the text, so what goes is exactly what was
+  // typed. The chat shows it as queued until then.
+  const held = holdWhenClosed && status === 'needs_template';
   await db().from('notification_outbox').update(result?.ok
     ? { status: 'sent', sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-    : {
-        status: 'failed',
-        last_error: `${status}${result?.error ? `: ${result.error}` : ''}`.slice(0, 500),
-        payload: { ...payload, refused: status },
-        updated_at: new Date().toISOString(),
-      }).eq('idempotency_key', key);
+    : held
+      ? {
+          status: 'pending',
+          delivery_status: 'needs_template',
+          last_error: 'waiting for the customer to write; the 24-hour window is closed',
+          // Far enough out that the drain does not keep trying by itself; the
+          // customer writing is what releases it.
+          available_at: new Date(Date.now() + HOLD_UNTIL_THEY_WRITE_MS).toISOString(),
+          payload: { ...payload, queued_key: key },
+          updated_at: new Date().toISOString(),
+        }
+      : {
+          status: 'failed',
+          last_error: `${status}${result?.error ? `: ${result.error}` : ''}`.slice(0, 500),
+          payload: { ...payload, refused: status },
+          updated_at: new Date().toISOString(),
+        }).eq('idempotency_key', key);
 
-  return result?.ok
-    ? { ok: true, status: 'sent', provider_message_id: result.providerMessageId ?? null }
-    : { ok: false, status, words: failureWords(result?.error, { status }) };
+  if (result?.ok) return { ok: true, status: 'sent', provider_message_id: result.providerMessageId ?? null };
+  if (held) {
+    return {
+      ok: true,
+      status: 'queued',
+      held: true,
+      words: 'WhatsApp will not take a new message until they reply. It is saved, and goes the moment they do.',
+    };
+  }
+  return { ok: false, status, words: failureWords(result?.error, { status }) };
 }
 
 /** HTTP status for a send outcome: refusals by rule are 409, a missing channel 503. */
