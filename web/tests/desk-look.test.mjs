@@ -363,3 +363,29 @@ test('an MRN is recorded, not obtained, here - and approving is a different step
   assert.match(caseMod.MRN_WORDS.record, /does not apply for it or obtain it/);
   assert.match(caseMod.MRN_WORDS.steps, /Approving the application and recording the issued MRN are separate steps/);
 });
+
+// ---------------------------------------------------------------------------
+// The shipping label
+// ---------------------------------------------------------------------------
+
+test('the label is MKY’s own: their logo, their red and blue, and what a yard reads', () => {
+  const label = readFileSync(path.join(DESK, '..', '..', 'api', 'admin', 'label.js'), 'utf8');
+
+  // The two colours off the label MKY prints, not the desk's own blue.
+  assert.match(label, /const RED = '#c00000'/);
+  assert.match(label, /const BLUE = '#0070c0'/);
+  // Their actual logo, lifted from their own label and shipped as an asset.
+  assert.ok(readFileSync(path.join(DESK, '..', '..', 'assets', 'mky-logo.png')).length > 1000, 'the logo is there to print');
+
+  // The three lines in the order their label has them, and the reference alone.
+  for (const field of [/MARKS :/, /CHASS\. N°/, /Delivery Instructions:/]) {
+    assert.match(label, field);
+  }
+  // A4 landscape, as theirs is.
+  assert.match(label, /layout: 'landscape'/);
+
+  // And none of the internal checklist that used to be on it: a driver in the
+  // rain does not need to know which documents are outstanding.
+  assert.doesNotMatch(label, /DOCUMENTS/, 'the checklist belongs on the case page');
+  assert.doesNotMatch(label, /INCOTERM|GROSS WEIGHT/);
+});

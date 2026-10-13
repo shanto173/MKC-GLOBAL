@@ -32,6 +32,12 @@ const FALLBACK = {
   draft_expiry_hours: 72,
   operations_phone: null,
   operations_email: null,
+  // What the shipping label says under "Delivery Instructions": the terminal's
+  // hours and the forwarding agent at the port of loading. Both are printed as
+  // typed, and both change by lane, so they are settings and not code. The
+  // defaults are what MKY's own label carries.
+  label_terminal_hours: 'Terminal working hours: 08:00 - 17:00 Monday/Friday',
+  label_agent: 'CAP. L.CATTARUZZA S.R.L.\nSHIPPING AND FORWARDING AGENTS\nVia Terme Romane, 5 - 34074 Monfalcone (GO) / ITALY',
   human_support_hours: null,
   // The direct line for anything that cannot wait until the desk opens. Null
   // means none is read out - a client is never given an invented number.
