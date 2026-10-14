@@ -823,6 +823,73 @@ test('the booking PDF prints the desk number from Settings, and no number at all
   assert.match(set, /\+20 3 111 2222/);
 });
 
+test('the papers MKY issues read as the papers they are: letterhead, the three lines, the CMR boxes, the MRN bar code', async () => {
+  const { bookingConfirmationPdf } = await import('../lib/pdf.js');
+  const { render } = await import('../lib/mky-docs.js');
+  const { pdfText } = await import('../lib/read-file.js');
+  const { symbol } = await import('../lib/code128.js');
+
+  setup();
+
+  // The booking sheet: the route, the marks and the chassis, as the label has
+  // them, above everything else on it.
+  const sheet = await pdfText(await bookingConfirmationPdf({
+    booking_ref: 'MKY-BKG-PDF2', status: 'pending_review', customer_name: 'Cairo Heavy Haulage',
+    vin: 'WMA06XZZ4LM831746', make: 'MAN', model: 'TGX 18.510',
+    origin_port: 'Monfalcone', destination_port: 'Alexandria Port (incl. El Dekheila)',
+  }, { lang: 'en', phone: '+48 578 773 222', email: 'Ship@mkyglobalforwarding.com' }));
+  assert.match(sheet, /MONFALCONE-:/);
+  assert.match(sheet, /MARKS :/);
+  assert.match(sheet, /CHASS\. N°/);
+  assert.match(sheet, /WMA06XZZ4LM831746/);
+  assert.match(sheet, /Ship@mkyglobalforwarding\.com/);
+
+  // The label on the windscreen: the same head, and the three lines a yard
+  // reads, with the delivery instructions at the foot.
+  const { buildLabel } = await import('../api/admin/label.js');
+  const label = await pdfText(await buildLabel({
+    booking_ref: 'MKY-BKG-PDF2', customer_name: 'Cairo Heavy Haulage', vin: 'WMA06XZZ4LM831746',
+    make: 'MAN', model: 'TGX 18.510', origin_port: 'Monfalcone', destination_port: 'Alexandria Port',
+  }, { shipment: null, phone: '+48 578 773 222', email: 'Ship@mkyglobalforwarding.com',
+    terminalHours: 'Terminal working hours: 08:00 - 17:00 Monday/Friday', agent: 'CAP. L.CATTARUZZA S.R.L.' }));
+  assert.match(label, /MONFALCONE-:/);
+  assert.match(label, /CHASS\. N°/);
+  assert.match(label, /WMA06XZZ4LM831746/);
+  assert.match(label, /Delivery Instructions:/);
+  assert.match(label, /Terminal working hours/);
+  assert.match(label, /CAP\. L\.CATTARUZZA/);
+
+  // The CMR: the boxes a driver and a customs officer look for by number.
+  const cmr = await pdfText(await render('cmr', {
+    documentNo: 'MKY-CMR-1', bookingRef: 'MKY-BKG-PDF2', issuedAt: '2026-10-14T09:00:00Z',
+    fields: { sender: 'UAB V.I.P INVESTMENT', consignee: 'Cairo Heavy Haulage', marks: 'WMA06XZZ4LM831746' },
+  }));
+  assert.match(cmr, /INTERNATIONAL CONSIGNMENT NOTE/);
+  for (const n of ['1 Sender', '16 Carrier', '6 Marks and Nos', '11 Gross weight kg', '24 Goods received']) {
+    assert.ok(cmr.includes(n), `the CMR has box ${n}`);
+  }
+
+  // The MRN sheet: an export accompanying document, with the number in the
+  // heavy box and the same number in the bar code beside it.
+  const mrn = await pdfText(await render('mrn', {
+    documentNo: 'MKY-MRN-1', bookingRef: 'MKY-BKG-PDF2', issuedAt: '2026-10-14T09:00:00Z',
+    fields: { mrn_number: '26LTVR136234981746', route: 'Monfalcone → Alexandria Port' },
+  }));
+  assert.match(mrn, /EXPORT ACCOMPANYING DOCUMENT/);
+  assert.match(mrn, /MOVEMENT REFERENCE NUMBER/);
+  assert.match(mrn, /26LTVR136234981746/);
+  // Helvetica has no arrow: the route is written in characters it can print.
+  assert.doesNotMatch(mrn, /→/);
+  assert.match(mrn, /Monfalcone > Alexandria Port/);
+
+  // The bar code is the MRN, not a decoration: start B, the data, the check
+  // digit customs reads, and stop.
+  const bars = symbol('26LTVR136234981746');
+  assert.equal(bars[0], 104);
+  assert.equal(bars.at(-1), 106);
+  assert.equal(bars.length, '26LTVR136234981746'.length + 3);
+});
+
 test('the project stays within Vercel Hobby\'s twelve functions', () => {
   const count = (dir) => readdirSync(dir).reduce((n, name) => {
     if (/^[_.]/.test(name)) return n;

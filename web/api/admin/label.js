@@ -19,22 +19,15 @@
  */
 
 import path from 'node:path';
-import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from '../../lib/config.js';
+import { letterhead, marksBlock, rules, BLUE, INK } from '../../lib/letterhead.js';
 import { hasArabic, drawBidiLine, ARABIC_WORD_SPACING } from '../../lib/rtl.js';
 import { db } from '../../lib/supabase.js';
 import { companyPhone, settings } from '../../lib/settings.js';
 
-const ASSETS = fileURLToPath(new URL('../../assets/', import.meta.url));
-const FONT_DIR = path.join(ASSETS, 'fonts');
-const LOGO = path.join(ASSETS, 'mky-logo.png');
-
-// MKY's own two, taken from the label they print.
-const RED = '#c00000';
-const BLUE = '#0070c0';
-const INK = '#101010';
+const FONT_DIR = path.join(fileURLToPath(new URL('../../assets/', import.meta.url)), 'fonts');
 
 export default async function handler(req, res) {
   const secret = req.query.secret ?? req.headers['x-admin-secret'];
@@ -71,7 +64,8 @@ export default async function handler(req, res) {
   res.status(200).send(pdf);
 }
 
-function buildLabel(b, { shipment, phone = null, email = null, terminalHours = null, agent = null }) {
+/** Exported so a test can read the label itself, not only this file's source. */
+export function buildLabel(b, { shipment, phone = null, email = null, terminalHours = null, agent = null }) {
   return new Promise((resolve, reject) => {
     // A4 landscape, as MKY's own label is.
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36 });
@@ -104,43 +98,20 @@ function buildLabel(b, { shipment, phone = null, email = null, terminalHours = n
       }
     };
 
-    // -- the head: the logo, the name, and how to reach us ------------------
-    try {
-      if (fs.existsSync(LOGO)) doc.image(LOGO, L, 30, { height: 70 });
-    } catch { /* the label is still a label without it */ }
-
-    doc.font('Helvetica-Bold').fontSize(20).fillColor(INK)
-      .text(config.companyName.toUpperCase(), L + 96, 44, { lineBreak: false });
-
-    doc.font('Helvetica').fontSize(11).fillColor(INK);
-    const contact = [phone ? `phone: ${phone}` : null, email ? `Email: ${email}` : null].filter(Boolean);
-    contact.forEach((line, i) => {
-      doc.text(line, R - doc.widthOfString(line), 48 + i * 16, { lineBreak: false });
-    });
-
-    // The two red rules that run under the head on MKY's label.
-    const rules = (y) => {
-      doc.save().lineWidth(2.4).strokeColor(RED).moveTo(L, y).lineTo(R, y).stroke();
-      doc.lineWidth(2.4).strokeColor(RED).moveTo(L, y + 7).lineTo(R, y + 7).stroke().restore();
-    };
-    rules(112);
-
-    // -- the three lines anyone reads from a distance ------------------------
+    // -- the head, and the three lines anyone reads from a distance ----------
+    let y = letterhead(doc, { left: L, right: R, top: 30, phone, email, scale: 1.4 }) + 14;
     const labelX = L + 6;
-    const valueX = L + 210;
-    let y = 150;
 
-    const line = (label, text, size = 22) => {
-      doc.font('Helvetica-Bold').fontSize(15).fillColor(BLUE)
-        .text(label, labelX, y + (size - 15) / 2 + 1, { lineBreak: false });
-      value(text || '—', valueX, y, size);
-      y += size + 22;
-    };
-
-    // The route, as MKY writes it: the loading port, then where it is bound.
-    line(`${String(b.origin_port ?? 'LOADING').toUpperCase()}-:`, String(b.destination_port ?? '').toUpperCase(), 22);
-    line('MARKS :', [b.make, b.model].filter(Boolean).join(' ').toUpperCase(), 22);
-    line('CHASS. N°', b.vin ?? '', 22);
+    y = marksBlock(doc, {
+      left: L, right: R, y,
+      // The route, as MKY writes it: the loading port, then where it is bound.
+      route: [`${String(b.origin_port ?? 'LOADING').toUpperCase()}-:`, String(b.destination_port ?? '').toUpperCase()],
+      marks: ['MARKS :', [b.make, b.model].filter(Boolean).join(' ').toUpperCase()],
+      chassis: ['CHASS. N°', b.vin ?? ''],
+      size: 22,
+      labelSize: 15,
+      write: (text, x, ty, size) => value(text, x, ty, size),
+    }) + 6;
 
     // The reference, alone and large: the one thing a yard calls out.
     doc.font('Helvetica-Bold').fontSize(26).fillColor(INK)
@@ -148,7 +119,7 @@ function buildLabel(b, { shipment, phone = null, email = null, terminalHours = n
     y += 52;
 
     // -- delivery instructions ----------------------------------------------
-    rules(y);
+    rules(doc, { left: L, right: R, y, scale: 1.4 });
     y += 24;
 
     doc.font('Helvetica-Bold').fontSize(14).fillColor(BLUE).text('Delivery Instructions:', labelX, y, { lineBreak: false });

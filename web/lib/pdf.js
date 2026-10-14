@@ -10,26 +10,24 @@
  */
 
 import path from 'node:path';
-import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { config } from './config.js';
-import { companyPhone } from './settings.js';
+import { companyPhone, settings } from './settings.js';
 import { t, bookingLanguage } from './i18n.js';
 import { hasArabic, drawBidiLine, drawBidiParagraph, ARABIC_WORD_SPACING } from './rtl.js';
+import { letterhead, marksBlock } from './letterhead.js';
 
 const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
 const FONT_DIR = path.join(ASSETS, 'fonts');
-const LOGO = path.join(ASSETS, 'mky-logo.png');
 const AMIRI = path.join(FONT_DIR, 'Amiri-Regular.ttf');
 const AMIRI_BOLD = path.join(FONT_DIR, 'Amiri-Bold.ttf');
 
 const INK = '#12202e';
 const MUTED = '#5b6b7c';
-// MKY's own two, read out of the label they print - the same pair the shipping
-// label and the desk's papers use, so everything that leaves here matches.
+// MKY's blue, read out of the label they print. The red lives in ./letterhead.js
+// with the head and the rules it draws.
 const BRAND = '#0070c0';
-const ACCENT = '#c00000';
 const LINE = '#d8e0e8';
 
 const LEFT = 50;
@@ -40,17 +38,20 @@ const BOTTOM = 735;      // last y a line may start on, above the footer
 
 /**
  * @param {object} b a row from the bookings table
- * @param {{lang?: 'en'|'ar', phone?: string|null}} [opts]
- *   `phone` is the number for the footer; left out, it is read from the desk's
- *   Settings (companyPhone() in ./settings.js), and with none set the footer
- *   carries no number at all.
+ * @param {{lang?: 'en'|'ar', phone?: string|null, email?: string|null}} [opts]
+ *   `phone` and `email` are what the letterhead and the footer carry; left out,
+ *   they are read from the desk's Settings, and with neither set the sheet
+ *   carries no contact line at all rather than an invented one.
  * @returns {Promise<Buffer>}
  */
 export async function bookingConfirmationPdf(b, opts = {}) {
   // Read before drawing starts. The footer used to print config.companyPhone,
   // whose default was the .env.example illustration - on every customer's PDF.
   const phone = opts.phone !== undefined ? opts.phone : await companyPhone().catch(() => null);
-  return drawConfirmation(b, { ...opts, phone });
+  const email = opts.email !== undefined
+    ? opts.email
+    : await settings().then((x) => x.operations_email || config.companyEmail || null).catch(() => null);
+  return drawConfirmation(b, { ...opts, phone, email });
 }
 
 function drawConfirmation(b, opts) {
@@ -139,36 +140,33 @@ function drawConfirmation(b, opts) {
 
     // ---- header ----------------------------------------------------------
     //
-    // The letterhead MKY's own label carries: the badge, the name, and the red
-    // rule under it. A customer who has seen one of their labels should
-    // recognise this sheet without reading a word of it.
-    doc.rect(0, 0, 595, 96).fill(BRAND);
-    const logoW = 60;
-    let nameX = LEFT;
-    try {
-      if (fs.existsSync(LOGO)) {
-        doc.image(LOGO, rtl ? RIGHT - logoW : LEFT, 18, { height: logoW });
-        if (!rtl) nameX = LEFT + logoW + 14;
-      }
-    } catch { /* the sheet is still the sheet without it */ }
+    // MKY's own letterhead, the one on their label and on everything else they
+    // issue: the red band, the badge, the name, how to reach them, and the two
+    // red rules. A customer who has seen one of their papers recognises this
+    // sheet without reading a word of it.
+    let y = letterhead(doc, {
+      left: LEFT, right: RIGHT, top: 30, phone: opts.phone ?? null, email: opts.email ?? null,
+    }) + 6;
 
-    line(config.companyName, nameX, 28, RIGHT - nameX, {
-      align: rtl ? 'right' : 'left', size: 20, font: BOLD, color: '#ffffff',
-    });
-    line(s.tagline, nameX, 56, RIGHT - nameX, {
-      align: rtl ? 'right' : 'left', size: 9.5, color: '#cfe2ee',
-    });
-    // The rule that runs under the head of everything MKY prints.
-    doc.save().lineWidth(3).strokeColor(ACCENT).moveTo(0, 96).lineTo(595, 96).stroke().restore();
-    line(title(s), LEFT, 28, RIGHT - LEFT, {
-      align: rtl ? 'left' : 'right', size: 15, font: BOLD, color: '#ffffff',
-    });
+    // The title and the reference, under the head rather than in it.
+    line(title(s), LEFT, y, RIGHT - LEFT, { size: 14, font: BOLD, color: BRAND });
     // The reference is a Latin identifier on the bill of lading - never translated.
-    line(b.booking_ref, LEFT, 54, RIGHT - LEFT, {
-      align: rtl ? 'left' : 'right', size: 11, color: '#cfe2ee',
+    line(b.booking_ref, LEFT, y, RIGHT - LEFT, {
+      align: rtl ? 'left' : 'right', size: 11, font: BOLD, color: INK,
     });
+    y += 24;
 
-    let y = 118;
+    // The three lines MKY writes on every sheet: the route, the marks and the
+    // chassis, each on its own red-ruled row. Latin and upper case as a yard
+    // and a customs office read them, in both languages' copies.
+    y = marksBlock(doc, {
+      left: LEFT, right: RIGHT, y,
+      route: [`${String(b.origin_port ?? '').toUpperCase() || 'LOADING'}-:`, String(b.destination_port ?? '').toUpperCase()],
+      marks: ['MARKS :', [b.make, b.model].filter(Boolean).join(' ').toUpperCase()],
+      chassis: ['CHASS. N°', b.vin ?? ''],
+      size: 13,
+      labelSize: 10,
+    }) + 4;
 
     // ---- status banner ---------------------------------------------------
     doc.roundedRect(LEFT, y, RIGHT - LEFT, 46, 5).fill('#fff5e0');

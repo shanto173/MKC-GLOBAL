@@ -80,7 +80,8 @@ const STRINGS = {
 
     kg: 'kg',
     cbm: 'cbm',
-    receivedVia: (when, channel) => `Received ${when} via ${channel}`,
+    // A booking with no channel on it used to read "via undefined".
+    receivedVia: (when, channel) => (channel ? `Received ${when} via ${channel}` : `Received ${when}`),
     reference: 'Reference',
 
     emailSubjectCustomer: (ref) => `Booking request received - ${ref}`,
@@ -156,7 +157,7 @@ const STRINGS = {
 
     kg: 'كجم',
     cbm: 'متر مكعب',
-    receivedVia: (when, channel) => `تم الاستلام ${when} عبر ${channel}`,
+    receivedVia: (when, channel) => (channel ? `تم الاستلام ${when} عبر ${channel}` : `تم الاستلام ${when}`),
     reference: 'رقم الطلب',
 
     emailSubjectCustomer: (ref) => `تم استلام طلب الحجز - ${ref}`,

@@ -371,9 +371,13 @@ test('an MRN is recorded, not obtained, here - and approving is a different step
 test('the label is MKY’s own: their logo, their red and blue, and what a yard reads', () => {
   const label = readFileSync(path.join(DESK, '..', '..', 'api', 'admin', 'label.js'), 'utf8');
 
-  // The two colours off the label MKY prints, not the desk's own blue.
-  assert.match(label, /const RED = '#c00000'/);
-  assert.match(label, /const BLUE = '#0070c0'/);
+  // The head is drawn once, in lib/letterhead.js, and the label takes it from
+  // there - which is why the colours are asserted on that file and not on this
+  // one. Three near-copies of a letterhead is how they drift apart.
+  const head = readFileSync(path.join(DESK, '..', '..', 'lib', 'letterhead.js'), 'utf8');
+  assert.match(label, /from '\.\.\/\.\.\/lib\/letterhead\.js'/);
+  assert.match(head, /const RED = '#c00000'/);
+  assert.match(head, /const BLUE = '#0070c0'/);
   // Their actual logo, lifted from their own label and shipped as an asset.
   assert.ok(readFileSync(path.join(DESK, '..', '..', 'assets', 'mky-logo.png')).length > 1000, 'the logo is there to print');
 
@@ -397,11 +401,16 @@ test('everything MKY issues carries the same letterhead', () => {
     'the booking confirmation': 'lib/pdf.js',
     'the CMR and the MRN sheet': 'lib/mky-docs.js',
   };
+  // One drawing of the head, imported by each of them: the badge and the red
+  // band live in lib/letterhead.js and nowhere else.
+  const head = readFileSync(path.join(root, 'lib', 'letterhead.js'), 'utf8');
+  assert.match(head, /mky-logo\.png/, 'the letterhead carries the badge');
+
   for (const [what, file] of Object.entries(papers)) {
     const src = readFileSync(path.join(root, file), 'utf8');
-    assert.match(src, /mky-logo\.png/, `${what} carries the badge`);
+    assert.match(src, /letterhead/, `${what} draws MKY's letterhead`);
     // Their two colours, not the desk's old blue.
-    assert.ok(/#0070c0|#c00000|#d80b00/i.test(src), `${what} is in their colours`);
+    assert.ok(/#0070c0|#c00000|#d80b00|letterhead/i.test(src), `${what} is in their colours`);
     assert.doesNotMatch(src, /#0b4a6f/, `${what} has left the old blue behind`);
   }
 });

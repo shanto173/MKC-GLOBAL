@@ -26,7 +26,9 @@ import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { db } from './supabase.js';
 import { storeAt, BUCKET } from './storage.js';
-import { companyPhone } from './settings.js';
+import { companyPhone, settings } from './settings.js';
+import { letterhead } from './letterhead.js';
+import { code128 } from './code128.js';
 import { config } from './config.js';
 
 const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
@@ -238,7 +240,15 @@ export async function issueForm(kind, bookingRef, values, who, context) {
 
   const documentNo = existing?.document_no ?? numberFor(kind, bookingRef);
   const at = new Date().toISOString();
-  const buffer = await render(kind, { fields, documentNo, bookingRef, issuedAt: at, context });
+  // The letterhead's contact line, from the desk's Settings - never a default.
+  const [phone, table] = await Promise.all([
+    companyPhone().catch(() => null),
+    settings().catch(() => ({})),
+  ]);
+  const buffer = await render(kind, {
+    fields, documentNo, bookingRef, issuedAt: at, context,
+    phone, email: table.operations_email || config.companyEmail || null,
+  });
   const fileName = `${documentNo}.pdf`;
   const storagePath = existing?.storage_path
     ?? `${context?.booking?.client_id ?? 'mky'}/${bookingRef}/${kind}-${documentNo}.pdf`;
@@ -318,89 +328,128 @@ function newDoc() {
 const hasArabicText = (v) => /[؀-ۿ]/.test(String(v ?? ''));
 
 /**
- * MKY's badge in the head of a paper they issue.
+ * One labelled box of the form, with its CMR number in the corner.
  *
- * The same one that is on their label and their confirmation sheet: a customer
- * who has seen one should recognise the others without reading a word.
+ * `strong` draws the heavy border the CMR uses for the boxes the carrier fills
+ * and the EAD uses around the MRN.
  */
-function badge(doc, x, y) {
-  try {
-    if (fs.existsSync(LOGO)) doc.image(LOGO, x + 3, y + 2, { height: 22 });
-  } catch { /* the paper is still the paper without it */ }
-}
-
-/** One labelled box of the form, with its CMR number in the corner. */
-function box(doc, { x, y, w, h, box: n, label, value }) {
-  doc.save().lineWidth(0.7).strokeColor(RULE).rect(x, y, w, h).stroke().restore();
-  doc.font('Helvetica').fontSize(6).fillColor(MUTED)
-    .text(`${n ? `${n}  ` : ''}${label}`, x + 4, y + 3, { width: w - 8, lineBreak: false });
+function box(doc, { x, y, w, h, box: n, label, sub = null, value, strong = false }) {
+  doc.save().lineWidth(strong ? 1.6 : 0.7).strokeColor(strong ? INK : RULE).rect(x, y, w, h).stroke().restore();
+  doc.font('Helvetica-Bold').fontSize(6).fillColor(MUTED)
+    .text(latin(`${n ? `${n}  ` : ''}${label}`), x + 4, y + 3, { width: w - 8, lineBreak: false });
+  // The second language, as the international forms carry it.
+  if (sub) {
+    doc.font('Helvetica-Oblique').fontSize(5.5).fillColor(MUTED)
+      .text(latin(sub), x + 4, y + 11, { width: w - 8, lineBreak: false });
+  }
   const body = String(value ?? '').trim();
   if (!body) return;
-  doc.font(hasArabicText(body) ? 'ar' : 'Helvetica-Bold').fontSize(9).fillColor(INK)
-    .text(body, x + 4, y + 13, { width: w - 8, height: h - 16, ellipsis: true });
+  const arabic = hasArabicText(body);
+  doc.font(arabic ? 'ar' : 'Helvetica-Bold').fontSize(9).fillColor(INK)
+    .text(arabic ? body : latin(body), x + 4, y + (sub ? 20 : 13), { width: w - 8, height: h - (sub ? 23 : 16), ellipsis: true });
 }
 
-async function cmrPdf({ fields, documentNo, bookingRef, issuedAt }) {
+/**
+ * The route is stored with an arrow - "Monfalcone > Alexandria" reads worse on
+ * screen - and Helvetica's encoding has no arrow, so pdfkit printed it as two
+ * punctuation marks. Written in the characters the font actually has.
+ */
+const latin = (v) => String(v ?? '').replace(/→/g, '>').replace(/←/g, '<');
+
+const L = 36;
+const W = 523;
+
+/**
+ * The head every issued paper carries: MKY's letterhead, then what the sheet
+ * is and its number.
+ */
+function sheetHead(doc, { title, subtitle, documentNo, phone, email, colour }) {
+  let y = letterhead(doc, { left: L, right: L + W, top: 30, phone, email }) + 4;
+
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(colour).text(title, L, y, { lineBreak: false });
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(INK)
+    .text(documentNo, L, y + 2, { width: W, align: 'right' });
+  y += 17;
+  doc.font('Helvetica-Oblique').fontSize(8).fillColor(MUTED).text(subtitle, L, y, { lineBreak: false });
+  return y + 16;
+}
+
+async function cmrPdf({ fields, documentNo, bookingRef, issuedAt, phone = null, email = null }) {
   const { doc, done } = newDoc();
-  const L = 36;
-  const W = 523;
   const half = W / 2 - 3;
   const right = L + W / 2 + 3;
 
-  doc.save().rect(L, 36, W, 26).fill(CMR_RED).restore();
-  badge(doc, L, 36);
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('CMR', L + 30, 42);
-  doc.font('Helvetica').fontSize(8).fillColor('#ffffff')
-    .text('INTERNATIONAL CONSIGNMENT NOTE · LETTRE DE VOITURE INTERNATIONALE', L + 70, 45, { width: W - 180 });
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
-    .text(documentNo, L + W - 150, 45, { width: 142, align: 'right' });
+  let y = sheetHead(doc, {
+    title: 'CMR — INTERNATIONAL CONSIGNMENT NOTE',
+    subtitle: 'Lettre de voiture internationale · Convention CMR, Geneva 1956. Copy 1 sender · Copy 2 consignee · Copy 3 carrier.',
+    documentNo, phone, email, colour: CMR_RED,
+  });
 
-  let y = 70;
   const F = (key) => fields[key] ?? '';
 
-  box(doc, { x: L, y, w: half, h: 54, box: 1, label: 'Sender / Expéditeur', value: F('sender') });
-  box(doc, { x: right, y, w: half, h: 54, box: 16, label: 'Carrier / Transporteur', value: F('carrier') });
-  y += 54;
-  box(doc, { x: L, y, w: half, h: 54, box: 2, label: 'Consignee / Destinataire', value: F('consignee') });
-  box(doc, { x: right, y, w: half, h: 54, box: 17, label: 'Successive carriers', value: '' });
-  y += 54;
-  box(doc, { x: L, y, w: half, h: 34, box: 3, label: 'Place of delivery', value: F('delivery_place') });
-  box(doc, { x: right, y, w: half, h: 34, box: 18, label: 'Carrier’s reservations and observations', value: F('reservations') });
-  y += 34;
-  box(doc, { x: L, y, w: half, h: 34, box: 4, label: 'Place and date of taking over the goods', value: F('taking_over') });
-  box(doc, { x: right, y, w: half, h: 34, box: 19, label: 'Special agreements', value: F('agreements') });
-  y += 34;
-  box(doc, { x: L, y, w: half, h: 34, box: 5, label: 'Documents attached', value: F('annexed') });
-  box(doc, { x: right, y, w: half, h: 34, box: 13, label: 'Sender’s instructions', value: F('instructions') });
-  y += 34;
+  // Left column is the sender's to fill, right column the carrier's - which is
+  // why the right-hand boxes carry the heavy border on the printed form.
+  box(doc, { x: L, y, w: half, h: 62, box: 1, label: 'Sender', sub: 'Expéditeur (name, address, country)', value: F('sender') });
+  box(doc, { x: right, y, w: half, h: 62, box: 16, label: 'Carrier', sub: 'Transporteur (name, address, country)', value: F('carrier'), strong: true });
+  y += 62;
+  box(doc, { x: L, y, w: half, h: 62, box: 2, label: 'Consignee', sub: 'Destinataire (name, address, country)', value: F('consignee') });
+  box(doc, { x: right, y, w: half, h: 62, box: 17, label: 'Successive carriers', sub: 'Transporteurs successifs', value: '', strong: true });
+  y += 62;
+  box(doc, { x: L, y, w: half, h: 38, box: 3, label: 'Place of delivery of the goods', sub: 'Lieu prévu pour la livraison', value: F('delivery_place') });
+  box(doc, { x: right, y, w: half, h: 54, box: 18, label: 'Carrier’s reservations and observations', sub: 'Réserves et observations du transporteur', value: F('reservations'), strong: true });
+  y += 38;
+  box(doc, { x: L, y, w: half, h: 38, box: 4, label: 'Place and date of taking over the goods', sub: 'Lieu et date de la prise en charge', value: F('taking_over') });
+  y += 16;
+  box(doc, { x: right, y, w: half, h: 38, box: 19, label: 'Special agreements', sub: 'Conventions particulières', value: F('agreements') });
+  y += 22;
+  box(doc, { x: L, y, w: half, h: 38, box: 5, label: 'Documents attached', sub: 'Documents annexés', value: F('annexed') });
+  box(doc, { x: right, y, w: half, h: 38, box: 13, label: 'Sender’s instructions', sub: 'Instructions de l’expéditeur', value: F('instructions') });
+  y += 38;
 
-  // The goods, across the full width as the form has them.
+  // The goods, across the full width as the form has them. The boxes we hold no
+  // value for are drawn empty rather than left off: a CMR missing box 10 or 12
+  // is not a CMR, and a driver fills them by hand.
   const cols = [
-    { w: 150, box: 6, label: 'Marks and numbers', key: 'marks' },
-    { w: 70, box: 7, label: 'Packages', key: 'packages' },
-    { w: 110, box: 8, label: 'Method of packing', key: 'packing' },
-    { w: 113, box: 9, label: 'Nature of the goods', key: 'goods' },
-    { w: 80, box: 11, label: 'Gross weight', key: 'weight' },
+    { w: 128, box: 6, label: 'Marks and Nos', sub: 'Marques et numéros', key: 'marks' },
+    { w: 52, box: 7, label: 'Packages', sub: 'Nombre', key: 'packages' },
+    { w: 85, box: 8, label: 'Method of packing', sub: 'Mode d’emballage', key: 'packing' },
+    { w: 118, box: 9, label: 'Nature of the goods', sub: 'Nature de la marchandise', key: 'goods' },
+    { w: 70, box: 10, label: 'Statistical No', sub: 'No statistique', key: null },
+    { w: 70, box: 11, label: 'Gross weight kg', sub: 'Poids brut', key: 'weight' },
   ];
   let x = L;
   for (const c of cols) {
-    box(doc, { x, y, w: c.w, h: 52, box: c.box, label: c.label, value: F(c.key) });
+    box(doc, { x, y, w: c.w, h: 58, box: c.box, label: c.label, sub: c.sub, value: c.key ? F(c.key) : '' });
     x += c.w;
   }
-  y += 52;
+  y += 58;
 
-  box(doc, { x: L, y, w: W, h: 30, box: 21, label: 'Established in / Opgemaakt te', value: F('established') });
-  y += 30;
+  const third = W / 3;
+  box(doc, { x: L, y, w: third, h: 34, box: 12, label: 'Volume m³', sub: 'Cubage', value: '' });
+  box(doc, { x: L + third, y, w: third, h: 34, box: 14, label: 'Directions to freight payment', sub: 'Prescriptions d’affranchissement', value: '' });
+  box(doc, { x: L + third * 2, y, w: third, h: 34, box: 15, label: 'Reimbursement', sub: 'Remboursement', value: '' });
+  y += 34;
+
+  box(doc, { x: L, y, w: half, h: 46, box: 20, label: 'To be paid by', sub: 'À payer par — sender / consignee', value: '' });
+  box(doc, { x: right, y, w: half, h: 46, box: 21, label: 'Established in', sub: 'Établie à — place and date', value: F('established') });
+  y += 46;
 
   // The three signatures a CMR carries, left for ink.
   const sigW = W / 3;
-  for (const [i, [n, label]] of [[22, 'Signature and stamp of the sender'], [23, 'Signature and stamp of the carrier'], [24, 'Signature and stamp of the consignee']].entries()) {
-    box(doc, { x: L + i * sigW, y, w: sigW, h: 64, box: n, label, value: '' });
+  const sigs = [
+    [22, 'Signature and stamp of the sender', 'Signature et timbre de l’expéditeur'],
+    [23, 'Signature and stamp of the carrier', 'Signature et timbre du transporteur'],
+    [24, 'Goods received — signature of consignee', 'Réception des marchandises'],
+  ];
+  for (const [i, [n, label, sub]] of sigs.entries()) {
+    box(doc, { x: L + i * sigW, y, w: sigW, h: 78, box: n, label, sub, value: '' });
   }
-  y += 64;
+  y += 78;
 
   doc.font('Helvetica').fontSize(7).fillColor(MUTED).text(
-    `Issued by ${config.companyName || 'MKY Global Forwarding'} for booking ${bookingRef} on ${String(issuedAt).slice(0, 10)}.`,
+    `Issued by ${config.companyName || 'MKY Global Forwarding'} for booking ${bookingRef} on ${String(issuedAt).slice(0, 10)}. `
+    + 'This carriage is subject notwithstanding any clause to the contrary to the Convention on the Contract for the '
+    + 'International Carriage of Goods by Road (CMR).',
     L, y + 8, { width: W },
   );
 
@@ -408,23 +457,57 @@ async function cmrPdf({ fields, documentNo, bookingRef, issuedAt }) {
   return done;
 }
 
-async function mrnPdf({ fields, documentNo, bookingRef, issuedAt }) {
+/**
+ * The MRN sheet, drawn as an Export Accompanying Document is drawn.
+ *
+ * The EU printout guidelines put the MRN in a heavy-bordered box with the
+ * number repeated as a Code 128-B bar code beside it, and that bar code is what
+ * a customs office scans at the office of exit. Everything else is MKY's own
+ * letterhead, because this sheet is MKY's own record of what was lodged - the
+ * MRN itself is only ever the number customs issued, typed as issued.
+ */
+async function mrnPdf({ fields, documentNo, bookingRef, issuedAt, phone = null, email = null }) {
   const { doc, done } = newDoc();
-  const L = 36;
-  const W = 523;
 
-  doc.save().rect(L, 36, W, 26).fill(BRAND_BLUE).restore();
-  badge(doc, L, 36);
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text('EXPORT DECLARATION', L + 30, 42);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
-    .text(documentNo, L + W - 150, 45, { width: 142, align: 'right' });
+  let y = sheetHead(doc, {
+    title: 'EXPORT ACCOMPANYING DOCUMENT',
+    subtitle: 'Document d’accompagnement export · Declaration lodged with the customs office of export.',
+    documentNo, phone, email, colour: BRAND_BLUE,
+  });
 
-  let y = 76;
-  for (const field of FORMS.mrn.fields) {
-    const h = field.lines ? 18 + field.lines * 12 : 30;
-    box(doc, { x: L, y, w: W, h, label: field.label, value: fields[field.key] ?? '' });
+  // The MRN, in the box the guidelines describe, with the bar code under it.
+  const mrnNumber = String(fields.mrn_number ?? '').trim();
+  const mrnH = 56;
+  box(doc, { x: L, y, w: W, h: mrnH, label: 'MRN — MOVEMENT REFERENCE NUMBER', sub: 'Numéro de référence du mouvement', value: '', strong: true });
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(INK)
+    .text(mrnNumber || '—', L + 8, y + 24, { lineBreak: false });
+  if (mrnNumber) code128(doc, mrnNumber, { x: L + W / 2, y: y + 18, width: W / 2 - 10, height: 30 });
+  y += mrnH;
+
+  // The declaration's own boxes, two to a row where they are short.
+  const half = W / 2;
+  const pairs = [
+    [['office', 'Customs office of export', 'Bureau de douane d’exportation'], ['declaration_date', 'Date of declaration', 'Date de la déclaration']],
+    [['exporter', 'Consignor / Exporter', 'Expéditeur / Exportateur'], ['consignee', 'Consignee', 'Destinataire']],
+    [['origin_country', 'Country of export', 'Pays d’exportation'], ['value', 'Statistical value', 'Valeur statistique']],
+  ];
+  for (const [left, rightCol] of pairs) {
+    const h = left[0] === 'exporter' ? 70 : 32;
+    box(doc, { x: L, y, w: half, h, label: left[1], sub: left[2], value: fields[left[0]] ?? '' });
+    box(doc, { x: L + half, y, w: half, h, label: rightCol[1], sub: rightCol[2], value: fields[rightCol[0]] ?? '' });
     y += h;
   }
+
+  box(doc, { x: L, y, w: W, h: 48, box: 31, label: 'Packages and description of goods', sub: 'Colis et désignation des marchandises', value: fields.vehicle ?? '' });
+  y += 48;
+  box(doc, { x: L, y, w: W, h: 32, label: 'Route', sub: 'Port of loading → port of discharge', value: fields.route ?? '' });
+  y += 32;
+  box(doc, { x: L, y, w: W, h: 44, box: 44, label: 'Additional information, documents produced', sub: 'Mentions spéciales, documents produits', value: fields.notes ?? '' });
+  y += 44;
+
+  // Where the office of export writes its result, as the EAD has it.
+  box(doc, { x: L, y, w: W, h: 56, label: 'CONTROL BY THE OFFICE OF EXPORT', sub: 'Résultat du contrôle · stamp, date and signature', value: '', strong: true });
+  y += 56;
 
   doc.font('Helvetica').fontSize(7).fillColor(MUTED).text(
     `Issued by ${config.companyName || 'MKY Global Forwarding'} for booking ${bookingRef} on ${String(issuedAt).slice(0, 10)}. `
