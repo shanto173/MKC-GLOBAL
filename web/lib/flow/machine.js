@@ -606,12 +606,18 @@ async function bookingCallback(session, action, arg, ctx) {
     case 'mrn':
       return booking.handleMrnChoice(session, arg, ctx);
 
-    case 'docs':
-      if (arg === 'later') {
+    // "Continue without them" has to move the conversation ON. The same button
+    // carries the export-details question, where moving on means the documents;
+    // at the document step itself it means the summary card. It used to ask for
+    // the documents again from both, which is the one thing it exists to escape.
+    case 'docs': {
+      if (arg !== 'later') return reply(say(M.notUnderstood(), kb.mainMenu()));
+      if (session.current_state === S.BOOK_MRN_SUPPORTING_INFO) {
         const b = await bookingByRef(session.active_booking_ref);
         return b ? booking.documentPrompt(b, ctx) : reply(say(M.notUnderstood(), kb.mainMenu()));
       }
-      return reply(say(M.notUnderstood(), kb.mainMenu()));
+      return booking.backToConfirmation(session, ctx);
+    }
 
     case 'doctype':
       return booking.handleDocumentClassified(session, arg, ctx);

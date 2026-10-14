@@ -1219,6 +1219,25 @@ export async function handleMrnSupportingInfo(session, text, ctx) {
   });
 }
 
+/**
+ * A paper for a different vehicle is its own problem, raised before anything
+ * else: a chassis mismatch is what gets a customs declaration rejected.
+ *
+ * One warning per WRONG CHASSIS, not per file. Correcting the chassis after
+ * sending three papers made all three mismatch at once, and the client got the
+ * identical sentence three times running.
+ */
+function mismatchWarnings(state, vin) {
+  const warnedAbout = new Set();
+  const messages = [];
+  for (const wrong of state.mismatched ?? []) {
+    if (warnedAbout.has(wrong.vin)) continue;
+    warnedAbout.add(wrong.vin);
+    messages.push(say(M.documentWrongChassis(wrong.vin, vin)));
+  }
+  return messages;
+}
+
 /** Says which documents are still wanted, in the roadmap's two shapes. */
 export async function documentPrompt(booking, ctx, { lead = null } = {}) {
   const state = await bookingDocumentState({
@@ -1233,18 +1252,7 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
   const messages = [];
   if (lead) messages.push(say(lead));
 
-  // A paper for a different vehicle is its own problem, raised before anything
-  // else: a chassis mismatch is what gets a customs declaration rejected.
-  //
-  // One warning per WRONG CHASSIS, not per file. Correcting the chassis after
-  // sending three papers made all three mismatch at once, and the client got
-  // the identical sentence three times running.
-  const warnedAbout = new Set();
-  for (const wrong of state.mismatched) {
-    if (warnedAbout.has(wrong.vin)) continue;
-    warnedAbout.add(wrong.vin);
-    messages.push(say(M.documentWrongChassis(wrong.vin, booking.vin)));
-  }
+  messages.push(...mismatchWarnings(state, booking.vin));
 
   if (state.complete) {
     messages.push(say(M.documentsComplete()));
@@ -1261,12 +1269,17 @@ export async function documentPrompt(booking, ctx, { lead = null } = {}) {
   // Nothing received yet is a first ask, not a nag; after that the wording
   // changes with how much is left, which is what tells a client they are nearly
   // finished rather than back at the beginning.
+  //
+  // The papers are always skippable. A booking needs the vehicle and its route;
+  // the documents are asked for here because this is the cheapest moment to get
+  // them, and chased by Operations when they are not. A client who has only the
+  // chassis and the two ports can still send the request.
   if (!state.received_types.length) {
-    messages.push(say(M.mrnExistingChosen(ar, en), kb.documentStep({ canSkip: false })));
+    messages.push(say(M.mrnExistingChosen(ar, en), kb.documentStep({ canSkip: true })));
   } else if (state.missing.length === 1) {
-    messages.push(say(M.documentsOneMissing(ar[0], en[0]), kb.documentStep({ canSkip: false })));
+    messages.push(say(M.documentsOneMissing(ar[0], en[0]), kb.documentStep({ canSkip: true })));
   } else {
-    messages.push(say(M.documentsStillMissing(ar, en), kb.documentStep({ canSkip: false })));
+    messages.push(say(M.documentsStillMissing(ar, en), kb.documentStep({ canSkip: true })));
   }
 
   return reply(messages, { current_state: S.BOOK_DOCUMENTS });
@@ -1781,12 +1794,10 @@ export async function backToConfirmation(session, ctx, { lead = null } = {}) {
 
   const messages = [];
   if (lead) messages.push(say(lead));
+  messages.push(...mismatchWarnings(state, booking.vin));
 
-  if (state.ok && !state.complete) {
-    const next = await documentPrompt(booking, ctx);
-    return reply([...messages, ...next.messages], next.patch);
-  }
-
+  // Outstanding papers do not send the client back to the document step: the
+  // card lists them with a ❌ against each, and they can confirm regardless.
   messages.push(say(await confirmationCard(booking, state), kb.confirmBooking()));
   return reply(messages, { current_state: S.BOOK_FINAL_CONFIRMATION });
 }
@@ -1926,24 +1937,15 @@ export async function handleConfirm(session, ctx) {
     ], next.patch);
   }
 
-  const docs = await bookingDocumentState({
-    bookingRef: booking.booking_ref, chatId: ctx.chatId,
-    vin: booking.vin, mrnChoice: booking.mrn_choice ?? 'existing',
-  });
-
   const config = await settings();
   const mrnPending = booking.mrn_choice === 'mky_issue';
   const holdForMrn = mrnPending && config.allow_submit_while_mrn_pending === false;
 
-  if (docs.ok && !docs.complete) {
-    const ar = docs.missing.map((t) => docAr(t));
-    const en = docs.missing.map((t) => docEn(t));
-    return reply([
-      say(M.submitBlockedDocuments(ar, en)),
-      say(M.documentsStillMissing(ar, en), kb.documentStep({ canSkip: false })),
-    ], { current_state: S.BOOK_DOCUMENTS });
-  }
-
+  // A missing paper does not stop the request. The booking needs the vehicle
+  // and its route, which missingBasics above has already insisted on; the
+  // papers are Operations' to chase, and the desk's own checklist and "Request
+  // the missing documents" action exist for exactly that. Refusing here left a
+  // client with a chassis, two ports and no way to ask MKY for anything.
   if (holdForMrn) {
     return reply(say(both(
       'الطلب هيستنى لحد ما نستخرج الـ MRN، وهنبعتلك أول ما يجهز.',

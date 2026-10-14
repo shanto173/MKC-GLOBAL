@@ -1360,15 +1360,28 @@ test('the edit menu offers the phone number, and editing it returns to the card'
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
-test('Confirm is refused while a required document is missing', async () => {
+test('Confirm goes through while a document is still missing', async () => {
   const h = harness();
   await bookUpTo(h, { documents: false });
   await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
   const r = await h.tap('bk:confirm');
 
-  assert.match(said(r), /cannot send this to Operations/);
-  assert.equal(h.booking().status, 'draft');
-  assert.equal(h.tasks().length, 0);
+  // The papers are Operations' to chase; the vehicle and its route are what a
+  // request needs, and those were answered.
+  assert.equal(h.booking().status, 'pending_review');
+  assert.equal(h.tasks().filter((t) => t.task_type === 'new_booking_request').length, 1);
+  assert.match(said(r), new RegExp(`Your booking reference: ${h.booking().booking_ref}`));
+});
+
+test('"Skip for now" at the document step reaches the card, not the same question', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+  const asked = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
+  assert.ok(buttons(asked).includes('bk:docs:later'));
+
+  const r = await h.tap('bk:docs:later');
+  assert.match(said(r), /Please confirm your booking details/);
+  assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
 test('TEST 15 - a repeated Confirm does not submit twice', async () => {

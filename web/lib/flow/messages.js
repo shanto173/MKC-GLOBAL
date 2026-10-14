@@ -602,11 +602,6 @@ What I need right now is ${needEn}.`,
     `Request ${ref} is already with our Operations Team. There is no need to send it again.`,
   ),
 
-  submitBlockedDocuments: (labelsAr, labelsEn) => both(
-    `⚠️ مقدرش أبعت الطلب لفريق العمليات ولسه ناقص:\n${labelsAr.map((l) => `• ${l}`).join('\n')}`,
-    `⚠️ I cannot send this to Operations while these are still missing:\n${labelsEn.map((l) => `• ${l}`).join('\n')}`,
-  ),
-
   submitBlockedDuplicate: (ref) => both(
     `⚠️ الشاسيه ده اتحجز في الطلب ${ref}. مش هنبعت طلب تاني لنفس الوحدة.`,
     `⚠️ This chassis is already booked under ${ref}. We will not send a second request for the same unit.`,
