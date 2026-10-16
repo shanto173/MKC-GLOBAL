@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { db } from './supabase.js';
 import { storeAt, BUCKET } from './storage.js';
-import { companyPhone, settings } from './settings.js';
+import { letterheadContact } from './settings.js';
 import { letterhead } from './letterhead.js';
 import { code128 } from './code128.js';
 import { config } from './config.js';
@@ -117,7 +117,7 @@ export async function prefill(kind, { booking = {}, documents = [], mrn = null }
   // The carrier block starts as our name and whatever number the desk has set
   // for paperwork; the address is the operator's to type, because MKY loads
   // from more than one place and a wrong one on a CMR follows the lorry.
-  const phone = await companyPhone().catch(() => null);
+  const { phone } = await letterheadContact().catch(() => ({}));
   const company = join(config.companyName || 'MKY Global Forwarding', phone ? `Tel ${phone}` : '');
 
   // The reader's best copy of each value, from the papers that carry it.
@@ -240,14 +240,10 @@ export async function issueForm(kind, bookingRef, values, who, context) {
 
   const documentNo = existing?.document_no ?? numberFor(kind, bookingRef);
   const at = new Date().toISOString();
-  // The letterhead's contact line, from the desk's Settings - never a default.
-  const [phone, table] = await Promise.all([
-    companyPhone().catch(() => null),
-    settings().catch(() => ({})),
-  ]);
+  // The letterhead's contact line: the desk's Settings, then MKY's own.
+  const { phone = null, email = null } = await letterheadContact().catch(() => ({}));
   const buffer = await render(kind, {
-    fields, documentNo, bookingRef, issuedAt: at, context,
-    phone, email: table.operations_email || config.companyEmail || null,
+    fields, documentNo, bookingRef, issuedAt: at, context, phone, email,
   });
   const fileName = `${documentNo}.pdf`;
   const storagePath = existing?.storage_path

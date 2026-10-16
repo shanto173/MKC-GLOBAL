@@ -42,6 +42,13 @@ const FALLBACK = {
   // defaults are what MKY's own label carries.
   label_terminal_hours: 'Terminal working hours: 08:00 - 17:00 Monday/Friday',
   label_agent: 'CAP. L.CATTARUZZA S.R.L.\nSHIPPING AND FORWARDING AGENTS\nVia Terme Romane, 5 - 34074 Monfalcone (GO) / ITALY',
+  // The contacts printed under the letterhead - MKY's own, read off the label
+  // they print: their line and their shipping mailbox. They are here so that
+  // paper carries a company address even when nobody has set one, because what
+  // it used to fall through to was COMPANY_EMAIL - which is how a personal
+  // gmail came to be printed on a customer's label.
+  label_phone: '+48 578 773 222',
+  label_email: 'Ship@mkyglobalforwarding.com',
   human_support_hours: null,
   // The direct line for anything that cannot wait until the desk opens. Null
   // means none is read out - a client is never given an invented number.
@@ -177,6 +184,22 @@ export async function companyPhone() {
   return realPhone(table.operations_phone)
     ?? realPhone(process.env.COMPANY_PHONE)
     ?? realPhone(process.env.OPERATIONS_PHONE);
+}
+
+/**
+ * The contact line under the letterhead, on everything MKY issues - the label,
+ * the booking sheet, the CMR, the MRN.
+ *
+ * The desk's Settings first, so Operations can change what is printed without a
+ * deployment; then what MKY's own label carries. Never COMPANY_EMAIL, which is
+ * where a personal address was set and got printed on a label.
+ */
+export async function letterheadContact() {
+  const table = await settings();
+  return {
+    phone: (await companyPhone()) ?? realPhone(table.label_phone),
+    email: table.operations_email || table.label_email || null,
+  };
 }
 
 /**

@@ -25,7 +25,7 @@ import { config } from '../../lib/config.js';
 import { letterhead, marksBlock, rules, BLUE, INK } from '../../lib/letterhead.js';
 import { hasArabic, drawBidiLine, ARABIC_WORD_SPACING } from '../../lib/rtl.js';
 import { db } from '../../lib/supabase.js';
-import { companyPhone, settings } from '../../lib/settings.js';
+import { letterheadContact, settings } from '../../lib/settings.js';
 
 const FONT_DIR = path.join(fileURLToPath(new URL('../../assets/', import.meta.url)), 'fonts');
 
@@ -45,16 +45,16 @@ export default async function handler(req, res) {
   const { data: shipment } = await db().from('shipments')
     .select('shipment_id, status, vessel, eta').eq('booking_ref', ref).maybeSingle();
 
-  // The desk's number from Settings, or none: never a default nobody answers.
-  const [phone, table] = await Promise.all([
-    companyPhone().catch(() => null),
+  // MKY's own contacts, as their label carries them; the desk's Settings win.
+  const [contact, table] = await Promise.all([
+    letterheadContact().catch(() => ({})),
     settings().catch(() => ({})),
   ]);
 
   const pdf = await buildLabel(booking, {
     shipment,
-    phone,
-    email: table.operations_email || config.companyEmail || null,
+    phone: contact.phone ?? null,
+    email: contact.email ?? null,
     terminalHours: table.label_terminal_hours || null,
     agent: table.label_agent || null,
   });

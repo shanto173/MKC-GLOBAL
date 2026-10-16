@@ -823,6 +823,33 @@ test('the booking PDF prints the desk number from Settings, and no number at all
   assert.match(set, /\+20 3 111 2222/);
 });
 
+test("the contacts on MKY's paper are MKY's own, never an address out of the environment", async () => {
+  const { bookingConfirmationPdf } = await import('../lib/pdf.js');
+  const { letterheadContact } = await import('../lib/settings.js');
+  const { pdfText } = await import('../lib/read-file.js');
+
+  const db = setup();
+  // The label and the booking sheet used to fall through to COMPANY_EMAIL, and
+  // a deployment had a personal gmail in it: that address was printed on a
+  // customer's label. The letterhead carries what MKY print on their own.
+  assert.deepEqual(await letterheadContact(), {
+    phone: '+48 578 773 222', email: 'Ship@mkyglobalforwarding.com',
+  });
+
+  const sheet = await pdfText(await bookingConfirmationPdf({
+    booking_ref: 'MKY-BKG-PDF3', status: 'pending_review', channel: 'whatsapp', customer_name: 'Delta Trans',
+    vin: 'YV2RT40A8FB712905', make: 'Volvo', origin_port: 'Monfalcone', destination_port: 'Alexandria',
+  }, { lang: 'en' }));
+  assert.match(sheet, /Ship@mkyglobalforwarding\.com/);
+  assert.match(sheet, /\+48 578 773 222/);
+  assert.doesNotMatch(sheet, /gmail/i);
+
+  // What Operations set in the desk still wins over the printed default.
+  db._tables.bot_settings.push({ key: 'operations_email', value: 'ops@mkyglobalforwarding.com' });
+  invalidateSettings();
+  assert.equal((await letterheadContact()).email, 'ops@mkyglobalforwarding.com');
+});
+
 test('the papers MKY issues read as the papers they are: letterhead, the three lines, the CMR boxes, the MRN bar code', async () => {
   const { bookingConfirmationPdf } = await import('../lib/pdf.js');
   const { render } = await import('../lib/mky-docs.js');
