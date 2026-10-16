@@ -76,7 +76,7 @@ export function looksLikeVin(value) {
  * half the clients type them.
  */
 const PORT_ALIASES = [
-  ['Alexandria Port (incl. El Dekheila)', ['alexandria', 'alex', 'dekheila', 'el dekheila', 'الإسكندرية', 'الاسكندرية', 'اسكندرية', 'الدخيلة']],
+  ['Alexandria Port', ['alexandria', 'alex', 'dekheila', 'el dekheila', 'الإسكندرية', 'الاسكندرية', 'اسكندرية', 'الدخيلة']],
   ['Port Said', ['port said', 'portsaid', 'said', 'بورسعيد', 'بور سعيد']],
   ['Damietta Port', ['damietta', 'dumyat', 'domyat', 'دمياط']],
   ['Ain Sokhna Port', ['ain sokhna', 'sokhna', 'ain al sokhna', 'السخنة', 'العين السخنة']],

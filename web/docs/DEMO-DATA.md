@@ -534,7 +534,7 @@ Model → `Actros`, أكتروس split off the make
 
 Loading → `Vilnius`, from فيلنيوس, because it goes on the bill of lading
 
-Destination → `Alexandria Port (incl. El Dekheila)`, الإسكندرية matched to our
+Destination → `Alexandria Port`, الإسكندرية matched to our
 port list
 
 Client → `شركة النيل للنقل`, **left in Arabic** — a wrong Latin guess at

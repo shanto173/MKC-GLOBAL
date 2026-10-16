@@ -158,7 +158,7 @@ function seed(extra = {}) {
       },
       {
         booking_ref: 'MKY-BKG-OTHER', status: 'under_review', channel: 'telegram', chat_id: TG, client_id: 8, customer_name: 'Red Sea Haulage', customer_contact: '+20 65',
-        vin: 'WMA06XZZ0LM438865', make: 'MAN', origin_port: 'Antwerp', destination_port: 'Alexandria Port (incl. El Dekheila)', mrn_choice: 'existing', priority: 'normal',
+        vin: 'WMA06XZZ0LM438865', make: 'MAN', origin_port: 'Antwerp', destination_port: 'Alexandria Port', mrn_choice: 'existing', priority: 'normal',
         created_at: iso(5 * 3600_000), edit_history: [],
       },
     ],

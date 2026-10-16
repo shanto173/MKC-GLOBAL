@@ -112,7 +112,7 @@ export const config = {
 
 /** Ports we serve, used for validation and for the guided booking flow. */
 export const DESTINATION_PORTS = [
-  'Alexandria Port (incl. El Dekheila)',
+  'Alexandria Port',
   'Port Said',
   'Damietta Port',
   'Ain Sokhna Port',
@@ -125,7 +125,7 @@ export const DESTINATION_PORTS = [
  * the paperwork use, and lib/bookings.js matchPort() understands either.
  */
 export const DESTINATION_PORTS_AR = {
-  'Alexandria Port (incl. El Dekheila)': 'ميناء الإسكندرية (شامل الدخيلة)',
+  'Alexandria Port': 'ميناء الإسكندرية',
   'Port Said': 'ميناء بورسعيد',
   'Damietta Port': 'ميناء دمياط',
   'Ain Sokhna Port': 'ميناء العين السخنة',

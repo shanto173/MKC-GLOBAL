@@ -73,7 +73,7 @@ test('a customer and their paperwork go back exactly as they were, ids and all',
              (9, 'Someone Else', '201009999999', '+201009999999');
     insert into bookings (id, booking_ref, status, channel, chat_id, client_id, customer_name, vin, make, origin_port, destination_port) overriding system value
       values (11, 'MKY-BKG-1', 'pending_review', 'whatsapp', 'wa:201005551234', 2, 'Delta Trans', 'WDB9634031L000001', 'Mercedes-Benz', 'Antwerp', 'Port Said'),
-             (19, 'MKY-BKG-9', 'pending_review', 'whatsapp', 'wa:201009999999', 9, 'Someone Else', 'YV2RT40A8FB712905', 'Volvo', 'Klaipeda', 'Alexandria Port (incl. El Dekheila)');
+             (19, 'MKY-BKG-9', 'pending_review', 'whatsapp', 'wa:201009999999', 9, 'Someone Else', 'YV2RT40A8FB712905', 'Volvo', 'Klaipeda', 'Alexandria Port');
     insert into booking_documents (id, booking_ref, client_id, chat_id, doc_type, status, storage_path) overriding system value
       values (101, 'MKY-BKG-1', 2, 'wa:201005551234', 'invoice', 'received', '2/MKY-BKG-1/inv.pdf'),
              (102, 'MKY-BKG-1', 2, 'wa:201005551234', 'brief', 'received', '2/MKY-BKG-1/cmr.pdf');

@@ -68,7 +68,7 @@ const scenarios = [
       results: {
         lookup_vehicle: {
           verdict: 'already_booked',
-          existing_booking: { booking_ref: 'MKY-BKG-260904-9XKQ', status: 'pending_review', origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)' },
+          existing_booking: { booking_ref: 'MKY-BKG-260904-9XKQ', status: 'pending_review', origin_port: 'Vilnius', destination_port: 'Alexandria Port' },
           next_step: 'This unit is ALREADY BOOKED under MKY-BKG-260904-9XKQ (Vilnius to Alexandria Port, status pending_review). Tell the customer, give the reference, and do not start a new booking.',
         },
       },

@@ -57,7 +57,7 @@ const booking = (n) => ({
   customer_contact: `ops-${stamp}@example.invalid`,
   origin_country: 'Lithuania',
   origin_port: 'Vilnius',
-  destination_port: 'Alexandria Port (incl. El Dekheila)',
+  destination_port: 'Alexandria Port',
   cargo_description: 'Mercedes-Benz Actros 1845',
   vin: `TESTOPS${stamp}${n}`,
   make: 'Mercedes-Benz',

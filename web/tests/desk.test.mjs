@@ -102,7 +102,7 @@ function seed(extra = {}) {
       {
         booking_ref: 'MKY-BKG-1', status: 'pending_review', channel: 'telegram', chat_id: '555', client_id: 1,
         customer_name: 'Nile Motors', customer_contact: '+20 100 000 0001', vin: 'YV2RT40A8FB712905', make: 'Volvo', model: 'FH',
-        origin_port: 'Klaipeda', destination_port: 'Alexandria Port (incl. El Dekheila)', mrn_choice: 'existing', priority: 'normal',
+        origin_port: 'Klaipeda', destination_port: 'Alexandria Port', mrn_choice: 'existing', priority: 'normal',
         created_at: iso(5 * 3600_000), submitted_at: iso(5 * 3600_000), status_changed_at: iso(5 * 3600_000), edit_history: [],
       },
       {

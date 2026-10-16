@@ -26,7 +26,7 @@ const sample = {
   company: 'MKY Global Forwarding',
   origin_country: 'Lithuania',
   origin_port: 'Vilnius',
-  destination_port: 'Alexandria Port (incl. El Dekheila)',
+  destination_port: 'Alexandria Port',
   // A real unit, because that is what the business ships: one used commercial
   // vehicle identified by its chassis number.
   vin: 'W1T96340310484233',

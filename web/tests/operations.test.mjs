@@ -28,7 +28,7 @@ const BOOKING = {
   booking_ref: 'MKY-BKG-260908-Z1', status: 'confirmed', chat_id: CHAT, client_id: 1,
   channel: 'telegram', vin: 'W1T96340310484233', make: 'Mercedes-Benz', model: 'Actros',
   customer_name: 'Nile Motors', customer_contact: 'telegram:555',
-  origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)',
+  origin_port: 'Vilnius', destination_port: 'Alexandria Port',
 };
 
 function setup(seed = {}) {

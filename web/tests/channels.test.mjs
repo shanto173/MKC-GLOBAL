@@ -52,7 +52,7 @@ const TEMPLATES = {
 const BOOKING = {
   booking_ref: 'MKY-BKG-261007-A1', status: 'confirmed', chat_id: WA, client_id: 7, channel: 'whatsapp',
   vin: 'YV2RT40A8FB712905', make: 'Volvo', model: 'FH', customer_name: 'Delta Trans',
-  customer_contact: '+201005551234', origin_port: 'Klaipeda', destination_port: 'Alexandria Port (incl. El Dekheila)',
+  customer_contact: '+201005551234', origin_port: 'Klaipeda', destination_port: 'Alexandria Port',
 };
 
 let net;

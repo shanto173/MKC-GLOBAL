@@ -1422,7 +1422,7 @@ test('the submitted request carries exactly what the client approved', async () 
   assert.equal(b.customer_name, 'Nile Motors');
   assert.equal(b.customer_contact, PHONE_STORED);
   assert.equal(b.origin_port, 'Vilnius');
-  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(b.destination_port, 'Alexandria Port');
 });
 
 // ---------------------------------------------------------------------------
@@ -1432,7 +1432,7 @@ test('the submitted request carries exactly what the client approved', async () 
 const SHIPMENT = {
   shipment_id: 'MKY-26001', booking_ref: 'MKY-BKG-260901-DDDD', chat_id: CHAT,
   vin: 'W1T96340310484233', make: 'Mercedes-Benz', customer_name: 'Nile Motors',
-  origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)',
+  origin_port: 'Vilnius', destination_port: 'Alexandria Port',
   status: 'In transit', vessel: 'MSC Aurora', eta: '2026-09-20',
 };
 
@@ -1547,7 +1547,7 @@ test('a shipment owned through the booking, not the chat, is readable by its cli
     bookings: [{
       booking_ref: 'MKY-BKG-260901-DDDD', status: 'confirmed', chat_id: CHAT, client_id: 1,
       vin: 'W1T96340310484233', make: 'Mercedes-Benz', customer_name: 'Nile Motors',
-      origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)',
+      origin_port: 'Vilnius', destination_port: 'Alexandria Port',
     }],
   });
   await h.tap('menu:track');
@@ -1560,7 +1560,7 @@ test('a confirmed booking with no shipment yet says where it actually is', async
     bookings: [{
       booking_ref: 'MKY-BKG-260901-EEEE', status: 'pending_review', chat_id: CHAT, client_id: 1,
       vin: 'W1T96340310484233', make: 'Mercedes-Benz', customer_name: 'Nile Motors',
-      origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)',
+      origin_port: 'Vilnius', destination_port: 'Alexandria Port',
     }],
   });
   await h.tap('menu:track');
@@ -1765,7 +1765,7 @@ test('TEST 22 - contact/booking shows only a booking this client owns', async ()
     bookings: [{
       booking_ref: 'MKY-BKG-260901-FFFF', status: 'pending_review', chat_id: CHAT, client_id: 1,
       vin: 'W1T96340310484233', make: 'Mercedes-Benz', customer_name: 'Nile Motors',
-      origin_port: 'Vilnius', destination_port: 'Alexandria Port (incl. El Dekheila)',
+      origin_port: 'Vilnius', destination_port: 'Alexandria Port',
       mrn_choice: 'existing',
     }],
   });
@@ -2152,7 +2152,7 @@ test('port matching does not send Damietta to Port Said', () => {
   assert.equal(matchPort('Damietta port'), 'Damietta Port');
   assert.equal(matchPort('damietta'), 'Damietta Port');
   assert.equal(matchPort('Port Said'), 'Port Said');
-  assert.equal(matchPort('alex'), 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(matchPort('alex'), 'Alexandria Port');
   assert.equal(matchPort('دمياط'), 'Damietta Port');
   assert.equal(matchPort('السخنة'), 'Ain Sokhna Port');
   assert.equal(matchPort('Aswan'), null);
@@ -2883,7 +2883,7 @@ test('a sentence with no chassis keeps what it DID contain, and asks again', asy
 
   // The destination was in the message, so it is kept rather than thrown away
   // and asked for again two messages later.
-  assert.equal(h.booking().destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(h.booking().destination_port, 'Alexandria Port');
   assert.equal(h.booking().vin, undefined, 'and the sentence is not stored as a chassis');
   assert.match(said(r), /Noted/);
   assert.match(said(r), /chassis/i);
@@ -2957,7 +2957,7 @@ test('a whole sentence fills every field it names', async () => {
   const b = h.booking();
   assert.equal(b.vin, 'WMA06XZZ8KM745219');
   assert.equal(b.origin_port, 'Klaipeda');
-  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(b.destination_port, 'Alexandria Port');
   // And the next question is the one thing it did not say - not a list that
   // still includes the ports it just gave.
   assert.match(said(r), /Make \/ Brand/);
@@ -3043,7 +3043,7 @@ test('a whole booking works in Arabic, and the paperwork values come out Latin',
   assert.equal(b.make, 'Mercedes-Benz', 'مرسيدس is Mercedes-Benz on the paperwork');
   assert.equal(b.model, 'Actros', 'and the model is split off, not glued to the make');
   assert.equal(b.origin_port, 'Vilnius', 'فيلنيوس is Vilnius');
-  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(b.destination_port, 'Alexandria Port');
   // The client's own business name is left exactly as they wrote it: a wrong
   // Latin guess is worse than Arabic somebody can read.
   assert.equal(b.customer_name, 'شركة النيل للنقل');
@@ -3199,7 +3199,7 @@ test('the Arabic block pastes as one message too', async () => {
   assert.equal(b.make, 'Mercedes-Benz');
   assert.equal(b.customer_name, 'شركة النيل للنقل');
   assert.equal(b.origin_port, 'Vilnius');
-  assert.equal(b.destination_port, 'Alexandria Port (incl. El Dekheila)');
+  assert.equal(b.destination_port, 'Alexandria Port');
   assert.equal(r.state, S.BOOK_CLIENT_PHONE, 'everything but the number, so the number is asked');
 
   const next = await h.text('رقم الموبايل: ٠١٠٠٥٥٥١٢٣٤');

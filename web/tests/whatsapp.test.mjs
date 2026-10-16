@@ -863,7 +863,7 @@ test('the papers MKY issues read as the papers they are: letterhead, the three l
   const sheet = await pdfText(await bookingConfirmationPdf({
     booking_ref: 'MKY-BKG-PDF2', status: 'pending_review', customer_name: 'Cairo Heavy Haulage',
     vin: 'WMA06XZZ4LM831746', make: 'MAN', model: 'TGX 18.510',
-    origin_port: 'Monfalcone', destination_port: 'Alexandria Port (incl. El Dekheila)',
+    origin_port: 'Monfalcone', destination_port: 'Alexandria Port',
   }, { lang: 'en', phone: '+48 578 773 222', email: 'Ship@mkyglobalforwarding.com' }));
   assert.match(sheet, /MONFALCONE-:/);
   assert.match(sheet, /MARKS :/);

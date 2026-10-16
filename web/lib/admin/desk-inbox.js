@@ -59,7 +59,7 @@ export function listWords(items) {
   return `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 }
 
-/** "Alexandria Port (incl. El Dekheila)" is the right name and too long for a row. */
+/** "Damietta Port" is the right name and too long for a row: a row says "Damietta". */
 export const shortPort = (p) => String(p ?? '').replace(/\s*\(.*\)\s*/g, '').replace(/\s+Port$/i, '').replace(/^Port\s+of\s+/i, '').trim();
 
 const vehicleOf = (r) => [r.make, r.model].filter(Boolean).join(' ');

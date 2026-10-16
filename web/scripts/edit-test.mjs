@@ -118,7 +118,7 @@ const drifted = await runTool('create_booking', {
   ...DETAILS,
   vin: VIN + 'C',
   make: 'Mercedes',
-  destination_port: 'Alexandria Port (incl. El Dekheila)',
+  destination_port: 'Alexandria Port',
   gross_weight_kg: '8266',
   incoterm: 'exw',
   notes: 'Engine is damaged and the unit does not run',

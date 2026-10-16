@@ -30,7 +30,7 @@ export const SHIPMENTS = [
   {
     shipment_id: 'MKY-24001', acid_id: 'ACID-908341', bl_number: 'MAEU2401881', container_no: 'MSKU7741230',
     customer_name: 'Amelia Carter', customer_email: 'amelia.carter@northwind.example', customer_phone: '+44 20 7946 0101',
-    origin_port: 'Rotterdam', destination_port: 'Alexandria Port (incl. El Dekheila)', mode: 'Sea FCL',
+    origin_port: 'Rotterdam', destination_port: 'Alexandria Port', mode: 'Sea FCL',
     status: 'Vessel departed Rotterdam', mrn_status: 'Approved', payment_status: 'Paid', delivery_status: 'Not yet',
     cargo_description: 'Industrial pumps and spare parts', gross_weight_kg: 18400, volume_cbm: 42.5,
     vessel: 'MSC Aurora V.238W', etd: '2026-08-27', eta: '2026-09-08',
@@ -99,7 +99,7 @@ export const SHIPMENTS = [
   {
     shipment_id: 'MKY-24006', acid_id: 'ACID-908346', bl_number: 'MAEU2401446', container_no: 'MRKU6612884',
     customer_name: 'Liam Thompson', customer_email: 'liam@thompsonmachinery.example', customer_phone: '+32 3 555 0106',
-    origin_port: 'Antwerp', destination_port: 'Alexandria Port (incl. El Dekheila)', mode: 'Sea FCL',
+    origin_port: 'Antwerp', destination_port: 'Alexandria Port', mode: 'Sea FCL',
     status: 'On hold - MRN correction required', mrn_status: 'Rejected', payment_status: 'Pending', delivery_status: 'Not yet',
     cargo_description: 'CNC machinery, 1 x 40ft HC', gross_weight_kg: 20000, volume_cbm: 63.4,
     vessel: 'Maersk Antwerp V.401W', etd: '2026-09-06', eta: '2026-09-17',
@@ -160,7 +160,7 @@ export const SHIPMENTS = [
   {
     shipment_id: 'MKY-24011', acid_id: 'ACID-908351', bl_number: 'AIR-2401-EG', container_no: 'AWB 020-44881762',
     customer_name: 'Fatima El-Sayed', customer_email: 'fatima@elsayedpharma.example', customer_phone: '+20 2 555 0111',
-    origin_port: 'Frankfurt (air)', destination_port: 'Alexandria Port (incl. El Dekheila)', mode: 'Air',
+    origin_port: 'Frankfurt (air)', destination_port: 'Alexandria Port', mode: 'Air',
     status: 'Cleared, out for delivery', mrn_status: 'Approved', payment_status: 'Paid', delivery_status: 'Not yet',
     cargo_description: 'Temperature-controlled pharmaceuticals', gross_weight_kg: 820, volume_cbm: 4.1,
     vessel: 'LH 8264', etd: '2026-08-30', eta: '2026-08-31',
@@ -193,7 +193,7 @@ export const KNOWLEDGE_SECTIONS = [
   },
   {
     title: 'Ports we serve',
-    body: `We accept cargo originating anywhere in the European Union, the United Kingdom and the United States. Common origin ports are Rotterdam, Antwerp, Hamburg, Felixstowe, London Gateway, Barcelona, Valencia, Genoa, New York and New Jersey, Savannah and Los Angeles. In Egypt we deliver to exactly five destination ports: Alexandria Port including El Dekheila, Port Said, Damietta Port, Ain Sokhna Port and Suez Port. We do not currently serve any other Egyptian port, and we do not handle exports out of Egypt.`,
+    body: `We accept cargo originating anywhere in the European Union, the United Kingdom and the United States. Common origin ports are Rotterdam, Antwerp, Hamburg, Felixstowe, London Gateway, Barcelona, Valencia, Genoa, New York and New Jersey, Savannah and Los Angeles. In Egypt we deliver to exactly five destination ports: Alexandria Port, Port Said, Damietta Port, Ain Sokhna Port and Suez Port. We do not currently serve any other Egyptian port, and we do not handle exports out of Egypt.`,
   },
   {
     title: 'Documents required for an import booking',

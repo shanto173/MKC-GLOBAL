@@ -617,7 +617,7 @@ test('an Arabic chat names the Egyptian ports in Arabic - in the list and on the
   const card = said(replies.at(-1));
   assert.match(card, /Vilnius ← ميناء الإسكندرية/);
   assert.doesNotMatch(card, /Alexandria Port/);
-  assert.equal(h.booking().destination_port, 'Alexandria Port (incl. El Dekheila)', 'the paperwork keeps the name customs use');
+  assert.equal(h.booking().destination_port, 'Alexandria Port', 'the paperwork keeps the name customs use');
 
   // English and bilingual chats are as they were.
   const en = withLanguage('en', () => M.askDestination(['Port Said']));
