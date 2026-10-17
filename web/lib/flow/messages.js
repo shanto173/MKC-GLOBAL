@@ -370,14 +370,28 @@ What I need right now is ${needEn}.`,
     `Good. Please upload these documents — a file or a photo:\n${labelsEn.map((l) => `• ${l}`).join('\n')}`,
   ),
 
+  // THESE THREE ARRIVE AS ONE MESSAGE, so they are written as one.
+  //
+  // They used to argue with each other. "The team will review the request and
+  // contact you if they need anything" was followed by the request reference
+  // saying "the team will review it" a second time, and then by a demand for
+  // three facts about the export - so the customer was told to wait and told
+  // to act in the same breath, and could not tell which. Nothing said what
+  // Skip would do, or that the three facts were optional at all.
+  //
+  // Now: what is happening, the reference, then one optional ask with the
+  // consequence of skipping it spelt out. The promise to make contact lives in
+  // the skip line, which is the only place it is true.
   mrnMkyChosen: () => both(
-    'تمام، إحنا هنستخرج الـ MRN نيابة عنك. فريق المستندات الجمركية هيراجع الطلب ويكلمك لو محتاج حاجة.',
-    'Understood — MKY will obtain the MRN for you. Our Customs Documentation team will review the request and contact you if they need anything.',
+    '✅ تمام، إحنا هنستخرج الـ MRN نيابة عنك.',
+    '✅ Understood — MKY will obtain the MRN for you.',
   ),
 
   mrnMkyNeedsInfo: () => both(
-    '📝 اكتبلي في رسالة واحدة أي تفاصيل عندك عن التصدير (بلد التصدير، اسم المصدّر، رقم الفاتورة) عشان نبدأ إجراءات الـ MRN.',
-    '📝 In one message, tell us what you know about the export (country of export, exporter name, invoice number) so we can start the MRN application.',
+    '📝 لو عندك بلد التصدير واسم المصدّر ورقم الفاتورة، ابعتهم في رسالة واحدة - ده هيسرّع الإجراءات.'
+    + '\n\nأو دوس «أكمل من غيرها» وإحنا هناخد اللي محتاجينه من المستندات اللي بعتها، ومش هنكلمك غير لو في حاجة ناقصة.',
+    '📝 If you have them to hand, send the country of export, the exporter\'s name and the invoice number in one message — it speeds things up.'
+    + '\n\nOr tap "Skip for now" and we will take what we need from the documents you sent, and only contact you if something is missing.',
   ),
 
   // The desk recorded the MRN it obtained for the customer. Said as ours, with
@@ -393,8 +407,8 @@ What I need right now is ${needEn}.`,
   ),
 
   mrnRequestOpened: (ref) => both(
-    `✅ اتسجل طلب استخراج MRN برقم ${ref}. الفريق هيراجعه.`,
-    `✅ Your MRN request ${ref} has been logged. The team will review it.`,
+    `🧾 رقم طلبك ${ref} - وفريق المستندات الجمركية شايفه.`,
+    `🧾 Your request number is ${ref} — our Customs Documentation team has it.`,
   ),
 
   documentReceived: (labelAr, labelEn) => both(
