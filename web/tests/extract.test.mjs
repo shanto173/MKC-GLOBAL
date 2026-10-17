@@ -160,3 +160,105 @@ test('the mismatched specimen really does name a different chassis', { skip: bui
   assert.ok(b, 'the mismatched invoice names a chassis');
   assert.notEqual(a, b, 'and they are different, which is the whole point of it');
 });
+
+/**
+ * Which way up a scan is, before anyone tries to read it.
+ *
+ * Four vehicle registration certificates arrived from one customer as scans
+ * fed through the scanner sideways. The reader got one chassis number out of
+ * the four right: WKESD000000510879 came back as WKE5KD000001510879, and
+ * WSM00000005106764 as nothing at all. Turned upright first, the same reader
+ * and the same model read all four correctly. The turn is decided here,
+ * without asking anybody.
+ */
+test('a page whose lines of text run down the side is seen as sideways, and an upright one is left alone', async () => {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const { looksSideways } = await import('../lib/read-file.js');
+
+  /** A ruled page of text, drawn either way up. */
+  const page = (sideways) => {
+    const canvas = createCanvas(600, 800);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 600, 800);
+    ctx.fillStyle = '#000000';
+    // Lines of text: bands of ink along the baseline, white between them.
+    for (let line = 0; line < 20; line++) {
+      if (sideways) ctx.fillRect(40 + line * 28, 60, 10, 680);
+      else ctx.fillRect(60, 40 + line * 38, 480, 10);
+    }
+    // And the form's own rules, which band both directions at once.
+    for (let n = 0; n < 20; n++) {
+      ctx.fillRect(30, 30 + n * 38, 540, 2);
+      ctx.fillRect(30 + n * 28, 30, 2, 740);
+    }
+    return canvas;
+  };
+
+  assert.equal(looksSideways(page(true)), true, 'text running down the page is sideways');
+  assert.equal(looksSideways(page(false)), false, 'text running across it is not');
+
+  // A blank page has no lines either way: leave it as it came, never guess.
+  const blank = createCanvas(600, 800);
+  const ctx = blank.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 600, 800);
+  assert.equal(looksSideways(blank), false, 'nothing on the page is not a reason to turn it');
+});
+
+/**
+ * Where the threshold sits, which is the part a drawn page cannot check.
+ *
+ * A page drawn in code is too clean to stand in for a scan: its text bands
+ * perfectly, so it leans towards sideways by a factor of five or more, and any
+ * threshold under that passes. A real vehicle registration certificate is
+ * ruled in both directions and photographed crooked, so on its side it leans
+ * by barely a fifth - while a page the right way up leans the other way
+ * overwhelmingly. The two sides are not symmetrical, and that is the whole
+ * difficulty.
+ *
+ * These two numbers are the measurement: 90 specimen pages rendered each way,
+ * plus the four scans this was written for, at five render scales each.
+ * Upright never came out above 0.80, sideways never below 1.20. A threshold
+ * outside that gap reads one of the two the wrong way round every time - which
+ * is what a first attempt at this did, at 1.2, and the scans stayed lying down.
+ */
+test('the sideways threshold sits in the gap between what upright pages and sideways pages measure', async () => {
+  const { SIDEWAYS_RATIO } = await import('../lib/read-file.js');
+
+  const HIGHEST_UPRIGHT = 0.80;
+  const LOWEST_SIDEWAYS = 1.20;
+
+  assert.ok(
+    SIDEWAYS_RATIO > HIGHEST_UPRIGHT,
+    `threshold ${SIDEWAYS_RATIO} is at or below ${HIGHEST_UPRIGHT}, so upright pages get turned over`,
+  );
+  assert.ok(
+    SIDEWAYS_RATIO < LOWEST_SIDEWAYS,
+    `threshold ${SIDEWAYS_RATIO} is at or above ${LOWEST_SIDEWAYS}, so sideways scans are left lying down`,
+  );
+});
+
+/**
+ * A Spanish vehicle paper is not an Egyptian customs registration.
+ *
+ * "aci" was listed as a word meaning ACID. The match is a plain substring, and
+ * "aci" sits inside "capacidad" - the load capacity, printed on every Spanish
+ * vehicle document - so a registration certificate for a trailer came back as
+ * an ACID registration, and the booking believed it held customs paperwork the
+ * client had never sent. The same trap as bare "brief" inside "frachtbrief",
+ * which this file already guards against.
+ */
+test('a Spanish vehicle document is not read as an ACID just because it states a capacidad', () => {
+  const spanish = `CERTIFICADO DE CARACTERISTICAS
+Schmitz Cargobull Iberica, S.A.
+SEMIRREMOLQUE FRIGORIFICO
+Capacidad de carga: 42000 kg
+Masa en servicio: 8069 kg`;
+
+  assert.notEqual(guessDocType(spanish), 'acid', 'capacidad is a load capacity, not a customs registration');
+  assert.notEqual(guessDocType('CAPACIDAD'), 'acid', 'nor is the bare word');
+
+  // And the real thing is still recognised, which is the point of the entry.
+  assert.equal(guessDocType('ACID Registration\nNafeza single window\nEgypt'), 'acid');
+});

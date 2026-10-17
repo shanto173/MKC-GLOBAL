@@ -80,6 +80,35 @@ const DOC_TYPE_HINTS = [
 const TITLE_LINES = 3;
 const HEADER_LINES = 12;
 
+/**
+ * Does this text actually USE this word, rather than merely contain it?
+ *
+ * These were matched as plain substrings, and "capacidad" - the load capacity,
+ * printed on every Spanish vehicle document - contains "acid". So a trailer's
+ * registration certificate was read as an Egyptian ACID registration, and the
+ * booking believed it held customs paperwork the client had never sent. The
+ * same trap caught "brief" inside "frachtbrief", which was worked around by
+ * leaving the word out; this fixes the cause instead, and the next short word
+ * somebody adds is safe.
+ *
+ * Latin words are matched between boundaries. Arabic is matched as it stands,
+ * because a word boundary is defined in terms of Latin letters and digits and
+ * would simply never fire next to Arabic script.
+ */
+const matchers = new Map();
+
+function uses(text, word) {
+  let match = matchers.get(word);
+  if (!match) {
+    match = /^[\x20-\x7E]+$/.test(word)
+      // eslint-disable-next-line prefer-regex-literals
+      ? ((re) => (s) => re.test(s))(new RegExp(`(?<![a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`))
+      : (s) => s.includes(word);
+    matchers.set(word, match);
+  }
+  return match(text);
+}
+
 // ---------------------------------------------------------------------------
 // Arabic text repair
 // ---------------------------------------------------------------------------
@@ -186,9 +215,9 @@ export function guessDocType(rawText) {
   const header = lines.slice(0, HEADER_LINES).join('\n');
 
   const scored = DOC_TYPE_HINTS.map(({ type, words }) => {
-    const inTitle = words.filter((w) => title.includes(w)).length;
-    const inHeader = words.filter((w) => header.includes(w)).length;
-    const inBody = words.filter((w) => text.includes(w)).length;
+    const inTitle = words.filter((w) => uses(title, w)).length;
+    const inHeader = words.filter((w) => uses(header, w)).length;
+    const inBody = words.filter((w) => uses(text, w)).length;
     // The title dominates on purpose: a document whose heading names its type
     // is not ambiguous just because its body cites three other documents.
     return { type, score: inTitle * 20 + inHeader * 5 + inBody };
@@ -249,6 +278,15 @@ report) and a national accounting total in RON, which you must ignore.
 "vin" must be a chassis number: letters and digits mixed, usually 17 characters.
 A field of digits only is never a VIN - it is a tax number, an ACID, or an
 invoice number. Return null rather than a number you are unsure about.
+
+"gross_weight_kg" is what the vehicle itself weighs, because that is what we
+ship. On a vehicle registration document that is the mass in running order -
+field G on an EU certificate, "masa en servicio", "Leergewicht", "masa maxima"
+is NOT it. The F fields beside it (F.1, F.2, F.3) are maximum permissible
+masses: what the vehicle may be loaded to, not what it weighs. On a Spanish
+trailer certificate reading G 8069 and F.1 42000, the answer is 8069. Reporting
+the maximum books a nine-tonne trailer as a forty-two-tonne one. Where the
+document gives only a maximum and never the vehicle's own mass, return null.
 
 "doc_type" is what THIS document is, taken from its title and letterhead - not
 from the other documents it refers to. Freight paperwork cross-references
@@ -427,10 +465,20 @@ function parseJson(content) {
   }
 }
 
-/** A chassis number mixes letters and digits; a pure number never is one. */
+/**
+ * A chassis number mixes letters and digits, and there are 17 of them.
+ *
+ * This is the model's own reading, reached only when no pattern matched the
+ * text - which on a scan means the transcription did not contain 17 valid
+ * characters in a row. It used to take anything from 10 to 20, and that is how
+ * WSM00000005106764 was filed as WSM0000005106764: a run of zeros read one
+ * short off a scanned page, a length nothing downstream questioned, and a
+ * chassis number on a customs declaration that does not exist. A missing VIN
+ * makes us ask the client; a wrong one gets the declaration rejected.
+ */
 function isVinShaped(v) {
   const s = String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return s.length >= 10 && s.length <= 20 && /[A-Z]/.test(s) && /\d/.test(s);
+  return s.length === 17 && /[A-HJ-NPR-Z]/.test(s) && /\d/.test(s) && !/[IOQ]/.test(s);
 }
 
 function num(v) {
