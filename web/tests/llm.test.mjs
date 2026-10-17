@@ -53,8 +53,35 @@ test('Groq answers first, with the conversation model, or the fast one for bulk 
   assert.equal(calls[0].auth, 'Bearer gsk_test');
 });
 
-test('a scan goes to the model that sees, without OpenAI\'s detail hint and without its working-out', async () => {
+/**
+ * Where a scan goes, and why it is not Groq.
+ *
+ * Measured against the real account: Groq's vision model allows a thousand
+ * output tokens a minute and one page of a document costs about nine hundred
+ * and fifty, so sixteen of twenty page reads came back 429 and OpenAI answered
+ * them anyway - after a wasted round trip and up to four seconds of waiting.
+ * The handful Groq did answer misread a chassis number that OpenAI read right.
+ * So the conversation stays on Groq, which is what it is quick at, and the
+ * scans go straight to OpenAI. With no OpenAI key, Groq still reads them, and
+ * must still be asked the way it needs asking.
+ */
+test('a scan goes straight to OpenAI while there is an OpenAI key, and the conversation stays on Groq', async () => {
   useGroq();
+  const calls = network(() => reply('INVOICE INV-1'));
+  const out = await llm.chat({ system: 's', messages: [llm.imageMessage('Transcribe.', Buffer.from('png'), 'image/png')], tools: [] });
+
+  assert.equal(out.content, 'INVOICE INV-1');
+  assert.equal(calls.length, 1, 'and Groq is not asked first and left to fail');
+  assert.equal(calls[0].host, 'api.openai.com');
+
+  // The conversation itself is untouched by this: that is still Groq's.
+  const chat = network(() => reply('Cairo.'));
+  await llm.chat({ system: 's', messages: [{ role: 'user', content: 'capital?' }] });
+  assert.equal(chat[0].host, 'api.groq.com');
+});
+
+test('with no OpenAI key behind it, Groq reads the scan - the model that sees, no detail hint, no working-out', async () => {
+  useGroq({ openai: false });
   const calls = network(() => reply('<think>let me read this…</think>\nINVOICE INV-1'));
   const out = await llm.chat({ system: 's', messages: [llm.imageMessage('Transcribe.', Buffer.from('png'), 'image/png')], tools: [] });
 

@@ -281,6 +281,15 @@ async function anthropicChat({ system, messages, tools }) {
  */
 export async function chat({ system, messages, tools, fast = false }) {
   if (config.llm.provider === 'anthropic') return anthropicChat({ system, messages, tools });
+  // A scan does not go to Groq while OpenAI is there to take it. Measured on
+  // this account: the vision model allows 1000 output tokens a minute and one
+  // page of a document costs about 950, so sixteen of twenty page reads came
+  // back 429 and were answered by OpenAI anyway - after a wasted round trip
+  // and up to four seconds of waiting. The few that Groq did answer read a
+  // chassis number wrong that OpenAI read right. Groq keeps the conversation,
+  // which is what it is quick at. Raise the Groq tier and measure again before
+  // undoing this; with no OpenAI key, Groq still reads the scans.
+  if (carriesImage(messages) && config.llm.openaiKey) return openaiChat({ system, messages, tools, fast });
   if (config.llm.provider === 'groq' && config.llm.groqKey) {
     try {
       return await groqChat({ system, messages, tools, fast });
