@@ -225,11 +225,46 @@ export const THUMB_OVER_BYTES = 1.5 * MB;
 export const THUMB_WIDTH = 640;
 
 /**
+ * Whether these bytes are a whole image, before anything tries to decode them.
+ *
+ * @napi-rs/canvas does not throw on a malformed image: it segfaults, and a
+ * segfault cannot be caught. The try/catch below is no protection at all - the
+ * process dies, the request it was serving is never answered, and on a
+ * serverless platform the customer simply hears nothing back. A photograph cut
+ * short in transit is the realistic way that happens, so each format is
+ * checked end to end: a JPEG closes with FF D9, a PNG with an IEND chunk, a
+ * WebP declares its own length in its header. Anything else - HEIC, a format
+ * we do not know, a file that stops early - is left alone and shown as it
+ * arrived, which is what this returns null for anyway.
+ *
+ * This is a guard against the common corruption, not a decoder. Bytes that
+ * pass are only known to start and end like an image.
+ */
+export function looksDecodable(buffer) {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
+  if (bytes.length < 16) return false;
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    // Cameras and phones leave padding after the end marker, so look near it.
+    return bytes.subarray(-64).includes(Buffer.from([0xff, 0xd9]));
+  }
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return bytes.subarray(-16).includes(Buffer.from('IEND', 'ascii'));
+  }
+  if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') {
+    // The RIFF header counts every byte after it; a short file is a cut-off one.
+    return bytes.readUInt32LE(4) + 8 <= bytes.length;
+  }
+  return false;
+}
+
+/**
  * A JPEG at most THUMB_WIDTH wide, for showing a big photo in a bubble without
  * making the browser fetch and decode six megabytes. Null when the image
  * cannot be read here (HEIC, a broken file) - the desk then shows the original.
  */
 export async function thumbnailOf(buffer) {
+  if (!looksDecodable(buffer)) return null;
   try {
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
     const img = await loadImage(buffer);

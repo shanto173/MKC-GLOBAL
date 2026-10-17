@@ -783,3 +783,42 @@ test('a conversation whose papers could not be read is shown, but never kept und
   assert.ok(whole.headers.etag);
   assert.equal(whole.body.messages.find((m) => m.id === 801).file.ref, 'doc:801', 'and whole on the next ask');
 });
+
+/**
+ * A photograph that is not a whole photograph.
+ *
+ * @napi-rs/canvas does not throw on a malformed image, it segfaults, and the
+ * try/catch around the decode is no protection: the process dies, and the
+ * request it was serving is never answered - on a serverless platform the
+ * customer hears nothing at all and the row stays "still reading" for ever.
+ * The JPEG at the top of this file is exactly such a file, twelve bytes of
+ * header and then nothing, and it crashes the decoder outright. So the bytes
+ * are checked end to end before anything is handed to it.
+ */
+test('a cut-off or unknown image is refused before the decoder can be crashed by it', async () => {
+  const { looksDecodable, thumbnailOf } = await import('../lib/chat-files.js');
+  const { createCanvas } = await import('@napi-rs/canvas');
+
+  const canvas = createCanvas(800, 600);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#334455';
+  ctx.fillRect(0, 0, 800, 600);
+  const jpeg = canvas.toBuffer('image/jpeg', 90);
+  const png = canvas.toBuffer('image/png');
+
+  assert.equal(looksDecodable(jpeg), true, 'a whole JPEG is decodable');
+  assert.equal(looksDecodable(png), true, 'a whole PNG is decodable');
+
+  assert.equal(looksDecodable(JPEG), false, 'the header-only JPEG that segfaults the decoder is refused');
+  assert.equal(looksDecodable(jpeg.subarray(0, jpeg.length >> 1)), false, 'a JPEG cut in half is refused');
+  assert.equal(looksDecodable(png.subarray(0, png.length >> 1)), false, 'a PNG cut in half is refused');
+  assert.equal(looksDecodable(Buffer.alloc(0)), false, 'nothing at all is refused');
+  assert.equal(
+    looksDecodable(Buffer.concat([Buffer.alloc(4), Buffer.from('ftypheic'), Buffer.alloc(200)])), false,
+    'HEIC is not a format we decode, so it is left as it arrived',
+  );
+
+  // The point of all of it: this call used to take the whole process with it.
+  assert.equal(await thumbnailOf(JPEG), null, 'and the desk is told there is no smaller copy, not killed');
+  assert.equal((await thumbnailOf(jpeg)).width, 800, 'while a real photo still gets one');
+});
