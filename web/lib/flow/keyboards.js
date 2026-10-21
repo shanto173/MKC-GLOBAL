@@ -176,9 +176,13 @@ export function alreadyBooked() {
 
 export function mrnChoice() {
   return rows(
-    button('📋', 'MKY: MRN + CMR', 'MKY: the MRN and the CMR', 'bk:mrn:mky_both', { en: 'MKY: MRN + CMR' }),
+    // The EUR.1 is named because MKY obtains it with the MRN, from the same
+    // invoice and Brief - a customer reading "MRN" alone cannot tell. The
+    // titles drop the spaces around the plus signs to stay inside twenty
+    // characters; "MRN only" still means "the MRN work without our CMR".
+    button('📋', 'MKY: MRN + EUR.1 + CMR', 'MKY: the MRN, the EUR.1 and the CMR', 'bk:mrn:mky_both', { ar: 'MKY: MRN+EUR.1+CMR', en: 'MKY: MRN+EUR.1+CMR' }),
     button('📄', 'MKY: الـ MRN بس', 'MKY: the MRN only', 'bk:mrn:mky_issue', { en: 'MKY: MRN only' }),
-    button('✅', 'عندي MRN', 'I have my own MRN', 'bk:mrn:existing', { en: 'I have an MRN' }),
+    button('✅', 'عندي MRN و EUR.1', 'I have my own MRN and EUR.1', 'bk:mrn:existing', { ar: 'عندي MRN/EUR.1', en: 'I have MRN/EUR.1' }),
   );
 }
 
