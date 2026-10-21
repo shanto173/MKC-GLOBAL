@@ -244,6 +244,21 @@ test('no issue row is a dead end: each can be dismissed, and the bin names the r
   assert.match(src('inbox.js'), /add\(box, aside\);/);
 });
 
+test('several records are chosen on a list - never inside a case or a conversation', () => {
+  for (const file of ['inbox.js', 'search.js', 'shipments.js', 'chats.js']) {
+    assert.match(src(file), /bulkSelection\(\{/, `${file} offers a selection`);
+    // "Select all" is what the screen draws, never rows nobody has loaded.
+    assert.match(src(file), /picked\.shownNow\(/, `${file} says what select all means`);
+  }
+  for (const file of ['case.js', 'conversation.js', 'viewer.js', 'settings.js']) {
+    assert.doesNotMatch(src(file), /bulkSelection/, `${file} deletes one record at a time`);
+  }
+  // A reference cannot be typed for twenty records, so the count is.
+  const del = src('delete.js');
+  assert.match(del, /the number of records/);
+  assert.match(del, /action: 'delete_records'/);
+});
+
 // ---------------------------------------------------------------------------
 // Shipments (section 9): saved is not notified, and sent is not delivered
 // ---------------------------------------------------------------------------
@@ -252,8 +267,10 @@ test('a shipment is deleted from the list as well as from inside it', () => {
   // Reported as "I cannot delete a shipment": the bin was only in the
   // shipment's own header, so you had to open one to find it.
   const ship = src('shipments.js');
-  assert.equal((ship.match(/kind: 'shipment'/g) ?? []).length, 2, 'the row in the list, and the shipment’s header');
-  assert.match(ship, /class: 'cell-actions'/, 'the bin is in a cell of its own');
+  assert.match(ship, /class: 'cell-actions' \}, deleteBin\(\{/, 'every row of the list has the bin, in a cell of its own');
+  assert.match(ship, /class: 'cell-actions' \}, picked\.box\(/, 'and a box, for taking several at once');
+  assert.ok(ship.includes("kind: 'shipment', reference: s.shipment_id, name: s.shipment_id"),
+    'and the shipment’s own header keeps its Delete');
   // The row is one stretched link, so a control in it has to sit above.
   assert.match(rule('.cell-actions'), /z-index/);
 });

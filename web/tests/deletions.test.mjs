@@ -379,6 +379,98 @@ test('a row that is no longer there says so, whatever kind it is', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Several at once
+//
+// A selection is not a new way of deleting: it is the same deletion, several
+// times, each with its own copy in Recently deleted and its own line on the
+// trail. What it needs of its own is a confirmation that cannot be a typed
+// reference - the number of records - and the promise that one bad record does
+// not take the others down with it.
+// ---------------------------------------------------------------------------
+
+const delMany = (targets, confirm, operator = 'Ariful') =>
+  post({ action: 'delete_records', targets: Array.isArray(targets) ? targets.join(',') : targets, confirm }, operator);
+
+test('a selection is previewed record by record, and what is already gone is not counted', async () => {
+  const r = await get({ view: 'delete_preview_many', targets: 'booking:MKY-BKG-1,document:190,booking:MKY-BKG-404' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.total, 2);
+  assert.equal(r.body.confirm_with, '2', 'the number of records is what is typed');
+  assert.deepEqual(r.body.records.map((x) => x.reference), ['MKY-BKG-1', '190']);
+  assert.deepEqual(r.body.records.map((x) => x.kind_words), ['booking', 'document']);
+  assert.deepEqual(r.body.records[0].words,
+    ['1 booking', '2 documents', '1 MRN application', '1 internal note', '1 task', '1 queued message', '2 files'],
+    'each record reads out exactly as it does on its own');
+  assert.deepEqual(r.body.missing, [{ kind: 'booking', reference: 'MKY-BKG-404', kind_words: 'booking' }]);
+  assert.equal(rows('bookings').length, 3, 'and nothing was touched by looking');
+  assert.equal(ledger().length, 0);
+});
+
+test('a selection needs its number typed, only an administrator may, and fifty is the most', async () => {
+  assert.equal((await get({ view: 'delete_preview_many', targets: 'booking:MKY-BKG-1' }, 'Sara')).status, 403,
+    'an agent cannot even see what would go');
+  const agent = await delMany(['booking:MKY-BKG-1', 'document:101'], '2', 'Sara');
+  assert.equal(agent.status, 403);
+  assert.equal(rows('bookings').length, 3, 'nothing went');
+
+  const wrong = await delMany(['booking:MKY-BKG-1', 'document:101'], '1');
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.body.error, /Type 2 to confirm/);
+  assert.equal(wrong.body.confirm_with, '2');
+  assert.equal(ledger().length, 0, 'a refused selection records nothing');
+  assert.equal(rows('bookings').length, 3);
+
+  assert.equal((await delMany([], '0')).status, 400, 'nothing selected is nothing to do');
+  const too_many = await delMany(Array.from({ length: 51 }, (_, i) => `document:${i + 1}`), '51');
+  assert.equal(too_many.status, 400);
+  assert.match(too_many.body.error, /at most 50/);
+  assert.equal(ledger().length, 0, 'refused whole, not half done');
+});
+
+test('a selection deletes each record on its own, and one that cannot go does not stop the rest', async () => {
+  const r = await delMany(['booking:MKY-BKG-1', 'shipment:MKY-26001', 'booking:MKY-BKG-404', 'person:Ariful'], '4');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, false, 'said plainly: not all of it went');
+  assert.deepEqual(r.body.deleted.map((d) => d.reference), ['MKY-BKG-1', 'MKY-26001']);
+  assert.deepEqual(r.body.failed.map((f) => f.reference), ['MKY-BKG-404', 'Ariful']);
+  assert.match(r.body.failed[0].error, /no longer here/);
+  // The guards are the single path's guards, because it is the single path.
+  assert.match(r.body.failed[1].error, /your own sign-in/);
+
+  assert.deepEqual(refs('bookings', 'booking_ref'), ['MKY-BKG-2', 'MKY-BKG-9']);
+  assert.deepEqual(refs('shipments', 'shipment_id'), ['MKY-26009']);
+  assert.equal(rows('ops_users').length, 3);
+
+  // Each with its own copy, its own thirty days, its own line on the trail -
+  // and the selection itself recorded as one thing somebody did.
+  assert.equal(ledger().length, 2);
+  assert.deepEqual(ledger().map((l) => l.kind).sort(), ['booking', 'shipment']);
+  assert.equal(rows('audit_logs').filter((a) => a.action === 'record_deleted').length, 2);
+  const selection = rows('audit_logs').filter((a) => a.action === 'records_deleted');
+  assert.equal(selection.length, 1);
+  assert.deepEqual(selection[0].metadata.failed, ['booking:MKY-BKG-404', 'person:Ariful']);
+
+  // And each goes back on its own, from the one list in Settings.
+  for (const row of [...ledger()]) {
+    assert.equal((await post({ action: 'restore_record', id: row.id })).status, 200);
+  }
+  assert.deepEqual(refs('bookings', 'booking_ref'), ['MKY-BKG-1', 'MKY-BKG-2', 'MKY-BKG-9']);
+  assert.deepEqual(refs('shipments', 'shipment_id'), ['MKY-26001', 'MKY-26009']);
+  assert.deepEqual(refs('booking_documents', 'id'), [101, 102, 190], 'with everything that went with them');
+});
+
+test('kinds mix in one selection, and a kind the server does not know is no record at all', async () => {
+  const r = await delMany(['note:201', 'message:502', 'queued:401', 'nonsense:1'], '3');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.deleted.map((d) => d.kind), ['note', 'message', 'queued']);
+  assert.deepEqual(refs('internal_notes', 'id'), [202]);
+  assert.deepEqual(refs('chat_messages', 'id'), [501, 509]);
+  assert.deepEqual(refs('notification_outbox', 'id'), [409]);
+  assert.equal(ledger().length, 3, 'three records, three copies');
+});
+
+// ---------------------------------------------------------------------------
 // Keeping it, and putting it back
 // ---------------------------------------------------------------------------
 

@@ -8,7 +8,7 @@ import {
   h, clear, $, icon, api, badge, emptyState, errorState, skeleton, debounce, add, fill,
 } from './ui.js';
 import { linkFor } from './inbox.js';
-import { deleteBin } from './delete.js';
+import { deleteBin, bulkSelection } from './delete.js';
 
 /** Each group's icon, so the kind of result is a shape before it is a word. */
 const GROUP_ICON = { bookings: 'truck', customers: 'user', shipments: 'ship', requests: 'phone', callbacks: 'phone', mrn: 'stamp' };
@@ -17,16 +17,15 @@ const LINK_ICON = { booking: 'truck', chat: 'chats', shipment: 'ship', request: 
 const DELETE_KIND = { booking: 'booking', request: 'request', mrn: 'mrn', shipment: 'shipment' };
 
 /**
- * The bin on a result, for an administrator: the record the result is of. A
- * customer is deleted by their client id and everything of theirs goes with
- * them, which is why their row says their name and not a reference.
+ * The record a result is of, for the bin and for a selection. A customer is
+ * deleted by their client id and everything of theirs goes with them, which is
+ * why their row says their name and not a reference.
  */
-function resultBin(item, onDone) {
-  const kind = item.client_id ? 'customer' : DELETE_KIND[item.link?.type];
+export function resultTarget(item) {
+  const kind = item?.client_id ? 'customer' : DELETE_KIND[item?.link?.type];
   if (!kind) return null;
   const reference = kind === 'customer' ? item.client_id : (item.link.ref ?? item.link.id);
-  if (!reference) return null;
-  return deleteBin({ kind, reference, what: item.title, name: item.title, onDone });
+  return reference ? { kind, reference: String(reference), name: item.title } : null;
 }
 
 export function renderSearch({ route, main }) {
@@ -34,8 +33,11 @@ export function renderSearch({ route, main }) {
   const results = h('div', { class: 'search-results', 'aria-live': 'polite' });
   const title = h('h1', {}, 'Search');
   const meta = h('span', { class: 'page-meta' });
+  // Ticking results and deleting the lot, for an administrator.
+  const picked = bulkSelection({ onDone: () => run() });
   add(main, h('div', { class: 'page-head' }, h('div', {}, title,
-    h('p', { class: 'page-sub' }, 'Chassis, booking reference, shipment, customer name or phone number.')), meta), results);
+    h('p', { class: 'page-sub' }, 'Chassis, booking reference, shipment, customer name or phone number.')), meta),
+  picked.bar, results);
   $('#q').value = q;
 
   let seq = 0;
@@ -44,6 +46,7 @@ export function renderSearch({ route, main }) {
     if (q.length < 2) {
       title.textContent = 'Search';
       meta.textContent = '';
+      picked.shownNow([]);
       fill(results, emptyState('Type at least two characters.', 'A chassis can be typed with or without spaces, or just its last six characters.', null, { icon: 'search' }));
       return;
     }
@@ -60,6 +63,7 @@ export function renderSearch({ route, main }) {
     const total = data.groups.reduce((n, g) => n + g.items.length, 0);
     meta.textContent = total ? `${total} found` : '';
     clear(results);
+    picked.shownNow([]);
     if (!data.groups.length) {
       add(results, emptyState('Nothing found.', 'Check the spelling, or search by the last six characters of the chassis.', null, { icon: 'search' }));
       return;
@@ -70,10 +74,13 @@ export function renderSearch({ route, main }) {
         h('h2', { id: `group-${g.key}` }, g.title),
         h('span', { class: 'count' }, String(g.items.length))),
       h('div', { class: 'list-wrap' }, h('ul', { class: 'result-list' }, g.items.map((it) => {
-        // The bin sits beside the result, never inside it: a link cannot hold
-        // a button, and the result is one big link.
-        const bin = resultBin(it, run);
-        return h('li', { class: bin ? 'result-line' : null },
+        // The box and the bin sit beside the result, never inside it: a link
+        // cannot hold a button, and the result is one big link.
+        const target = resultTarget(it);
+        const box = target ? picked.box(target) : null;
+        const bin = target ? deleteBin({ ...target, what: it.title, onDone: () => run() }) : null;
+        return h('li', { class: bin || box ? 'result-line' : null },
+          box,
           h(it.link ? 'a' : 'div', { class: 'result', href: it.link ? linkFor(it.link) : null },
             h('span', { class: 'row-kind', 'aria-hidden': 'true' }, icon(LINK_ICON[it.link?.type] ?? GROUP_ICON[g.key] ?? 'file', { size: 16 })),
             h('span', { class: 'result-main' },
@@ -83,6 +90,7 @@ export function renderSearch({ route, main }) {
             it.link ? icon('right', { size: 16 }) : h('span')),
           bin);
       }))))));
+    picked.shownNow(data.groups.flatMap((g) => g.items.map(resultTarget)));
   }
 
   const later = debounce(run, 250);

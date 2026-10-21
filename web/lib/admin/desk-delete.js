@@ -467,33 +467,51 @@ export async function deletedView(req, res, who) {
 export async function deleteRecord(req, res, who) {
   const kind = String(req.body?.kind ?? '');
   const reference = String(req.body?.reference ?? '').trim();
-  if (!KIND_WORDS[kind]) return res.status(400).json({ error: `Unknown kind "${kind}".` });
+  const out = await deleteOne(kind, reference, who, { confirm: req.body?.confirm });
+  return res.status(out.status).json(out.body);
+}
+
+/**
+ * One record deleted, whole: read, kept in the ledger, removed, audited.
+ *
+ * The one path, so a selection of twenty is twenty of exactly this and never a
+ * second way of deleting that forgets the ledger or the trail. `confirm` is
+ * given when the typed reference is this request's proof (one record at a
+ * time); a selection proves itself once, by its count, before it starts.
+ *
+ * @returns {Promise<{ok: boolean, status: number, body: object}>}
+ */
+async function deleteOne(kind, reference, who, { confirm = undefined } = {}) {
+  const bad = (status, body) => ({ ok: false, status, body });
+  if (!KIND_WORDS[kind]) return bad(400, { error: `Unknown kind "${kind}".` });
 
   // An administrator cannot delete their own sign-in: they would be removing
   // the person holding the only key, mid-request.
   if (kind === 'person' && reference.toLowerCase() === who.name.toLowerCase()) {
-    return res.status(409).json({ error: 'You cannot delete your own sign-in. Ask another administrator.' });
+    return bad(409, { error: 'You cannot delete your own sign-in. Ask another administrator.' });
   }
 
   let found;
   try {
     found = await gather(kind, reference);
   } catch (err) {
-    return res.status(500).json({ error: `We could not read what would go: ${err.message}` });
+    return bad(500, { error: `We could not read what would go: ${err.message}` });
   }
-  if (!found) return res.status(404).json({ error: 'That record is no longer here.' });
+  if (!found) return bad(404, { error: 'That record is no longer here.' });
 
   // Typed, and typed right. Compared without case or edge spaces, because the
   // point is that they read it off the screen, not that they can touch-type.
-  const wanted = confirmWord(kind, found);
-  const typed = String(req.body?.confirm ?? '').trim();
-  if (typed.toLowerCase() !== String(wanted).trim().toLowerCase()) {
-    return res.status(400).json({ error: `Type “${wanted}” to confirm.`, confirm_with: wanted });
+  if (confirm !== undefined) {
+    const wanted = confirmWord(kind, found);
+    const typed = String(confirm ?? '').trim();
+    if (typed.toLowerCase() !== String(wanted).trim().toLowerCase()) {
+      return bad(400, { error: `Type “${wanted}” to confirm.`, confirm_with: wanted });
+    }
   }
 
   if (kind === 'person') {
     const refused = await lastAdministrator(reference);
-    if (refused) return res.status(409).json({ error: refused });
+    if (refused) return bad(409, { error: refused });
   }
 
   const summary = { counts: found.counts, files: found.files.length };
@@ -513,9 +531,9 @@ export async function deleteRecord(req, res, who) {
   }).select('id').single();
   if (keepErr) {
     if (/does not exist|schema cache/i.test(String(keepErr.message))) {
-      return res.status(503).json({ error: 'Deleting is not switched on in the database yet. Run the deletions migration.' });
+      return bad(503, { error: 'Deleting is not switched on in the database yet. Run the deletions migration.' });
     }
-    return res.status(500).json({ error: 'We could not record the deletion, so nothing was deleted.' });
+    return bad(500, { error: 'We could not record the deletion, so nothing was deleted.' });
   }
 
   // Then the rows, children first.
@@ -531,7 +549,7 @@ export async function deleteRecord(req, res, who) {
         entity_type: kind, entity_id: found.reference,
         metadata: { table: part.table, ledger: kept.id, error: String(error.message).slice(0, 200) },
       });
-      return res.status(500).json({
+      return bad(500, {
         error: `Part of it could not be deleted (${part.table}). Nothing else was touched; the desk kept a copy of everything, in Settings → Recently deleted.`,
         ledger_id: kept.id,
       });
@@ -549,13 +567,169 @@ export async function deleteRecord(req, res, who) {
 
   defer(purgeDue().catch(() => null));
 
-  return res.status(200).json({
+  return {
     ok: true,
-    id: kept.id,
-    kind,
-    kind_words: KIND_WORDS[kind],
-    reference: found.reference,
-    words: countWords(found.counts, found.files.length),
+    status: 200,
+    body: {
+      ok: true,
+      id: kept.id,
+      kind,
+      kind_words: KIND_WORDS[kind],
+      reference: found.reference,
+      label: found.label,
+      words: countWords(found.counts, found.files.length),
+      keep_days: KEEP_DAYS,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Several at once
+// ---------------------------------------------------------------------------
+
+/**
+ * How many records one selection may hold.
+ *
+ * shortcut: fifty at a time, because the dialog reads every row of every
+ * record before anybody types - fifty bookings is already a few hundred reads.
+ * Raise it when somebody needs to clear more than a screenful at once, and
+ * give the preview a cheaper count first if they do.
+ */
+export const MAX_SELECTION = 50;
+
+/**
+ * The records a selection names: "booking:MKY-BKG-2,document:4821".
+ *
+ * Pairs rather than JSON so a selection reads the same in a URL, a log and a
+ * test. No reference on the screens that offer a selection carries a comma -
+ * they are references, numbers and shipment ids - and a kind never carries a
+ * colon, so the first colon of each piece is the divide.
+ */
+export function parseTargets(raw) {
+  const pieces = Array.isArray(raw) ? raw : String(raw ?? '').split(',');
+  const out = [];
+  const seen = new Set();
+  for (const piece of pieces) {
+    const text = String(piece ?? '').trim();
+    const at = text.indexOf(':');
+    if (at < 1) continue;
+    const kind = text.slice(0, at).trim();
+    const reference = text.slice(at + 1).trim();
+    if (!KIND_WORDS[kind] || !reference || seen.has(text)) continue;
+    seen.add(text);
+    out.push({ kind, reference });
+  }
+  return out;
+}
+
+/** A few at a time: fifty gathers at once is fifty records' worth of reads in flight. */
+async function inBatches(items, size, fn) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(...await Promise.all(items.slice(i, i + size).map(fn)));
+  }
+  return out;
+}
+
+/**
+ * GET view=delete_preview_many&targets=booking:MKY-BKG-2,document:4821
+ *
+ * What a selection would take, record by record, in the same words the single
+ * dialog uses - and what has to be typed, which for a selection is how many
+ * records there are. A reference cannot be typed for twenty records at once;
+ * the count can, and typing it is what makes somebody read the number.
+ */
+export async function deletePreviewMany(req, res, who) {
+  if (!who.can('delete')) return res.status(403).json({ error: 'Only an administrator can delete records.' });
+  const targets = parseTargets(req.query.targets);
+  if (!targets.length) return res.status(400).json({ error: 'Nothing is selected.' });
+  if (targets.length > MAX_SELECTION) {
+    return res.status(400).json({ error: `That is ${targets.length} records. Delete at most ${MAX_SELECTION} at a time.` });
+  }
+
+  let gathered;
+  try {
+    gathered = await inBatches(targets, 5, async (t) => ({ t, found: await gather(t.kind, t.reference) }));
+  } catch (err) {
+    return res.status(500).json({ error: `We could not read what would go: ${err.message}` });
+  }
+
+  const records = [];
+  const missing = [];
+  for (const { t, found } of gathered) {
+    if (!found) { missing.push({ ...t, kind_words: KIND_WORDS[t.kind] }); continue; }
+    records.push({
+      kind: t.kind,
+      kind_words: KIND_WORDS[t.kind],
+      reference: found.reference,
+      label: found.label,
+      note: found.note,
+      counts: found.counts,
+      files: found.files.length,
+      words: countWords(found.counts, found.files.length),
+    });
+  }
+  return res.status(200).json({
+    records,
+    missing,
+    total: records.length,
+    // Typed before Delete turns on: the number of records, as a word.
+    confirm_with: String(records.length),
+    keep_days: KEEP_DAYS,
+  });
+}
+
+/**
+ * POST { action: 'delete_records', targets, confirm }
+ *
+ * Each record goes through deleteOne, so each gets its own ledger row, its own
+ * audit entry and its own thirty days - a selection is not a new kind of
+ * deletion, it is this one, several times. One record that cannot go does not
+ * stop the others: what went and what did not both come back.
+ */
+export async function deleteRecords(req, res, who) {
+  const targets = parseTargets(req.body?.targets);
+  if (!targets.length) return res.status(400).json({ error: 'Nothing is selected.' });
+  if (targets.length > MAX_SELECTION) {
+    return res.status(400).json({ error: `That is ${targets.length} records. Delete at most ${MAX_SELECTION} at a time.` });
+  }
+  // The count, typed. Checked here as well as in the browser: this is the part
+  // that stops a crafted request taking a list nobody looked at.
+  const typed = String(req.body?.confirm ?? '').trim();
+  if (typed !== String(targets.length)) {
+    return res.status(400).json({
+      error: `Type ${targets.length} to confirm you are deleting ${targets.length} ${targets.length === 1 ? 'record' : 'records'}.`,
+      confirm_with: String(targets.length),
+    });
+  }
+
+  const deleted = [];
+  const failed = [];
+  for (const t of targets) {
+    // One at a time, in the order they were chosen: each writes, and a failure
+    // is this record's, not the selection's.
+    const out = await deleteOne(t.kind, t.reference, who);
+    if (out.ok) deleted.push(out.body);
+    else failed.push({ ...t, kind_words: KIND_WORDS[t.kind] ?? t.kind, error: out.body.error });
+  }
+
+  // One line for the selection itself, beside each record's own: "Ariful
+  // deleted four things at once" is the thing somebody will want to find. It
+  // belongs to no one record, so it names none.
+  await audit({
+    actor_type: 'operator', actor_id: who.name, action: 'records_deleted',
+    entity_type: 'selection', entity_id: null,
+    metadata: {
+      asked: targets.length,
+      deleted: deleted.map((d) => `${d.kind}:${d.reference}`),
+      failed: failed.map((f) => `${f.kind}:${f.reference}`),
+    },
+  });
+
+  return res.status(200).json({
+    ok: failed.length === 0,
+    deleted: deleted.map((d) => ({ id: d.id, kind: d.kind, kind_words: d.kind_words, reference: d.reference, label: d.label })),
+    failed,
     keep_days: KEEP_DAYS,
   });
 }

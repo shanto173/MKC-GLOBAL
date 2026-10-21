@@ -17,7 +17,7 @@ import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelIcon, avatar, timeEl, age,
   emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES, PURPOSE, dialog,
 } from './ui.js';
-import { deleteBin } from './delete.js';
+import { deleteBin, deleteManyBin, bulkSelection } from './delete.js';
 
 /**
  * The words are the owner's (docs/DESK-REDESIGN-PROMPT.md, section 4); the
@@ -65,6 +65,30 @@ export const PROBLEM_DELETE_WORDS = {
   message: 'the message that did not arrive',
   outbox: 'the queued message that did not go',
 };
+
+/**
+ * The record a row stands for, for the bin and for a selection: the work
+ * itself, or - on an issue row - the row the issue is a view of. Null where
+ * the row stands for nothing that can be deleted, which is a chat's failures
+ * counted together (several messages, each deletable in the conversation).
+ */
+/** The rows a grouped issue stands for, as the server names them ("message:41"). */
+export function manyTargets(list) {
+  return (list ?? []).map((t) => {
+    const at = String(t).indexOf(':');
+    return at > 0 ? { kind: String(t).slice(0, at), reference: String(t).slice(at + 1) } : null;
+  }).filter((t) => t && t.reference);
+}
+
+export function targetOf(item) {
+  const p = item?.problem;
+  if (p) {
+    const kind = PROBLEM_DELETE_KIND[p.type];
+    return kind && p.id != null ? { kind, reference: String(p.id), name: PROBLEM_DELETE_WORDS[p.type] } : null;
+  }
+  const kind = DELETE_KIND[item?.kind];
+  return kind && item.ref ? { kind, reference: String(item.ref), name: item.ref } : null;
+}
 
 /**
  * The owner column for work that is never assigned to one person - an issue,
@@ -244,6 +268,8 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
   const chipsEl = h('nav', { class: 'seg', 'aria-label': 'Kind of work' });
   const ownEl = h('nav', { class: 'seg seg-own', 'aria-label': 'Whose work' });
   const listEl = h('div', { class: 'list-wrap' }, skeleton(7, { kind: 'rows' }));
+  // Ticking rows and deleting the lot: the bar is kept while the list redraws.
+  const picked = bulkSelection({ onDone: () => load({ quiet: true }) });
 
   add(main,
     h('div', { class: 'page-head' },
@@ -253,6 +279,7 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
       updated),
     tabsEl,
     h('div', { class: 'inbox-bar' }, chipsEl, ownEl),
+    picked.bar,
     listEl);
 
   /** Loads the list; false when it could not (the next tick tries again). */
@@ -304,6 +331,8 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     fill(ownEl, segItem(OWN_FILTER, { own: true }));
 
     clear(listEl);
+    // What "select all" means here: the rows drawn, never the ones not loaded.
+    picked.shownNow(data.items.map(targetOf));
     if (!data.items.length) {
       const [title, detail, ic, tone] = filter === 'all'
         ? EMPTY[tab]
@@ -434,22 +463,21 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
   }
 
   /**
-   * The bin on a row that is a record of its own, for an administrator. It
-   * sits where Retry and Dismiss sit on an issue - inside the row's own
-   * actions, above the stretched title link, so it never opens the case
-   * instead.
+   * The tick box and the bin on a row that is a record of its own, for an
+   * administrator. They sit where Retry and Dismiss sit on an issue - inside
+   * the row's own actions, above the stretched title link, so they are pressed
+   * instead of the case opening.
    */
   function recordActions(item) {
-    const kind = DELETE_KIND[item.kind];
-    if (!kind || !item.ref) return null;
+    const target = targetOf(item);
+    if (!target) return null;
+    const box = picked.box(target);
     const bin = deleteBin({
-      kind,
-      reference: item.ref,
+      ...target,
       what: `${(KIND[item.kind]?.[0] ?? 'record').toLowerCase()} ${item.ref}`,
-      name: item.ref,
       onDone: () => load({ quiet: true }),
     });
-    return bin ? h('div', { class: 'row-actions' }, bin) : null;
+    return box || bin ? h('div', { class: 'row-actions' }, box, bin) : null;
   }
 
   /**
@@ -496,10 +524,16 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
     // is this desk's way of saying that a paper could not be read or a message
     // did not arrive, so the bin says which row it takes - nobody should press
     // it thinking they are tidying away an alert. Dismiss does that.
-    const binKind = PROBLEM_DELETE_KIND[p.type];
-    if (binKind) {
-      add(box, deleteBin({
-        kind: binKind, reference: p.id, what: PROBLEM_DELETE_WORDS[p.type], onDone: () => load({ quiet: true }),
+    const target = targetOf(item);
+    if (target) {
+      add(box, picked.box(target), deleteBin({ ...target, what: target.name, onDone: () => load({ quiet: true }) }));
+    } else if (p.type === 'chat') {
+      // One row for a chat's failures stands for several messages, so its bin
+      // asks the same question a selection does, for exactly those messages.
+      add(box, deleteManyBin({
+        targets: manyTargets(p.targets),
+        what: `the ${p.count === 1 ? 'message' : `${p.count} messages`} that did not arrive`,
+        onDone: () => load({ quiet: true }),
       }));
     }
     if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));

@@ -17,7 +17,7 @@
  * the part that stops a mistake; that part is what stops a crafted request.
  */
 
-import { h, dialog, post, api, toast, icon, skeleton, session } from './ui.js';
+import { h, dialog, post, api, toast, icon, skeleton, session, fill } from './ui.js';
 
 /**
  * Asks, and deletes.
@@ -120,12 +120,196 @@ export const canDelete = () => session.can('delete');
  *   what  what is being deleted, for the label a screen reader reads out
  */
 export function deleteBin({ kind, reference, what, name = null, onDone = null }) {
-  if (!canDelete()) return null;
-  const b = h('button', {
-    class: 'icon-btn row-delete', type: 'button', 'aria-label': `Delete ${what}`, title: `Delete ${what}`,
-  }, icon('trash', { size: 15 }));
+  const b = binButton(what);
+  if (!b) return null;
   b.addEventListener('click', () => deleteDialog({
     kind, reference: String(reference), name: name ?? what, onDone,
   }));
   return b;
+}
+
+/** The bin itself: one markup and one class, wherever a bin is drawn. */
+function binButton(what) {
+  if (!canDelete()) return null;
+  return h('button', {
+    class: 'icon-btn row-delete', type: 'button', 'aria-label': `Delete ${what}`, title: `Delete ${what}`,
+  }, icon('trash', { size: 15 }));
+}
+
+/**
+ * The same bin for a row that stands for several records at once - a chat's
+ * failed messages, counted together on one Inbox row. It asks the same
+ * question a selection does, because that is what it is.
+ */
+export function deleteManyBin({ targets, what, onDone = null }) {
+  if (!targets?.length) return null;
+  const b = binButton(what);
+  if (!b) return null;
+  b.addEventListener('click', () => deleteManyDialog({ targets, onDone }));
+  return b;
+}
+
+// ---------------------------------------------------------------------------
+// Several at once
+// ---------------------------------------------------------------------------
+
+/** The records a selection names, in the form the server reads (desk-delete.js). */
+const encodeTargets = (targets) => targets.map((t) => `${t.kind}:${t.reference}`).join(',');
+
+/**
+ * Deleting everything that is ticked on a list.
+ *
+ * The same dialog as one record, asked once for the lot: the server is asked
+ * what would go, every record is listed with its counts, and the number of
+ * records has to be typed. A reference cannot be typed for twenty of them; a
+ * count can, and typing it is what makes somebody read how many they ticked.
+ *
+ * Each record is deleted on its own behind this (its own copy in Recently
+ * deleted, its own line on the trail), so one that cannot go does not take the
+ * rest with it - and what did not go is said.
+ */
+export function deleteManyDialog({ targets, onDone = null }) {
+  const body = h('div', { class: 'stack' }, skeleton(3));
+  const dlg = dialog({
+    title: `Delete ${targets.length} ${targets.length === 1 ? 'record' : 'records'}?`,
+    body,
+    onStale: null,
+    actions: [{ label: 'Cancel' }],
+  });
+
+  let preview = null;
+  const typed = h('input', {
+    class: 'input', id: 'del-count', autocomplete: 'off', inputmode: 'numeric', spellcheck: 'false',
+  });
+  const matches = () => Boolean(preview) && typed.value.trim() === String(preview.confirm_with);
+
+  function drawActions() {
+    dlg.setActions([
+      { label: 'Cancel' },
+      {
+        label: `Delete ${preview?.total ?? targets.length} ${preview?.total === 1 ? 'record' : 'records'}`,
+        kind: 'danger',
+        busy: 'Deleting…',
+        disabled: !matches(),
+        async run() {
+          if (!matches()) { dlg.error(`Type ${preview.confirm_with} to confirm.`); return true; }
+          // Only the ones still there: the ones already gone were not counted
+          // and are not asked for.
+          const going = preview.records.map((r) => ({ kind: r.kind, reference: r.reference }));
+          const out = await post({ action: 'delete_records', targets: encodeTargets(going), confirm: typed.value.trim() });
+          if (!out.deleted.length) {
+            dlg.error(out.failed[0]?.error ?? 'Nothing could be deleted.');
+            return true;
+          }
+          if (out.failed.length) {
+            toast(`${out.deleted.length} deleted. ${out.failed.length} could not go — ${out.failed[0].error}`, 'bad', { timeout: 15_000 });
+          } else {
+            toast(`${out.deleted.length} ${out.deleted.length === 1 ? 'record' : 'records'} deleted. You can put them back one at a time from Settings → Recently deleted for ${out.keep_days} days.`,
+              'ok', { timeout: 10_000 });
+          }
+          await onDone?.(out);
+          return false;
+        },
+      },
+    ]);
+  }
+
+  (async () => {
+    try {
+      preview = await api({ view: 'delete_preview_many', targets: encodeTargets(targets) });
+    } catch (err) {
+      body.replaceChildren(h('div', { class: 'banner banner-red' }, icon('alert', { size: 15 }), h('p', {}, err.message)));
+      return;
+    }
+    if (!preview.records.length) {
+      body.replaceChildren(h('div', { class: 'banner banner-amber' }, icon('alert', { size: 15 }),
+        h('p', {}, 'None of those is here any more. The list will catch up in a moment.')));
+      return;
+    }
+    body.replaceChildren(
+      h('div', { class: 'banner banner-red' }, icon('alert', { size: 15 }),
+        h('p', {}, h('strong', {}, 'This deletes customer data. '),
+          `${preview.total} ${preview.total === 1 ? 'record' : 'records'} go, with everything that belongs to each of them.`)),
+      h('ul', { class: 'del-list' }, preview.records.map((r) => h('li', {},
+        h('span', { class: 'del-label' }, capital(r.label)),
+        r.words?.length ? h('span', { class: 'muted small' }, asList(r.words)) : null))),
+      preview.missing.length
+        ? h('p', { class: 'muted' }, `${preview.missing.length} of what you ticked ${preview.missing.length === 1 ? 'is' : 'are'} already gone, and ${preview.missing.length === 1 ? 'is' : 'are'} not counted here.`)
+        : null,
+      h('p', { class: 'muted' },
+        `They leave every screen at once. For ${preview.keep_days} days each one can be put back from Settings → Recently deleted; after that they are gone for good, files and all.`),
+      h('div', { class: 'field' },
+        h('label', { class: 'label', for: 'del-count' },
+          'Type ', h('code', {}, preview.confirm_with), ' — the number of records — to confirm'),
+        typed));
+    typed.addEventListener('input', drawActions);
+    drawActions();
+    typed.focus();
+  })();
+
+  return dlg;
+}
+
+/**
+ * Choosing several records on a list.
+ *
+ * The boxes are drawn with the rows and the bar is kept, so a list that
+ * redraws itself (the live loop, a filter) keeps the selection: what is
+ * remembered is the records, not the elements. `shownNow` is told what the
+ * screen currently draws, which is what "select all" means - never the rows
+ * nobody has loaded.
+ *
+ * @param {{ onDone?: Function }} opts  onDone runs after a deletion, to reload the list
+ */
+export function bulkSelection({ onDone = null } = {}) {
+  const chosen = new Map();
+  const boxes = new Set();
+  let shown = [];
+  const keyOf = (t) => `${t.kind}:${t.reference}`;
+
+  const count = h('span', { class: 'select-count' });
+  const all = h('button', { class: 'btn btn-sm', type: 'button' });
+  const none = h('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Clear');
+  const del = h('button', { class: 'btn btn-sm btn-danger', type: 'button' });
+  const bar = h('div', { class: 'select-bar', hidden: true, role: 'group', 'aria-label': 'What is selected' }, count, all, none, del);
+
+  function paint() {
+    bar.hidden = chosen.size === 0;
+    count.textContent = `${chosen.size} selected`;
+    fill(del, icon('trash', { size: 14 }), `Delete ${chosen.size === 1 ? 'it' : 'them'}`);
+    all.hidden = shown.length <= chosen.size || shown.every((t) => chosen.has(keyOf(t)));
+    all.textContent = `Select all ${shown.length} shown`;
+    for (const b of [...boxes]) {
+      if (!b.isConnected) { boxes.delete(b); continue; }
+      b.checked = chosen.has(b.dataset.key);
+    }
+  }
+
+  all.addEventListener('click', () => { for (const t of shown) chosen.set(keyOf(t), t); paint(); });
+  none.addEventListener('click', () => { chosen.clear(); paint(); });
+  del.addEventListener('click', () => deleteManyDialog({
+    targets: [...chosen.values()],
+    onDone: async (out) => { chosen.clear(); paint(); await onDone?.(out); },
+  }));
+
+  return {
+    bar,
+    /** A checkbox for one row, or null for anybody who may not delete. */
+    box(target) {
+      if (!canDelete() || !target) return null;
+      const key = keyOf(target);
+      const el = h('input', {
+        type: 'checkbox', class: 'select-box', dataset: { key }, checked: chosen.has(key),
+        'aria-label': `Select ${target.name ?? target.reference}`,
+      });
+      el.addEventListener('change', () => {
+        if (el.checked) chosen.set(key, target); else chosen.delete(key);
+        paint();
+      });
+      boxes.add(el);
+      return el;
+    },
+    /** What the list draws right now: what "select all" takes. */
+    shownNow(targets) { shown = (targets ?? []).filter(Boolean); paint(); },
+  };
 }

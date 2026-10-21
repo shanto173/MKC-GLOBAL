@@ -29,7 +29,7 @@ import { RHYTHM } from './live.js';
 import { mountConversation, seen } from './conversation.js';
 import { linkFor } from './inbox.js';
 import { openViewer } from './viewer.js';
-import { deleteDialog, canDelete } from './delete.js';
+import { deleteDialog, canDelete, deleteBin, bulkSelection } from './delete.js';
 
 export function renderChats({ route, main, refreshCounts = () => {}, signal = null, subscribe = null }) {
   const [channel, chatId] = route.parts;
@@ -39,6 +39,11 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
   let convo = null;
 
   const listEl = h('div', { class: 'chat-list' }, skeleton(8, { kind: 'rows' }));
+  // Ticking customers and deleting the lot, for an administrator. A chat is
+  // its customer: deleting one takes their whole history, as the bin inside a
+  // conversation already does.
+  const picked = bulkSelection({ onDone: () => loadList({ quiet: true }) });
+  const targetOf = (c) => (c.client_id ? { kind: 'customer', reference: String(c.client_id), name: c.name } : null);
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Find by name, phone or reference', 'aria-label': 'Find a chat', value: q });
   const pane = h('section', { class: 'chat-pane', 'aria-label': 'Conversation' });
   const notice = h('p', { class: 'convo-notice', hidden: true });
@@ -50,6 +55,7 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
         h('p', { class: 'page-sub' }, PURPOSE.chats, ' ', h('span', { class: 'page-sub-more' }, 'Work that needs doing is in the ', h('a', { href: '#/inbox' }, 'Inbox'), '.')))),
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search),
       notice,
+      picked.bar,
       listEl),
     pane));
 
@@ -76,13 +82,20 @@ export function renderChats({ route, main, refreshCounts = () => {}, signal = nu
     chats.sort((a, b) => (Number(b.unread) - Number(a.unread)) || String(b.at ?? '').localeCompare(String(a.at ?? '')));
 
     clear(listEl);
+    picked.shownNow(chats.map(targetOf));
     if (!chats.length) {
       add(listEl, emptyState(q ? 'No chat matches that.' : 'No conversations yet.',
         q ? 'Try a phone number without spaces, or a booking reference.' : 'Chats appear here when customers write to the bot.', null,
         { icon: q ? 'search' : 'chats' }));
       return true;
     }
-    add(listEl, h('ul', { class: 'chat-rows' }, chats.map((c) => h('li', {}, chatRow(c)))));
+    add(listEl, h('ul', { class: 'chat-rows' }, chats.map((c) => {
+      // The box and the bin sit outside the row's link, which owns the row.
+      const target = targetOf(c);
+      const box = target ? picked.box(target) : null;
+      const bin = target ? deleteBin({ ...target, what: `${c.name} and everything about them`, onDone: () => loadList({ quiet: true }) }) : null;
+      return h('li', { class: box || bin ? 'chat-line' : null }, box, chatRow(c), bin);
+    })));
     if (data.has_more) {
       add(listEl, h('div', { class: 'more' }, h('button', {
         class: 'btn btn-sm', type: 'button', onclick: () => { limit += 50; loadList(); },

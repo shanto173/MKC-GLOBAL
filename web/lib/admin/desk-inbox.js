@@ -23,6 +23,7 @@ import {
   enrichAll, isMissingTable, todayCheck, unreadable, customersFor, customerKey, bookingVersion, ticketVersion, mrnVersion,
   hasMessageLog, inChunks,
 } from './desk-shared.js';
+import { MAX_SELECTION } from './desk-delete.js';
 import { failureWords } from './desk-messages.js';
 import { channels } from './channels-bridge.js';
 import { channelOf } from '../channels.js';
@@ -636,6 +637,12 @@ function problemItems({ entries: singles, chatSetAside = new Map() }) {
         // the row's own action is setting the lot aside.
         retryable: false,
         reason,
+        // The rows this one row stands for, so an administrator can delete the
+        // lot from it (public/desk/inbox.js). Only when every one of them fits
+        // in a selection: half of them is not what the row says.
+        targets: entries.length <= MAX_SELECTION
+          ? entries.map((e) => `${e.item.problem?.type === 'outbox' ? 'queued' : 'message'}:${e.item.problem?.id}`)
+          : null,
         ...summary,
       },
     });

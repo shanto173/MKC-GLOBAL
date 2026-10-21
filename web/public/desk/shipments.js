@@ -12,7 +12,7 @@ import {
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
-import { deleteDialog, canDelete, deleteBin } from './delete.js';
+import { deleteDialog, canDelete, deleteBin, bulkSelection } from './delete.js';
 
 const FILTERS = [['active', 'On the way'], ['delivered', 'Delivered'], ['all', 'All']];
 const DAY = 86400_000;
@@ -74,6 +74,8 @@ function renderList({ route, main, signal = null }) {
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Shipment, booking, customer, chassis or vessel', 'aria-label': 'Find a shipment' });
   const count = h('span', { class: 'page-meta', 'aria-live': 'polite' });
   const filtersEl = h('nav', { class: 'seg', 'aria-label': 'Which shipments' });
+  // Ticking shipments and deleting the lot, for an administrator.
+  const picked = bulkSelection({ onDone: () => load({ quiet: true }) });
 
   /** The filter, each item with how many it holds - the server counts all three, whichever is shown. */
   const drawFilters = (counts = null) => fill(filtersEl, ...FILTERS.map(([k, label]) => {
@@ -92,6 +94,7 @@ function renderList({ route, main, signal = null }) {
     h('div', { class: 'ship-bar' },
       filtersEl,
       h('label', { class: 'search-field' }, icon('search', { size: 16 }), search)),
+    picked.bar,
     listEl);
 
   // A page at a time: the first page is fetched again when something
@@ -150,6 +153,7 @@ function renderList({ route, main, signal = null }) {
       ? `${rows.length} of ${total} shipments`
       : `${rows.length} shipment${rows.length === 1 ? '' : 's'}${q ? ' found' : ''}`;
     clear(listEl);
+    picked.shownNow(rows.map((s) => ({ kind: 'shipment', reference: s.shipment_id, name: s.shipment_id })));
     if (!rows.length) {
       add(listEl, emptyState(q ? 'No shipment matches that.' : filter === 'delivered' ? 'Nothing delivered yet.' : 'No shipments on the way.',
         q ? 'Try the last six characters of the chassis, or the booking reference.' : 'A shipment opens when a booking is confirmed.', null,
@@ -158,11 +162,14 @@ function renderList({ route, main, signal = null }) {
     }
     add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-hover' },
       h('thead', {}, h('tr', {},
+        canDelete() ? h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Select')) : null,
         ['Shipment', 'Customer', 'Vehicle', 'Route and vessel', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)),
         canDelete() ? h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Delete')) : null)),
       h('tbody', {}, rows.map((s) => {
         const eta = etaParts(s.eta, s.tone, new Date(), s.status);
+        const target = { kind: 'shipment', reference: s.shipment_id, name: s.shipment_id };
         return h('tr', {},
+          canDelete() ? h('td', { class: 'cell-actions' }, picked.box(target)) : null,
           // The link stretches over its row: the whole row opens the shipment.
           h('td', { 'data-label': 'Shipment' }, h('a', { href: linkFor({ type: 'shipment', id: s.shipment_id }), class: 'ship-id stretch', title: s.booking_ref ? 'Booking ' + s.booking_ref : null }, s.shipment_id)),
           h('td', { 'data-label': 'Customer' }, h('span', { class: 'row-name' }, s.channel ? channelIcon(s.channel, 14) : null, h('bdi', {}, s.customer_name ?? '—'))),
@@ -177,8 +184,7 @@ function renderList({ route, main, signal = null }) {
           // The bin on the row, not only inside the shipment: an administrator
           // looking at the list should not have to open one to delete it.
           canDelete() ? h('td', { class: 'cell-actions' }, deleteBin({
-            kind: 'shipment', reference: s.shipment_id, name: s.shipment_id,
-            what: `shipment ${s.shipment_id}`, onDone: () => load({ quiet: true }),
+            ...target, what: `shipment ${s.shipment_id}`, onDone: () => load({ quiet: true }),
           })) : null);
       })))));
     if (next) {

@@ -1321,9 +1321,20 @@ a.result:hover .result-title { color: var(--brand-700); }
    button that looks like the one beside it, and never one that shouts. */
 .team-delete, .convo-delete, .row-delete { color: var(--ink-3); }
 .team-delete:hover:not(:disabled), .convo-delete:hover, .row-delete:hover { color: var(--red-text); background: var(--red-bg); }
-/* A search result with the bin beside it: the link still owns the whole row. */
-.result-line { display: flex; align-items: center; padding-right: var(--sp-3); }
-.result-line > .result { flex: 1 1 auto; min-width: 0; }
+/* A search result or a chat with its controls beside it: the link still owns
+   the whole row, and the box and the bin sit outside it. */
+.result-line, .chat-line { display: flex; align-items: center; padding-right: var(--sp-3); }
+.result-line > .result, .chat-line > .chat-row { flex: 1 1 auto; min-width: 0; }
+.chat-line { padding-left: var(--sp-3); }
+
+/* Choosing several records on a list, and the bar that says how many. */
+.select-bar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.select-count { font-weight: var(--w-semibold); margin-right: var(--sp-2); }
+.select-box { position: relative; z-index: 1; flex: none; width: 16px; height: 16px; margin: 0; cursor: pointer; }
+.del-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-2); }
+.del-list > li { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line); }
+.del-list > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.del-label { font-weight: var(--w-medium); overflow-wrap: anywhere; }
 .team-delete:disabled { opacity: .35; cursor: not-allowed; }
 .case-delete { color: var(--ink-3); margin-left: auto; }
 .case-delete:hover { color: var(--red-text); background: var(--red-bg); }

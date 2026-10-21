@@ -405,7 +405,15 @@ test('the inbox says, item for item, what it said before its reads were batched'
     setClientForTests(db);
     invalidateSettings();
     const rec = countCalls(db);
-    const items = JSON.parse(JSON.stringify(await inboxItems()));
+    // One field came after the golden was taken: the rows a grouped issue
+    // stands for, so an administrator can delete them from it
+    // (lib/admin/desk-delete.js). It is additive - what the golden pins is
+    // every other word of every row - and the rows it names are held to
+    // account in tests/deletions.test.mjs.
+    const items = JSON.parse(JSON.stringify(await inboxItems())).map((i) => {
+      if (i.problem) delete i.problem.targets;
+      return i;
+    });
     assert.deepEqual(items, golden[n], `a desk of ${n}`);
     // Every kind of row there is: 4 + 8 + 2 + 4 reads in four rounds, and the settings once -
     // the same at 7 customers as at 61.

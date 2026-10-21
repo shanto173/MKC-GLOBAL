@@ -71,7 +71,7 @@ import {
 import { settingsView, settingsWrite, userSave, bootstrapAdmin } from './desk-settings.js';
 import { signIn, setPassword, tokenOf, readToken } from './desk-auth.js';
 import { mkyDocumentView, saveMkyDocument, issueMkyDocument } from './desk-mky-docs.js';
-import { deletePreview, deletedView, deleteRecord, restoreRecord } from './desk-delete.js';
+import { deletePreview, deletePreviewMany, deletedView, deleteRecord, deleteRecords, restoreRecord } from './desk-delete.js';
 import { chatFilesView } from './desk-media.js';
 import { chatUpload, sendFiles } from './desk-files.js';
 import { replacementRequest, shipmentUpdateText, shipmentUpdatePayload } from './desk-messages.js';
@@ -101,6 +101,7 @@ const VIEWS = {
   search,
   settings: settingsView,
   delete_preview: deletePreview,
+  delete_preview_many: deletePreviewMany,
   // The CMR or MRN sheet MKY issues for a booking, as the form stands.
   mky_document: mkyDocumentView,
   deleted: deletedView,
@@ -244,7 +245,7 @@ const NEEDS = {
   request_assign: 'assign_self', request_status: 'status', request_resolve: 'client',
   shipment_update: 'booking',
   settings_write: 'settings', user_save: 'users',
-  delete_record: 'delete', restore_record: 'delete',
+  delete_record: 'delete', delete_records: 'delete', restore_record: 'delete',
   // Anyone may set their own password; setPassword checks for itself before
   // letting somebody set another person's.
   set_password: 'read',
@@ -318,6 +319,7 @@ async function act(req, res) {
     case 'request_resolve': return requestResolve(req, res, who);
     case 'shipment_update': return shipmentUpdate(req, res, who);
     case 'delete_record': return deleteRecord(req, res, who);
+    case 'delete_records': return deleteRecords(req, res, who);
     case 'restore_record': return restoreRecord(req, res, who);
     case 'set_password': return setPassword(req, res, who);
     case 'settings_write': return settingsWrite(req, res, who);
