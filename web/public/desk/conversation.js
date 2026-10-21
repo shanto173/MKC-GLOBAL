@@ -553,6 +553,17 @@ export function mountConversation(container, {
   /** Why there is nothing to open. */
   const missingLine = (f) => (f?.missing ? h('div', { class: 'media-missing' }, icon(f.stored ? 'alert' : 'minus', { size: 13 }), f.missing) : null);
 
+  /**
+   * The bot's own booking sheet. No copy was kept of what was sent, so what
+   * opens is made from the booking as it stands now - said here, because a
+   * booking that has moved on since makes a sheet that is not word for word
+   * the one the customer has.
+   */
+  const madeLine = (f) => (f?.made
+    ? h('div', { class: 'paper-line' }, h('span', { class: 'paper-note' }, icon('refresh', { size: 12 }),
+      'Made by the bot — opens as a fresh copy from the booking'))
+    : null);
+
   /** The body of a file message: thumbnail, player or chip; then the caption. */
   function fileBody(m) {
     const f = m.file;
@@ -575,6 +586,7 @@ export function mountConversation(container, {
       parts.push(fileChip(m));
     }
     parts.push(missingLine(f));
+    parts.push(madeLine(f));
     parts.push(paperLine(f));
     if (m.body && m.kind !== 'sticker') parts.push(h('div', { class: 'caption' }, richLines(m.body)));
     return h('div', { class: 'bubble-body' }, parts);

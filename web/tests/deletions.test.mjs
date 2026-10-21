@@ -398,8 +398,13 @@ test('everything deleted is kept whole, with its files, and the audit trail says
   assert.equal(booking.id, 11, 'under the id it had, so what pointed at it still does');
   assert.equal(kept.payload.find((p) => p.table === 'booking_documents').rows.length, 2);
 
-  // The files are listed and left alone: a restore has to find them.
-  assert.deepEqual(kept.files.map((f) => f.path).sort(), ['2/MKY-BKG-1/cmr.pdf', '2/MKY-BKG-1/inv.pdf']);
+  // The files are listed and left alone: a restore has to find them. The
+  // booking's own sheet, which the desk makes again on demand and keeps one
+  // copy of (lib/admin/desk-media.js), is listed too - it is this booking's
+  // data in the bucket, so it goes when the thirty days are up.
+  assert.deepEqual(kept.files.map((f) => f.path).sort(),
+    ['2/MKY-BKG-1/cmr.pdf', '2/MKY-BKG-1/inv.pdf', 'made/MKY-BKG-1.pdf']);
+  assert.equal(kept.summary.files, 2, 'but the words count only the papers the customer sent');
   assert.deepEqual(storage.removed, [], 'nothing left the bucket');
 
   const trail = rows('audit_logs').filter((a) => a.action === 'record_deleted');
@@ -494,7 +499,9 @@ test('the purge takes the files and the copy, and leaves what is not due', async
   const out = await purgeDue({ force: true });
   assert.equal(out.purged, 1);
   assert.equal(ledger().length, 1, 'the one still in its thirty days stays');
-  assert.deepEqual(storage.removed.sort(), ['2/MKY-BKG-1/cmr.pdf', '2/MKY-BKG-1/inv.pdf']);
+  assert.deepEqual(storage.removed.sort(),
+    ['2/MKY-BKG-1/cmr.pdf', '2/MKY-BKG-1/inv.pdf', 'made/MKY-BKG-1.pdf'],
+    'the papers and the sheet made from the booking');
   assert.ok(rows('audit_logs').some((a) => a.action === 'deleted_record_purged'));
 });
 

@@ -37,6 +37,7 @@ import { audit } from '../audit.js';
 import { removeObjects, BUCKET } from '../storage.js';
 import { defer } from '../background.js';
 import { invalidateTeam, teamList } from './desk-shared.js';
+import { sheetPath } from './desk-media.js';
 import { DOC_LABEL } from '../ops/workflow.js';
 
 /** How long a deleted record can be taken back. */
@@ -331,7 +332,17 @@ export async function gather(kind, reference) {
     // without planning again from a database it is halfway through changing.
     steps.push(stepped);
   }
-  return { kind, reference: String(reference), label: plan.label, note: plan.note ?? null, payload, files, counts, steps };
+
+  // A sheet the desk made again from a booking it is about to delete
+  // (lib/admin/desk-media.js keeps one object per booking) is that booking's
+  // data in the bucket, so it goes with it at the purge. Kept apart from
+  // `files`: the dialog tells somebody what of theirs goes, and a rebuilt copy
+  // of a sheet is not a second paper they sent.
+  const derived = (payload.find((p) => p.table === 'bookings')?.rows ?? [])
+    .map((b) => b.booking_ref).filter(Boolean)
+    .map((ref) => ({ bucket: BUCKET, path: sheetPath(ref) }));
+
+  return { kind, reference: String(reference), label: plan.label, note: plan.note ?? null, payload, files, derived, counts, steps };
 }
 
 /** The counts in the words the dialog reads out. */
@@ -495,7 +506,8 @@ export async function deleteRecord(req, res, who) {
     label: found.label,
     summary,
     payload: found.payload,
-    files: found.files,
+    // The derived copies go at the purge too, and are not part of the count.
+    files: [...found.files, ...(found.derived ?? [])],
     deleted_by: who.name,
     purge_after: new Date(Date.now() + KEEP_DAYS * DAY_MS).toISOString(),
   }).select('id').single();

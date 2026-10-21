@@ -423,6 +423,53 @@ test('a big photo is shown through a smaller copy, made once and kept', async ()
   assert.match(full.body.files['doc:41'].url, /unfiled%2Fp\.jpg/, 'the full photo on request');
 });
 
+test('the sheet the bot sent and kept no copy of is made again, in the language it went out in', async () => {
+  // Two confirmations of the same booking, as the bot logged them: one Arabic,
+  // one English, neither with a byte kept anywhere.
+  setup({
+    chat_messages: [
+      { id: 9001, channel: 'whatsapp', chat_id: WA, client_id: 7, direction: 'out', author: 'system', kind: 'document', status: 'sent', booking_ref: 'MKY-BKG-F1', language: 'ar', payload: { file_name: 'MKY-BKG-F1.pdf' }, created_at: iso(3000) },
+      // An older row, from before the reference was recorded on the message:
+      // the file's name is the reference.
+      { id: 9002, channel: 'whatsapp', chat_id: WA, client_id: 7, direction: 'out', author: 'bot', kind: 'document', status: 'sent', language: 'en', payload: { file_name: 'MKY-BKG-F1.pdf' }, created_at: iso(2000) },
+      // Somebody at the desk sent a file and no copy was kept: nothing can
+      // make that again, and the desk still says so.
+      { id: 9003, channel: 'whatsapp', chat_id: WA, client_id: 7, direction: 'out', author: 'staff', staff_name: 'Sara', kind: 'document', status: 'sent', payload: { file_name: 'notes.pdf' }, created_at: iso(1000) },
+    ],
+  });
+
+  const chat = await view({ view: 'chat', channel: 'whatsapp', chat_id: WA });
+  const byId = (id) => chat.body.messages.find((m) => m.id === id);
+  assert.equal(byId(9001).file.ref, 'made:9001', 'the bot’s own sheet can be opened');
+  assert.equal(byId(9001).file.made, true);
+  assert.equal(byId(9001).file.missing, null);
+  assert.equal(byId(9001).file.kind, 'pdf', 'so the chat preview draws it as a PDF');
+  assert.equal(byId(9002).file.ref, 'made:9002', 'including the ones already in the history');
+  assert.equal(byId(9003).file.ref, null, 'a person’s file is not a function of anything');
+  assert.match(byId(9003).file.missing, /No copy is kept here/);
+
+  const ar = await view({ view: 'chat_files', refs: 'made:9001', variant: 'full' });
+  assert.equal(ar.status, 200);
+  assert.equal(ar.body.files['made:9001'].mime_type, 'application/pdf');
+  assert.equal(ar.body.files['made:9001'].file_name, 'MKY-BKG-F1.pdf');
+  assert.match(ar.body.files['made:9001'].url, /^https:\/\/storage\.test\/sign\//);
+  // One object per booking, so there is one thing to find and not one per open.
+  const path = 'made/MKY-BKG-F1.pdf';
+  const arabic = storage.objects.get(path);
+  assert.ok(arabic, 'the sheet is where a signed link can reach it');
+  assert.equal(arabic.buffer.subarray(0, 5).toString(), '%PDF-');
+
+  await view({ view: 'chat_files', refs: 'made:9002', variant: 'full' });
+  assert.ok(!storage.objects.get(path).buffer.equals(arabic.buffer),
+    'the English copy is not the Arabic one: each is made in the language that message went out in');
+
+  // And a booking somebody deleted says so, in words.
+  rows('bookings').splice(0, rows('bookings').length);
+  const gone = await view({ view: 'chat_files', refs: 'made:9001', variant: 'full' });
+  assert.equal(gone.status, 200);
+  assert.match(gone.body.files['made:9001'].error, /MKY-BKG-F1 is no longer here/);
+});
+
 // ---------------------------------------------------------------------------
 // Out: the desk sends files
 // ---------------------------------------------------------------------------
