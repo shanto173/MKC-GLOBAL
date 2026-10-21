@@ -227,9 +227,36 @@ test('Dismiss issue says, before it is pressed, what it does and what it does no
   assert.match(paper, /not marked as verified/);
 });
 
+test('no issue row is a dead end: each can be dismissed, and the bin names the row it takes', () => {
+  const { dismissWords, PROBLEM_DELETE_KIND, PROBLEM_DELETE_WORDS } = inbox;
+  // Every type lib/admin/desk-inbox.js can put on an issue row.
+  for (const type of ['document', 'message', 'outbox', 'chat']) {
+    assert.match(dismissWords({ type, id: 1, count: 2 }), /Dismissing removes the alert/, `${type} can be dismissed`);
+  }
+  // And where the row stands for a record, the bin says which record - never
+  // "the issue", which is what Dismiss deals with.
+  for (const type of Object.keys(PROBLEM_DELETE_KIND)) {
+    const words = PROBLEM_DELETE_WORDS[type];
+    assert.match(words, /^the (document|message|queued message)/, `${type} is named as a row`);
+    assert.doesNotMatch(words, /issue$/i);
+  }
+  // Dismiss is added to every issue row, whatever the type.
+  assert.match(src('inbox.js'), /add\(box, aside\);/);
+});
+
 // ---------------------------------------------------------------------------
 // Shipments (section 9): saved is not notified, and sent is not delivered
 // ---------------------------------------------------------------------------
+
+test('a shipment is deleted from the list as well as from inside it', () => {
+  // Reported as "I cannot delete a shipment": the bin was only in the
+  // shipment's own header, so you had to open one to find it.
+  const ship = src('shipments.js');
+  assert.equal((ship.match(/kind: 'shipment'/g) ?? []).length, 2, 'the row in the list, and the shipment’s header');
+  assert.match(ship, /class: 'cell-actions'/, 'the bin is in a cell of its own');
+  // The row is one stretched link, so a control in it has to sit above.
+  assert.match(rule('.cell-actions'), /z-index/);
+});
 
 test('after saving a shipment update the desk says whether the customer was notified - and never that it was delivered', async () => {
   const { savedWords, notifyLabel } = await import('../public/desk/shipments.js');

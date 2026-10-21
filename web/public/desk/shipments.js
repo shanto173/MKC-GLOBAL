@@ -158,7 +158,8 @@ function renderList({ route, main, signal = null }) {
     }
     add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-hover' },
       h('thead', {}, h('tr', {},
-        ['Shipment', 'Customer', 'Vehicle', 'Route and vessel', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)))),
+        ['Shipment', 'Customer', 'Vehicle', 'Route and vessel', 'Status', 'Arrives', 'Updated'].map((c) => h('th', { scope: 'col' }, c)),
+        canDelete() ? h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Delete')) : null)),
       h('tbody', {}, rows.map((s) => {
         const eta = etaParts(s.eta, s.tone, new Date(), s.status);
         return h('tr', {},
@@ -172,7 +173,13 @@ function renderList({ route, main, signal = null }) {
             ? h('span', { class: 'eta' }, h('span', { class: 'eta-date' }, eta.date),
               eta.late ? badge(`Late ${eta.late} d`, 'red', { small: true }) : eta.rel ? h('span', { class: 'eta-rel' }, eta.rel) : null)
             : h('span', { class: 'muted' }, 'Not set')),
-          h('td', { 'data-label': 'Updated', class: 'muted' }, timeEl(s.updated_at, ago(s.updated_at))));
+          h('td', { 'data-label': 'Updated', class: 'muted' }, timeEl(s.updated_at, ago(s.updated_at))),
+          // The bin on the row, not only inside the shipment: an administrator
+          // looking at the list should not have to open one to delete it.
+          canDelete() ? h('td', { class: 'cell-actions' }, deleteBin({
+            kind: 'shipment', reference: s.shipment_id, name: s.shipment_id,
+            what: `shipment ${s.shipment_id}`, onDone: () => load({ quiet: true }),
+          })) : null);
       })))));
     if (next) {
       const button = h('button', { class: 'btn', type: 'button' }, 'Show more');

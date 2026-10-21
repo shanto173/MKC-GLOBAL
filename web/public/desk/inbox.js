@@ -55,6 +55,16 @@ export const ACTION_WORDS = { assign: 'Assign to me', retry: 'Retry sending', di
  */
 export const DELETE_KIND = { booking: 'booking', callback: 'request', mrn: 'mrn' };
 export const PROBLEM_DELETE_KIND = { document: 'document', message: 'message', outbox: 'queued' };
+/**
+ * What the bin on an issue row deletes, named as the row it takes rather than
+ * as "the issue": dismissing an issue and deleting the paper the issue is
+ * about are different things, and the control has to say which it is.
+ */
+export const PROBLEM_DELETE_WORDS = {
+  document: 'the document this issue is about',
+  message: 'the message that did not arrive',
+  outbox: 'the queued message that did not go',
+};
 
 /**
  * The owner column for work that is never assigned to one person - an issue,
@@ -482,14 +492,14 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
       }],
     }));
     add(box, aside);
-    // The thing the issue is a view of, deleted: the paper, that one message,
-    // that one queued message. Dismissing hides the alert; this removes what
-    // the alert is about.
+    // The thing the issue is a view of, deleted. An issue is not a record: it
+    // is this desk's way of saying that a paper could not be read or a message
+    // did not arrive, so the bin says which row it takes - nobody should press
+    // it thinking they are tidying away an alert. Dismiss does that.
     const binKind = PROBLEM_DELETE_KIND[p.type];
-    const words = { document: 'this document', message: 'this message', outbox: 'this queued message' }[p.type];
     if (binKind) {
       add(box, deleteBin({
-        kind: binKind, reference: p.id, what: words, onDone: () => load({ quiet: true }),
+        kind: binKind, reference: p.id, what: PROBLEM_DELETE_WORDS[p.type], onDone: () => load({ quiet: true }),
       }));
     }
     if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));
