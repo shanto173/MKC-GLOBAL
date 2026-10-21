@@ -256,8 +256,10 @@ export function openFilePreview(ctx) {
       h('span', { class: 'file-name' }, icon('file', { size: 14 }), h('bdi', { dir: 'ltr', title: item.name ?? '' }, item.name ?? 'File'),
         item.size_words ? h('span', { class: 'muted' }, ` · ${item.size_words}`) : null),
       h('span', { class: 'preview-actions' },
+        // Every file in a chat opens here now, so for somebody checking papers
+        // this is the way to the two decisions: the primary button in the bar.
         item.paper?.reviewable && ctx.onOpenPaper
-          ? h('button', { class: 'btn btn-sm', type: 'button', onclick: () => { dlg.close(); ctx.onOpenPaper(item.paper.id); } }, icon('eye', { size: 14 }), 'Open in the document viewer')
+          ? h('button', { class: 'btn btn-sm btn-primary', type: 'button', onclick: () => { dlg.close(); ctx.onOpenPaper(item.paper.id); } }, icon('eye', { size: 14 }), 'Open in the document viewer')
           : null,
         printButton(link.url, { name: item.name ?? 'File', mime }),
         h('a', { class: 'btn btn-sm btn-ghost', href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 14 }), 'Open in a new tab'),

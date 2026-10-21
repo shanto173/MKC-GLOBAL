@@ -440,13 +440,20 @@ export function mountConversation(container, {
     return (data?.messages ?? []).filter((m) => m.file?.ref && ['image', 'pdf', 'document', 'sticker'].includes(m.file.kind))
       .map((m) => ({ ...m.file, id: m.id, caption: m.direction === 'in' ? m.body : null }));
   }
+  /**
+   * Every file opens here, in the conversation - a PDF the same as a photo.
+   *
+   * A paper the bot read used to be sent straight to the document viewer
+   * instead, which is why a photo opened in the chat and an invoice did not.
+   * The viewer is one click away in the preview's own bar ("Open in the
+   * document viewer"), which is where a paper is accepted or sent back.
+   */
   function openFile(m) {
     const f = m.file;
-    // A paper the bot read opens where papers are checked.
-    if (f.paper?.reviewable && openPaper && f.kind !== 'image') return openPaper(f.paper.id);
     const items = previewables();
-    const index = Math.max(0, items.findIndex((x) => x.id === m.id));
-    if (!items.length) return null;
+    const index = items.findIndex((x) => x.id === m.id);
+    // A kind the preview does not show at all: a paper still has the viewer.
+    if (index < 0) return f.paper?.reviewable && openPaper ? openPaper(f.paper.id) : null;
     return openFilePreview({
       title: data.customer.name, items, index,
       link: (ref, { fresh } = {}) => link(ref, 'full', { fresh }),

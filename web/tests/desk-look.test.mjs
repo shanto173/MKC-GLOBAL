@@ -321,6 +321,20 @@ test('an info dot sits beside each term where it appears, and the whole glossary
   assert.match(src('settings.js'), /glossaryList\(/, 'and Settings lists it too');
 });
 
+test('a file in a chat opens in the chat, a PDF the same way as a photo', () => {
+  const convoSrc = src('conversation.js');
+  // A paper the bot had read used to be sent straight to the case's document
+  // viewer, and only a photo was spared it - which is why a customer's invoice
+  // could not be looked at without leaving the conversation.
+  assert.doesNotMatch(convoSrc, /f\.kind !== 'image'/, 'no kind is diverted out of the conversation');
+  assert.match(convoSrc, /openFilePreview\(\{/, 'the chat opens its own preview');
+  // The one exception, and the reason it is safe: a kind the preview cannot
+  // show at all still has the viewer, and so has a paper being checked.
+  assert.match(convoSrc, /openPaper\(f\.paper\.id\)/);
+  assert.match(src('viewer.js'), /btn-primary'.*'Open in the document viewer'/,
+    'and from the preview, the way to the two decisions is the primary button');
+});
+
 // ---------------------------------------------------------------------------
 // Printing a document
 // ---------------------------------------------------------------------------
