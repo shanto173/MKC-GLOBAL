@@ -1316,8 +1316,11 @@ a.result:hover .result-title { color: var(--brand-700); }
 .inline-form-wrap .field { flex: 1 1 160px; }
 /* Deleting: quiet until it is wanted, red once the pointer is on it. Never a
    button that looks like the one beside it, and never one that shouts. */
-.team-delete, .convo-delete { color: var(--ink-3); }
-.team-delete:hover:not(:disabled), .convo-delete:hover { color: var(--red-text); background: var(--red-bg); }
+.team-delete, .convo-delete, .row-delete { color: var(--ink-3); }
+.team-delete:hover:not(:disabled), .convo-delete:hover, .row-delete:hover { color: var(--red-text); background: var(--red-bg); }
+/* A search result with the bin beside it: the link still owns the whole row. */
+.result-line { display: flex; align-items: center; padding-right: var(--sp-3); }
+.result-line > .result { flex: 1 1 auto; min-width: 0; }
 .team-delete:disabled { opacity: .35; cursor: not-allowed; }
 .case-delete { color: var(--ink-3); margin-left: auto; }
 .case-delete:hover { color: var(--red-text); background: var(--red-bg); }

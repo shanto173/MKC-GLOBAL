@@ -31,7 +31,7 @@ const { invalidateSettings } = await import('../lib/settings.js');
 const { flush } = await import('../lib/background.js');
 const { default: handler } = await import('../lib/admin/console.js');
 const { invalidateTeam } = await import('../lib/admin/desk-shared.js');
-const { countWords, resetPurgeClock, purgeDue, KEEP_DAYS } = await import('../lib/admin/desk-delete.js');
+const { countWords, resetPurgeClock, purgeDue, KEEP_DAYS, KIND_WORDS } = await import('../lib/admin/desk-delete.js');
 
 const SECRET = 'desk-secret';
 const WA = 'wa:201005551234';
@@ -65,7 +65,7 @@ function setup(extra = {}) {
       { id: 13, booking_ref: 'MKY-BKG-9', status: 'pending_review', channel: 'whatsapp', chat_id: 'wa:201009999999', client_id: 9, customer_name: 'Someone Else', edit_history: [] },
     ],
     booking_documents: [
-      { id: 101, booking_ref: 'MKY-BKG-1', client_id: 2, chat_id: WA, doc_type: 'invoice', status: 'received', storage_path: '2/MKY-BKG-1/inv.pdf', storage_bucket: 'booking-docs' },
+      { id: 101, booking_ref: 'MKY-BKG-1', client_id: 2, chat_id: WA, doc_type: 'invoice', status: 'received', file_name: 'invoice.pdf', uploaded_at: iso(7200_000), storage_path: '2/MKY-BKG-1/inv.pdf', storage_bucket: 'booking-docs' },
       { id: 102, booking_ref: 'MKY-BKG-1', client_id: 2, chat_id: WA, doc_type: 'brief', status: 'received', storage_path: '2/MKY-BKG-1/cmr.pdf', storage_bucket: 'booking-docs' },
       { id: 190, booking_ref: 'MKY-BKG-9', client_id: 9, chat_id: 'wa:201009999999', doc_type: 'invoice', status: 'received', storage_path: '9/MKY-BKG-9/inv.pdf' },
     ],
@@ -78,7 +78,7 @@ function setup(extra = {}) {
       { id: 309, task_ref: 'T-9', task_type: 'review', booking_ref: 'MKY-BKG-9', client_id: 9, status: 'open' },
     ],
     notification_outbox: [
-      { id: 401, entity_id: 'MKY-BKG-1', entity_type: 'booking', client_id: 2, channel: 'whatsapp', chat_id: WA, event_type: 'operations_message', status: 'sent', payload: {} },
+      { id: 401, entity_id: 'MKY-BKG-1', entity_type: 'booking', client_id: 2, channel: 'whatsapp', chat_id: WA, event_type: 'operations_message', status: 'pending', delivery_status: 'needs_template', created_at: iso(3600_000), payload: {} },
       { id: 409, entity_id: 'MKY-BKG-9', entity_type: 'booking', client_id: 9, channel: 'whatsapp', chat_id: 'wa:201009999999', event_type: 'operations_message', status: 'sent', payload: {} },
     ],
     chat_messages: [
@@ -264,6 +264,118 @@ test('an MRN application is its own record', async () => {
   assert.equal((await del('mrn', 'MKY-MRN-1', 'MKY-MRN-1')).status, 200);
   assert.deepEqual(refs('mrn_requests', 'id'), []);
   assert.deepEqual(refs('bookings', 'booking_ref'), ['MKY-BKG-1', 'MKY-BKG-2', 'MKY-BKG-9'], 'its booking stays');
+});
+
+// ---------------------------------------------------------------------------
+// The rows somebody is looking at one of
+//
+// A paper, a note, a message, a queued message, a line of a shipment's
+// history: each is one row, visible on its own in the desk, so each can go on
+// its own. The whole of the promise holds for them as it does for a booking -
+// the id has to be typed, only an administrator may, and it comes back.
+// ---------------------------------------------------------------------------
+
+/** The whole promise, for a kind that is one row. */
+async function oneRowKind({ kind, reference, other, table, label, note, counts, files = 0, words }) {
+  const preview = await get({ view: 'delete_preview', kind, reference });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.confirm_with, reference, 'the id on the screen is what is typed');
+  assert.deepEqual(preview.body.counts, counts, 'exactly its own row');
+  assert.equal(preview.body.files, files);
+  assert.deepEqual(preview.body.words, words);
+  assert.match(preview.body.label, label);
+  if (note) assert.match(preview.body.note, note);
+
+  // An agent cannot look, and cannot delete.
+  assert.equal((await get({ view: 'delete_preview', kind, reference }, 'Sara')).status, 403);
+  assert.equal((await del(kind, reference, reference, 'Sara')).status, 403);
+  // Nor can the id of the row beside it stand in for this one's.
+  assert.equal((await del(kind, reference, other)).status, 400);
+  assert.equal(ledger().length, 0, 'and nothing was recorded as deleted');
+
+  const before = refs(table, 'id');
+  assert.equal((await del(kind, reference, reference)).status, 200);
+  assert.deepEqual(refs(table, 'id'), before.filter((id) => String(id) !== String(reference)));
+  assert.deepEqual(storage.removed, [], 'its file waits out the thirty days');
+
+  const back = await post({ action: 'restore_record', id: ledger()[0].id });
+  assert.equal(back.status, 200);
+  assert.deepEqual(refs(table, 'id'), before, 'back under the id it had');
+}
+
+test('one paper can go on its own, and the booking it was on stays', async () => {
+  await oneRowKind({
+    kind: 'document', reference: '101', other: '102', table: 'booking_documents',
+    label: /Invoice for MKY-BKG-1 \(invoice\.pdf\)/,
+    note: /MKY-BKG-1 still requires this paper/,
+    counts: { booking_documents: 1 }, files: 1, words: ['1 document', '1 file'],
+  });
+  assert.equal(rows('bookings').length, 3, 'the booking stays');
+  assert.deepEqual(refs('internal_notes', 'id'), [201, 202], 'and so does everything else on it');
+});
+
+test('one internal note can go on its own', async () => {
+  await oneRowKind({
+    kind: 'note', reference: '201', other: '202', table: 'internal_notes',
+    label: /Internal note by Sara on MKY-BKG-1.*Chassis checked/,
+    counts: { internal_notes: 1 }, words: ['1 internal note'],
+  });
+  assert.equal(rows('bookings').length, 3);
+});
+
+test('one message can go on its own, with the file it carried', async () => {
+  await oneRowKind({
+    kind: 'message', reference: '502', other: '501', table: 'chat_messages',
+    label: /Message to the customer from Sara.*Here it is/,
+    note: /rest of the conversation stays/,
+    counts: { chat_messages: 1 }, files: 1, words: ['1 message', '1 file'],
+  });
+  assert.deepEqual(refs('conversation_sessions', 'id').length, 2, 'the conversation itself stays');
+});
+
+test('one queued message can go on its own, and it says it will then never be sent', async () => {
+  await oneRowKind({
+    kind: 'queued', reference: '401', other: '409', table: 'notification_outbox',
+    label: /Queued operations_message message for MKY-BKG-1 \(pending\)/,
+    note: /has not been sent/,
+    counts: { notification_outbox: 1 }, words: ['1 queued message'],
+  });
+});
+
+test('one line of a shipment’s history can go on its own, and the shipment stays', async () => {
+  await oneRowKind({
+    kind: 'event', reference: '701', other: '709', table: 'shipment_events',
+    label: /Shipment update on MKY-26001: Loaded/,
+    note: /shipment itself, its status/,
+    counts: { shipment_events: 1 }, words: ['1 shipment update'],
+  });
+  assert.deepEqual(refs('shipments', 'shipment_id'), ['MKY-26001', 'MKY-26009']);
+});
+
+/**
+ * There are no browser tests here, so this is what stops a bin drawn with a
+ * kind the server has never heard of - six screens offer one now, and the
+ * mistake shows up as "Unknown kind" after somebody has pressed Delete.
+ */
+test('every kind the desk offers to delete is a kind the server knows', async () => {
+  const { readFileSync } = await import('node:fs');
+  const inbox = await import('../public/desk/inbox.js');
+  const asked = new Set([...Object.values(inbox.DELETE_KIND), ...Object.values(inbox.PROBLEM_DELETE_KIND)]);
+  for (const file of ['inbox.js', 'search.js', 'case.js', 'conversation.js', 'viewer.js', 'shipments.js', 'chats.js', 'settings.js']) {
+    const src = readFileSync(new URL(`../public/desk/${file}`, import.meta.url), 'utf8');
+    for (const m of src.matchAll(/delete(?:Bin|Dialog)\(\{[^}]*?kind:\s*'([a-z]+)'/gs)) asked.add(m[1]);
+  }
+  // Every kind in the desk, and the desk reaches all of them.
+  assert.deepEqual([...asked].filter((k) => !KIND_WORDS[k]), [], 'a kind the server would refuse');
+  assert.deepEqual(Object.keys(KIND_WORDS).filter((k) => !asked.has(k)), [],
+    'a kind nothing in the desk can reach');
+});
+
+test('a row that is no longer there says so, whatever kind it is', async () => {
+  for (const kind of ['document', 'note', 'message', 'queued', 'event']) {
+    assert.equal((await get({ view: 'delete_preview', kind, reference: '99999' })).status, 404, kind);
+    assert.equal((await del(kind, 'not-a-number', 'not-a-number')).status, 404, kind);
+  }
 });
 
 // ---------------------------------------------------------------------------

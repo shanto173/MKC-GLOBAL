@@ -30,6 +30,7 @@ import {
   errorState, skeleton, add, fill, uploadFile, channelWords,
 } from './ui.js';
 import { openFilePreview } from './viewer.js';
+import { deleteBin } from './delete.js';
 
 const STATUS_MARK = {
   queued: ['Queued', 'clock'],
@@ -450,6 +451,9 @@ export function mountConversation(container, {
       title: data.customer.name, items, index,
       link: (ref, { fresh } = {}) => link(ref, 'full', { fresh }),
       onOpenPaper: openPaper,
+      // The one way to delete a photo that is part of an album: the album is a
+      // grid of several messages, so the bin belongs on the one being looked at.
+      onDeleted: () => load({ quiet: true }),
     });
   }
 
@@ -518,17 +522,25 @@ export function mountConversation(container, {
   /** What a paper the bot read became: its label and state, or that a newer copy came. */
   function paperLine(f) {
     const p = f?.paper;
-    if (!p || (!p.status_words && !p.note && !p.booking_ref)) return null;
+    if (!p) return null;
+    // The paper itself, for an administrator: the filed row and its file go,
+    // while the message that brought it stays (that has a bin of its own). A
+    // photo filed on no booking says nothing else, and still has its bin.
+    const bin = p.id
+      ? deleteBin({ kind: 'document', reference: p.id, what: `the ${p.label ?? 'document'} filed from this message`, onDone: () => load({ quiet: true }) })
+      : null;
+    if (!p.status_words && !p.note && !p.booking_ref && !bin) return null;
     if (p.mky) {
       return h('div', { class: 'paper-line' }, h('span', { class: 'paper-ref' }, icon('file', { size: 12 }), ' Filed on ',
-        h('span', { class: 'mono' }, p.booking_ref), ' as an MKY document'));
+        h('span', { class: 'mono' }, p.booking_ref), ' as an MKY document'), bin);
     }
     return h('div', { class: 'paper-line' },
       p.label && p.label !== 'Photo' && p.label !== 'File' ? h('span', { class: 'paper-label' }, p.label) : null,
       p.status_words ? h('span', { class: `paper-state tone-text-${p.tone ?? 'gray'}` }, p.status_words) : null,
       p.booking_ref ? h('span', { class: 'paper-ref' }, 'On ', h('span', { class: 'mono' }, p.booking_ref))
         : p.reviewable ? h('span', { class: 'paper-ref' }, 'On no booking') : null,
-      p.note ? h('span', { class: 'paper-note' }, icon('refresh', { size: 12 }), p.note) : null);
+      p.note ? h('span', { class: 'paper-note' }, icon('refresh', { size: 12 }), p.note) : null,
+      bin);
   }
 
   /** Why there is nothing to open. */
@@ -671,7 +683,8 @@ export function mountConversation(container, {
       return h('div', { class: 'msg msg-in msg-tap run-start' },
         h('span', { class: 'tap' },
           m.tap_title ? ['Tapped ', h('bdi', {}, `“${m.tap_title}”`)] : m.body,
-          h('time', { class: 'tap-time', datetime: m.at }, clock(m.at))));
+          h('time', { class: 'tap-time', datetime: m.at }, clock(m.at)),
+          deleteBin({ kind: 'message', reference: m.id, what: 'this tap', onDone: () => load({ quiet: true }) })));
     }
     const who = m.author === 'client' ? null
       : m.author === 'bot' ? 'Bot'
@@ -716,7 +729,12 @@ export function mountConversation(container, {
       h('time', { datetime: m.at, title: new Date(m.at).toLocaleString('en-GB') }, clock(m.at)),
       statusWord && m.status !== 'failed'
         ? h('span', { class: `tick tick-${m.status}` }, statusIcon === 'check2' ? '✓✓' : statusIcon === 'check' ? '✓' : icon('clock', { size: 12 }), ' ', statusWord)
-        : null);
+        : null,
+      // One message, for an administrator: this line and the file it carries.
+      // What a paper became is deleted from the paper's own line above.
+      deleteBin({
+        kind: 'message', reference: m.id, what: 'this message', onDone: () => load({ quiet: true }),
+      }));
 
     // A failure is one quiet line under the bubble, not a box: what happened,
     // why (once - see failureReasons), and the one thing that can be done.

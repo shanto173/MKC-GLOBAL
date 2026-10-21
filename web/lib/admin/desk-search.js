@@ -14,8 +14,10 @@ import {
 import { isMissingColumn } from './desk-shared.js';
 
 /** What a customer result is drawn from: the name it goes by, how to reach them, and their chat. */
-const CLIENT_COLUMNS = 'company, full_name, whatsapp_name, display_name, telegram_username, phone, whatsapp_id, telegram_chat_id';
-const CLIENT_COLUMNS_BEFORE_WHATSAPP = 'company, full_name, display_name, telegram_username, phone, telegram_chat_id';
+// The id comes with them so an administrator can delete the customer from a
+// result (public/desk/search.js); nothing else on the row needs it.
+const CLIENT_COLUMNS = 'id, company, full_name, whatsapp_name, display_name, telegram_username, phone, whatsapp_id, telegram_chat_id';
+const CLIENT_COLUMNS_BEFORE_WHATSAPP = 'id, company, full_name, display_name, telegram_username, phone, telegram_chat_id';
 
 /**
  * GET view=search&q= - one box for chassis, reference, name and phone.
@@ -70,6 +72,7 @@ export async function search(req, res) {
         const chat = c.whatsapp_id ? { channel: 'whatsapp', chat_id: `wa:${c.whatsapp_id}` }
           : c.telegram_chat_id ? { channel: 'telegram', chat_id: String(c.telegram_chat_id) } : null;
         return {
+          client_id: c.id ?? null,
           title: c.company || c.full_name || c.whatsapp_name || c.display_name || c.telegram_username || 'Customer',
           detail: [c.phone || (c.whatsapp_id ? `+${c.whatsapp_id}` : null), c.telegram_username ? `@${c.telegram_username}` : null, chat?.channel === 'whatsapp' ? 'WhatsApp' : chat ? 'Telegram' : null].filter(Boolean).join(' · '),
           link: chat ? { type: 'chat', ...chat } : null,

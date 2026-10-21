@@ -27,7 +27,7 @@ import { openViewer } from './viewer.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
 import { infoDot } from './glossary.js';
-import { deleteDialog } from './delete.js';
+import { deleteDialog, deleteBin } from './delete.js';
 import { issueDialog, ISSUE_WORDS, canIssue } from './issue.js';
 
 const TURN_TONE = { ops: 'blue', client: 'amber', none: 'green' };
@@ -345,7 +345,8 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
         docId
           ? h('button', { class: `btn btn-sm ${needsEyes ? 'btn-secondary' : 'btn-ghost'}`, type: 'button', onclick: () => openDoc(docId), 'aria-label': `${needsEyes ? 'Review' : 'View'} the ${label}` },
             icon(needsEyes ? 'eye' : 'file', { size: 14 }), needsEyes ? 'Review' : 'View')
-          : h('span', { 'aria-hidden': 'true' }));
+          : h('span', { 'aria-hidden': 'true' }),
+        docId ? docBin(docId, label) : null);
     };
     return card('docs-title', 'Documents', { tools: meter, ic: 'file' },
       data.required_note ? h('p', { class: 'muted' }, data.required_note) : null,
@@ -363,7 +364,19 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
             h('bdi', { class: 'check-label', dir: 'ltr', title: d.file_name ?? '' }, d.file_name ?? d.label),
             h('span', { class: 'check-words' }, `${d.status_words} · ${ago(d.uploaded_at)}`)),
           h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => openDoc(d.id), 'aria-label': `View ${d.file_name ?? 'the file'}` },
-            icon('file', { size: 14 }), 'View'))))) : null);
+            icon('file', { size: 14 }), 'View'),
+          docBin(d.id, d.file_name ?? d.label))))) : null);
+  }
+
+  /**
+   * The bin on one paper, for an administrator: the row and its file go, and
+   * the case is read again - the checklist then says the paper is missing, as
+   * it did before it arrived.
+   */
+  function docBin(docId, label) {
+    return deleteBin({
+      kind: 'document', reference: docId, what: `the ${label}`, onDone: () => load({ quiet: true, own: true }),
+    });
   }
 
   /**
@@ -546,7 +559,10 @@ export function renderCase({ route, main, refreshCounts, signal = null, subscrib
     return card('notes-title', 'Internal notes', { cls: 'notes', ic: 'lock', tools: h('span', { class: 'notes-badge' }, NOTE_WORDS) },
       session.can('notes') ? h('div', { class: 'note-compose' }, ta, save) : null,
       notes.length ? h('ul', { class: 'note-list' }, notes.map((n) => h('li', { class: 'note' },
-        h('p', { class: 'note-meta' }, h('strong', {}, n.author), ' · ', timeEl(n.at, when(n.at))),
+        h('p', { class: 'note-meta' }, h('strong', {}, n.author), ' · ', timeEl(n.at, when(n.at)),
+          deleteBin({
+            kind: 'note', reference: n.id, what: `${n.author}’s note`, onDone: () => load({ quiet: true, own: true }),
+          })),
         h('div', { class: 'note-body' }, lines(n.body))))) : h('p', { class: 'muted' }, 'No notes yet.'));
   }
 

@@ -109,3 +109,23 @@ const capital = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : ''
 
 /** Whether this desk may delete at all - the button is not drawn otherwise. */
 export const canDelete = () => session.can('delete');
+
+/**
+ * The bin, wherever a record is shown: the same quiet icon button as the one
+ * on a conversation and on a team member, so it is the same thing everywhere
+ * and there is one place to change it. Null for anybody who may not delete -
+ * the control is not drawn at all, and the server refuses it as well.
+ *
+ * @param {{ kind: string, reference: string|number, what: string, name?: string, onDone?: Function }} opts
+ *   what  what is being deleted, for the label a screen reader reads out
+ */
+export function deleteBin({ kind, reference, what, name = null, onDone = null }) {
+  if (!canDelete()) return null;
+  const b = h('button', {
+    class: 'icon-btn row-delete', type: 'button', 'aria-label': `Delete ${what}`, title: `Delete ${what}`,
+  }, icon('trash', { size: 15 }));
+  b.addEventListener('click', () => deleteDialog({
+    kind, reference: String(reference), name: name ?? what, onDone,
+  }));
+  return b;
+}

@@ -17,6 +17,7 @@ import {
   h, clear, icon, api, post, newKey, toast, toastError, badge, tag, channelIcon, avatar, timeEl, age,
   emptyState, errorState, skeleton, session, add, fill, VIEW_SCOPES, PURPOSE, dialog,
 } from './ui.js';
+import { deleteBin } from './delete.js';
 
 /**
  * The words are the owner's (docs/DESK-REDESIGN-PROMPT.md, section 4); the
@@ -43,6 +44,17 @@ export const KIND = {
 };
 /** What the buttons on a row say: the result, not the gesture. */
 export const ACTION_WORDS = { assign: 'Assign to me', retry: 'Retry sending', dismiss: 'Dismiss issue' };
+
+/**
+ * What an administrator's bin deletes, per row (public/desk/delete.js).
+ *
+ * A row of work is its record. An issue is a VIEW of something that went
+ * wrong, so the bin deletes the thing it is a view of - the paper, the
+ * message, the queued message - and a chat's failures counted together are
+ * several messages, not a record: Retry and Dismiss are all that row offers.
+ */
+export const DELETE_KIND = { booking: 'booking', callback: 'request', mrn: 'mrn' };
+export const PROBLEM_DELETE_KIND = { document: 'document', message: 'message', outbox: 'queued' };
 
 /**
  * The owner column for work that is never assigned to one person - an issue,
@@ -347,7 +359,7 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
         h('span', { class: 'row-detail', title: detail || null },
           h('bdi', { class: 'row-detail-who' }, item.who, detail ? ' · ' : ''),
           detail ? h('bdi', {}, detail) : null),
-        item.problem ? problemActions(item, facts) : null),
+        item.problem ? problemActions(item, facts) : recordActions(item)),
       h('div', { class: 'row-who' },
         h('span', { class: 'row-name' }, item.channel ? channelIcon(item.channel, 14) : null, h('bdi', { class: /^MKY-[A-Z]+-/.test(item.who ?? '') ? 'mono' : null }, item.who)),
         // The reference when the line above does not already show it; else the kind of work.
@@ -412,6 +424,25 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
   }
 
   /**
+   * The bin on a row that is a record of its own, for an administrator. It
+   * sits where Retry and Dismiss sit on an issue - inside the row's own
+   * actions, above the stretched title link, so it never opens the case
+   * instead.
+   */
+  function recordActions(item) {
+    const kind = DELETE_KIND[item.kind];
+    if (!kind || !item.ref) return null;
+    const bin = deleteBin({
+      kind,
+      reference: item.ref,
+      what: `${(KIND[item.kind]?.[0] ?? 'record').toLowerCase()} ${item.ref}`,
+      name: item.ref,
+      onDone: () => load({ quiet: true }),
+    });
+    return bin ? h('div', { class: 'row-actions' }, bin) : null;
+  }
+
+  /**
    * What can be done about a problem, right on its row - a failed message
    * should not need three clicks. One failed message: Retry sending and
    * Dismiss issue. A chat's failures together: how many and when, then
@@ -451,6 +482,16 @@ export function renderInbox({ route, main, setCounts = () => {}, signal = null }
       }],
     }));
     add(box, aside);
+    // The thing the issue is a view of, deleted: the paper, that one message,
+    // that one queued message. Dismissing hides the alert; this removes what
+    // the alert is about.
+    const binKind = PROBLEM_DELETE_KIND[p.type];
+    const words = { document: 'this document', message: 'this message', outbox: 'this queued message' }[p.type];
+    if (binKind) {
+      add(box, deleteBin({
+        kind: binKind, reference: p.id, what: words, onDone: () => load({ quiet: true }),
+      }));
+    }
     if (facts) add(box, h('span', { class: 'row-facts' }, icon('clock', { size: 13 }), facts));
     return box;
   }

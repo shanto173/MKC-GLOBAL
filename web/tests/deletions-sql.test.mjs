@@ -130,6 +130,36 @@ test('a row somebody re-created in the meantime does not fail the rest of the re
     'the row that was there is left as it is');
 });
 
+test('one paper on its own goes back under its own id, beside the booking that kept it', { skip }, async () => {
+  // The shape of every one-row kind (a paper, a note, a message, a queued
+  // message, a shipment update): one table, one row, and a parent that never
+  // went anywhere. It still has to come back under the id it had.
+  await db.exec(`
+    insert into clients (id, display_name, whatsapp_id) overriding system value values (5, 'One Paper', '201005555000');
+    insert into bookings (id, booking_ref, status, channel, chat_id, client_id, customer_name, vin, make, origin_port, destination_port) overriding system value
+      values (51, 'MKY-BKG-51', 'pending_review', 'whatsapp', 'wa:201005555000', 5, 'One Paper', 'WDB9634031L000051', 'MAN', 'Antwerp', 'Port Said');
+    insert into booking_documents (id, booking_ref, client_id, chat_id, doc_type, status, storage_path) overriding system value
+      values (151, 'MKY-BKG-51', 5, 'wa:201005555000', 'invoice', 'received', '5/MKY-BKG-51/inv.pdf');`);
+
+  const was = await one('select to_jsonb(t) as r from booking_documents t where id = 151');
+  const kept = await one(
+    `insert into deleted_records (kind, reference, label, summary, payload, files, deleted_by, purge_after)
+     values ('document', '151', 'Invoice for MKY-BKG-51', '{}'::jsonb,
+             jsonb_build_array(jsonb_build_object('table', 'booking_documents', 'rows', jsonb_build_array($1::jsonb))),
+             '[]'::jsonb, 'Ariful', now() + interval '30 days')
+     returning id`,
+    [JSON.stringify(was.r)],
+  );
+  await db.query('delete from booking_documents where id = 151');
+  assert.equal((await all('select 1 from booking_documents where id = 151')).length, 0);
+  assert.equal((await all('select 1 from bookings where id = 51')).length, 1, 'a paper is not the booking’s to take');
+
+  const put = await one('select restore_deleted_record($1) as done', [kept.id]);
+  assert.deepEqual(put.done, { booking_documents: 1 });
+  assert.deepEqual((await one('select to_jsonb(t) as r from booking_documents t where id = 151')).r, was.r,
+    'the row it was, not a copy with a new id');
+});
+
 test('restoring walks the payload backwards, so a parent is back before its children', { skip }, async () => {
   // clients has to exist before bookings.client_id points at it; the payload is
   // kept children-first, so a forwards restore would fail on the foreign key.

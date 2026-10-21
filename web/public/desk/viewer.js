@@ -16,6 +16,7 @@ import {
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { infoDot } from './glossary.js';
+import { deleteBin } from './delete.js';
 
 const TYPABLE_LABELS = {
   vin: 'Chassis (VIN)', mrn: 'MRN', acid: 'ACID', eur1: 'EUR.1 number', make: 'Make', model: 'Model', document_date: 'Date on the document',
@@ -259,7 +260,15 @@ export function openFilePreview(ctx) {
           ? h('button', { class: 'btn btn-sm', type: 'button', onclick: () => { dlg.close(); ctx.onOpenPaper(item.paper.id); } }, icon('eye', { size: 14 }), 'Open in the document viewer')
           : null,
         printButton(link.url, { name: item.name ?? 'File', mime }),
-        h('a', { class: 'btn btn-sm btn-ghost', href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 14 }), 'Open in a new tab')));
+        h('a', { class: 'btn btn-sm btn-ghost', href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 14 }), 'Open in a new tab'),
+        // The message this file came in, with the file: the one bin that
+        // reaches a photo inside an album, which is drawn as one grid.
+        ctx.onDeleted && item.id
+          ? deleteBin({
+            kind: 'message', reference: item.id, what: 'this message and its file',
+            onDone: async () => { dlg.close(); await ctx.onDeleted(); },
+          })
+          : null));
   }
   draw();
   return dlg;
@@ -412,7 +421,13 @@ export function openViewer(ctx) {
     fill(info,
       h('div', { class: 'viewer-status' },
         badge(doc.status_words, doc.tone),
-        h('span', { class: 'muted small' }, `Arrived ${when(doc.uploaded_at)}`)),
+        h('span', { class: 'muted small' }, `Arrived ${when(doc.uploaded_at)}`),
+        // The paper itself, for an administrator: the row and its file go, and
+        // the viewer has nothing left to show, so it closes.
+        deleteBin({
+          kind: 'document', reference: doc.id, what: `the ${doc.label}`,
+          onDone: async () => { dlg.close(); await ctx.reload().catch(() => null); ctx.refreshCounts(); },
+        })),
       // Each check names what it was held to: the booking, or - for an MRN
       // printed on another paper - the customer's MRN declaration.
       mismatch.length ? h('div', { class: 'callout callout-red', role: 'note' }, icon('alert', { size: 16 }),

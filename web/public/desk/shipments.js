@@ -12,7 +12,7 @@ import {
 } from './ui.js';
 import { previewBox } from './preview.js';
 import { linkFor } from './inbox.js';
-import { deleteDialog, canDelete } from './delete.js';
+import { deleteDialog, canDelete, deleteBin } from './delete.js';
 
 const FILTERS = [['active', 'On the way'], ['delivered', 'Delivered'], ['all', 'All']];
 const DAY = 86400_000;
@@ -325,7 +325,10 @@ function renderShipment({ main, signal = null }, id) {
       list.length ? h('ol', { class: 'timeline' }, list.map((e) => h('li', {},
         timeEl(e.at, when(e.at)),
         h('span', {}, h('bdi', { dir: 'auto' }, e.description), e.location ? h('span', { class: 'muted' }, ` · ${e.location}`) : null,
-          e.operator ? h('span', { class: 'muted' }, ` · ${e.operator}`) : null))))
+          e.operator ? h('span', { class: 'muted' }, ` · ${e.operator}`) : null),
+        // One line of the shipment's history, for an administrator. What the
+        // customer was already told about it is not taken back by this.
+        e.id ? deleteBin({ kind: 'event', reference: e.id, what: 'this shipment update', onDone: () => { data = null; return load(); } }) : null)))
         : h('p', { class: 'muted' }, 'Nothing recorded yet.'));
   }
 

@@ -37,6 +37,7 @@ import { audit } from '../audit.js';
 import { removeObjects, BUCKET } from '../storage.js';
 import { defer } from '../background.js';
 import { invalidateTeam, teamList } from './desk-shared.js';
+import { DOC_LABEL } from '../ops/workflow.js';
 
 /** How long a deleted record can be taken back. */
 export const KEEP_DAYS = 30;
@@ -63,7 +64,37 @@ export const KIND_WORDS = {
   shipment: 'shipment',
   customer: 'customer',
   person: 'team member',
+  // The rows a person is looking at one of, rather than records with children:
+  // one paper, one note, one message, one queued message, one shipment update.
+  document: 'document',
+  note: 'internal note',
+  message: 'message',
+  queued: 'queued message',
+  event: 'shipment update',
 };
+
+/** "12 Oct", in Cairo, for a label somebody reads before they type. */
+const shortDate = (at) => (at
+  ? new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Africa/Cairo' })
+  : 'an unknown date');
+
+/** One row, by the id the screen drew it from. */
+async function oneRow(table, reference) {
+  const id = Number(reference);
+  if (!Number.isFinite(id)) return null;
+  const { data } = await db().from(table).select('*').eq('id', id).maybeSingle();
+  return data ?? null;
+}
+
+/** The whole plan for a kind that is one row: that row, and the file it owns. */
+const justThisRow = (table, row) => [step(table, (q) => q.eq('id', row.id))];
+
+/** The first few words of a message, so a label says which one. */
+function snippet(text, max = 50) {
+  const s = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
 
 /**
  * Deliberately narrow. A booking takes its own paperwork with it and nothing
@@ -176,6 +207,73 @@ async function planFor(kind, reference) {
       // Their name on past decisions is history, not their account: it stays.
       note: `What ${person.name} did stays on the record. Only their sign-in goes.`,
       steps: [step('ops_users', (q) => q.eq('name', person.name))],
+    };
+  }
+
+  // -- the rows somebody is looking at one of -------------------------------
+  //
+  // One paper, one note, one message. These have no children: what goes is
+  // the row and the file it owns, which filesIn() finds in the row itself. The
+  // reference is the id the screen drew the row from, and that is what has to
+  // be typed - nobody can press Delete on the line above by accident.
+
+  if (kind === 'document') {
+    const row = await oneRow('booking_documents', ref);
+    if (!row) return null;
+    const what = DOC_LABEL[row.doc_type] ?? 'Document';
+    return {
+      label: `${what}${row.booking_ref ? ` for ${row.booking_ref}` : ' on no booking'}${row.file_name ? ` (${row.file_name})` : ''}, uploaded ${shortDate(row.uploaded_at ?? row.created_at)}`,
+      note: row.booking_ref
+        ? `If ${row.booking_ref} still requires this paper, the bot counts it as missing again and may ask the customer for it.`
+        : 'The file goes with it, and the bot will no longer count it towards a booking the customer starts.',
+      steps: justThisRow('booking_documents', row),
+    };
+  }
+
+  if (kind === 'note') {
+    const row = await oneRow('internal_notes', ref);
+    if (!row) return null;
+    const on = row.booking_ref || row.entity_id;
+    return {
+      label: `Internal note by ${row.author || 'the team'}${on ? ` on ${on}` : ''}, ${shortDate(row.created_at)}${snippet(row.body) ? ` — “${snippet(row.body)}”` : ''}`,
+      steps: justThisRow('internal_notes', row),
+    };
+  }
+
+  if (kind === 'message') {
+    const row = await oneRow('chat_messages', ref);
+    if (!row) return null;
+    const who = row.direction === 'in' ? 'from the customer'
+      : `to the customer${row.staff_name ? ` from ${row.staff_name}` : row.author === 'bot' ? ' from the bot' : ''}`;
+    const said = snippet(row.body) || (row.kind && row.kind !== 'text' ? `[${row.kind}]` : '');
+    return {
+      label: `Message ${who}, ${shortDate(row.created_at)}${said ? ` — “${said}”` : ''}`,
+      // What was sent was sent; this takes it off the desk, not off their phone.
+      note: 'The rest of the conversation stays. If it was delivered, the customer still has it.',
+      steps: justThisRow('chat_messages', row),
+    };
+  }
+
+  if (kind === 'queued') {
+    const row = await oneRow('notification_outbox', ref);
+    if (!row) return null;
+    const sent = row.status === 'sent';
+    return {
+      label: `Queued ${row.event_type ? `${row.event_type} ` : ''}message${row.entity_id ? ` for ${row.entity_id}` : ''} (${row.status ?? 'unknown'}), from ${shortDate(row.created_at)}`,
+      note: sent
+        ? 'This one was already sent; deleting it only removes the desk’s record of sending it.'
+        : 'This message has not been sent. Deleting it means it never will be, and its issue leaves the Inbox.',
+      steps: justThisRow('notification_outbox', row),
+    };
+  }
+
+  if (kind === 'event') {
+    const row = await oneRow('shipment_events', ref);
+    if (!row) return null;
+    return {
+      label: `Shipment update on ${row.shipment_id}: ${snippet(row.description) || 'no description'}, ${shortDate(row.event_time ?? row.created_at)}`,
+      note: 'The shipment itself, its status and what the customer was told stay as they are.',
+      steps: justThisRow('shipment_events', row),
     };
   }
 

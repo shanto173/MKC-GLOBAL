@@ -116,7 +116,9 @@ export async function shipmentDetail(req, res, who) {
   res.status(200).json({
     shipment: { ...s, tone: shipmentTone(s.status) },
     version: shipmentVersion(s),
-    events: (events ?? []).map((e) => ({ at: e.event_time, description: e.description, location: e.location ?? null, operator: e.operator ?? null })),
+    // The id comes with each update so an administrator can delete that one
+    // line of history (public/desk/shipments.js).
+    events: (events ?? []).map((e) => ({ id: e.id, at: e.event_time, description: e.description, location: e.location ?? null, operator: e.operator ?? null })),
     milestones: SHIPMENT_MILESTONES,
     customer,
     can_update: who.can('booking'),
