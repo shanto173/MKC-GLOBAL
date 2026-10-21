@@ -354,9 +354,9 @@ What I need right now is ${needEn}.`,
   // issues its own CMR. Asked as one question, because a booking is meant to
   // take two or three steps, not six.
   askMrnChoice: () => both(
-    '📄 الأوراق الجمركية - نعملها إحنا ولا عندك MRN و EUR.1؟\n'
+    '📄 الأوراق الجمركية - نعملها إحنا ولا عندك MRN و EUR.1\n'
     + '(لو إحنا اللي هنعملها، محتاجين الفاتورة والـ Brief بس.)',
-    '📄 The customs paperwork — shall we take care of it, or do you have your own MRN and EUR.1?\n'
+    '📄 The customs paperwork — shall we take care of it, or do you have your own MRN and EUR.1\n'
     + '(If we do it, we need only the invoice and the Brief.)',
   ),
 
