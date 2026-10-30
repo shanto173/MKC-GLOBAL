@@ -28,7 +28,23 @@ import { chat } from './llm.js';
  * reported with lower confidence.
  */
 const VIN_STRICT = /\b[A-HJ-NPR-Z0-9]{17}\b/g;
-const VIN_LOOSE = /\b(?:VIN|SS|CHASSIS|SASIU|NADWOZIE)[\s.:#]*([A-Z0-9]{10,20})\b/gi;
+
+/**
+ * The words a document prints beside the chassis number, in the languages this
+ * lane arrives in: German on a Fahrzeugbrief, Romanian on an export
+ * declaration, Polish and Italian on an invoice, Arabic on the Nafeza
+ * printout.
+ *
+ * The value is read from what FOLLOWS the label on the same line, rather than
+ * by one pattern that also has to describe the gap between the two. That gap
+ * is "VIN / Chassis No.", "Fahrgestellnummer (VIN)", "Sasiu / Chassis" - the
+ * old pattern allowed only punctuation there, so on every one of those it
+ * matched nothing and the chassis was found, if at all, by its shape alone.
+ *
+ * No word boundary on the Arabic: \b is defined in terms of Latin letters and
+ * would never fire beside Arabic script.
+ */
+const VIN_LABEL = /\b(?:VIN|SS|CHASS?IS|FAHRGESTELL(?:NUMMER)?|SASIU|ŞASIU|NADWOZIE|TELAIO)\b|رقم الشاسيه|الشاسيه|رقم الهيكل/gi;
 
 /** Egyptian ACID: 19 digits, issued by the Nafeza single window. */
 const ACID = /\b\d{19}\b/g;
@@ -155,37 +171,74 @@ function unreverseVisualLine(line) {
 // Stage 1 - deterministic
 // ---------------------------------------------------------------------------
 
+/**
+ * A VIN always mixes letters and digits. A pure number is a tax id, an ACID, an
+ * invoice number or a phone number - never a chassis. Getting this wrong puts
+ * the wrong VIN on a customs declaration, so every candidate goes through it.
+ */
+const looksLikeVin = (s) => /[A-Z]/.test(s) && /\d/.test(s);
+
+/**
+ * Every number printed after a chassis label, taken from the label's own line.
+ *
+ * The words between a label and its value carry nothing - "No.", "/ Chassis",
+ * "(VIN)" - so the value is the first thing on the line shaped like a chassis
+ * number: ten characters or more, mixed letters and digits. Nothing from the
+ * NEXT line is taken, because that line belongs to the next field.
+ *
+ * @param {string} upper the document's text, upper-cased
+ * @returns {string[]}
+ */
+function labelledVins(upper) {
+  const found = [];
+  for (const label of upper.matchAll(VIN_LABEL)) {
+    const line = upper.slice(label.index + label[0].length).split('\n')[0];
+    for (const token of line.split(/[^A-Z0-9]+/).filter(Boolean).slice(0, 6)) {
+      if (token.length >= 10 && token.length <= 18 && looksLikeVin(token)) {
+        found.push(token);
+        break;
+      }
+    }
+  }
+  return [...new Set(found)];
+}
+
 export function extractIdentifiers(rawText) {
   const text = repairArabic(String(rawText ?? ''));
   const upper = text.toUpperCase();
 
-  // A VIN always mixes letters and digits. A pure number is a tax id, an ACID,
-  // an invoice number or a phone number - never a chassis. Getting this wrong
-  // puts the wrong VIN on a customs declaration, so both patterns are filtered.
-  const looksLikeVin = (s) => /[A-Z]/.test(s) && /\d/.test(s) && !/^\d+$/.test(s);
+  // An MRN is 2 digits, 2 letters and 13 more characters, which at 17 is also
+  // exactly what a VIN looks like - and the customs declaration prints its MRN
+  // in the heading, above the chassis. Read as the chassis it would go onto the
+  // next declaration as the vehicle's identity, so it is never a candidate.
+  const mrns = [...new Set([...upper.matchAll(MRN)].map((m) => m[0]))];
+  const isMrn = new Set(mrns);
 
-  const vins = new Set();
-  for (const m of upper.matchAll(VIN_STRICT)) {
-    if (looksLikeVin(m[0])) vins.add(m[0]);
-  }
-  const labelledVins = new Set();
-  for (const m of upper.matchAll(VIN_LOOSE)) {
-    if (looksLikeVin(m[1])) labelledVins.add(m[1]);
-  }
+  const bare = [...new Set([...upper.matchAll(VIN_STRICT)].map((m) => m[0]))]
+    .filter((v) => looksLikeVin(v) && !isMrn.has(v));
+  const labelled = labelledVins(upper).filter((v) => looksLikeVin(v) && !isMrn.has(v));
 
-  // A labelled chassis number outranks a bare 17-char match.
-  const vin = [...labelledVins].find((v) => vins.has(v)) ?? [...labelledVins][0] ?? [...vins][0] ?? null;
-
-  const mrns = [...new Set([...upper.matchAll(MRN)].map((m) => m[0]))]
-    // An MRN and a VIN can both be 17-18 chars; never report the VIN as an MRN.
-    .filter((m) => m !== vin);
+  // In order of how sure we are, because a wrong chassis number on a customs
+  // declaration is worse than a missing one:
+  //   1. under its own label AND exactly an ISO VIN - both agree
+  //   2. exactly an ISO VIN, somewhere on the page
+  //   3. labelled, but some other length: an older unit, or a scan read short
+  //
+  // 2 above 3 is the fix for a labelled value of the wrong length outranking a
+  // real chassis number printed further down the same page.
+  const ranked = [...new Set([
+    ...labelled.filter((v) => bare.includes(v)),
+    ...bare,
+    ...labelled,
+  ])];
+  const vin = ranked[0] ?? null;
 
   const acids = [...new Set([...text.matchAll(ACID)].map((m) => m[0]))];
   const eur1 = text.match(EUR1)?.[1]?.replace(/\s+/g, ' ').trim() ?? null;
 
   return {
     vin,
-    vin_candidates: [...new Set([...labelledVins, ...vins])],
+    vin_candidates: ranked,
     mrn: mrns[0] ?? null,
     acid: acids[0] ?? null,
     eur1,

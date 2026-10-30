@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { guessDocType } from '../lib/extract.js';
+import { guessDocType, extractIdentifiers } from '../lib/extract.js';
 
 const CMR = `CMR
 INTERNATIONAL CONSIGNMENT NOTE
@@ -108,6 +108,60 @@ test('two types with identical evidence is "other", not whichever came first', (
   // this returned "invoice" purely because invoice is first in the list.
   const ambiguous = 'Page 2 of 3\n\nSee the invoice and the CMR attached.';
   assert.equal(guessDocType(ambiguous), 'other');
+});
+
+// ---------------------------------------------------------------------------
+// The chassis number itself
+// ---------------------------------------------------------------------------
+
+/**
+ * Why these exist: "the chatbot does not always extract chassis numbers
+ * correctly", from the owner, after a month of live bookings.
+ *
+ * Every case below is a line as these documents actually print it. The old
+ * pattern allowed only punctuation between the label and the number, so
+ * "Fahrgestellnummer (VIN): …" and "Serie sasiu / Chassis No. …" matched
+ * nothing and the chassis was found only if it happened to be exactly
+ * seventeen ISO characters - which a Brief from an older truck is not.
+ */
+test('the chassis is read from its label, in the words these documents use', () => {
+  const cases = [
+    // German Brief: the label, a bracketed second name, a colon, a 16-char number.
+    ['FAHRZEUGBRIEF\nFahrgestellnummer (VIN): WDB9634033L12345\nMarke MERCEDES', 'WDB9634033L12345'],
+    // Romanian export declaration.
+    ['Serie sasiu / Chassis No.  WMA06XZZ8KM74521', 'WMA06XZZ8KM74521'],
+    // Italian libretto.
+    ['Numero di telaio: ZCFA1LJ0402123456', 'ZCFA1LJ0402123456'],
+    // The Nafeza printout names it in Arabic.
+    ['رقم الشاسيه WMA06XZZ8KM745219', 'WMA06XZZ8KM745219'],
+    // And the shape on its own, with no label at all, still counts.
+    ['Used tractor unit W1T96340310484233 as inspected', 'W1T96340310484233'],
+  ];
+  for (const [text, vin] of cases) {
+    assert.equal(extractIdentifiers(text).vin, vin, text.split('\n')[0]);
+  }
+});
+
+test('a full chassis number outranks a shorter labelled value on the same page', () => {
+  // "SS" is a chassis label on some invoices, and it also stands in front of
+  // things that are not chassis numbers. A value of the wrong length under a
+  // label used to win outright, so the real number further down was ignored.
+  const text = 'INVOICE\nSS 1234567890AB\nGoods\nVIN / Chassis No. W1T96340310484233';
+  assert.equal(extractIdentifiers(text).vin, 'W1T96340310484233');
+});
+
+test('nothing chassis-shaped means no chassis, never a number that is something else', () => {
+  const ids = extractIdentifiers('Dear sir, invoice 2026/0012345678 attached. Phone 00201234567890');
+  assert.equal(ids.vin, null);
+  // An ACID is nineteen digits and a tax number is digits too: neither mixes
+  // letters in, which is what keeps them out of here.
+  assert.equal(extractIdentifiers('ACID 5403303639027120883').vin, null);
+});
+
+test('the MRN in a declaration heading is reported as the MRN and never as the chassis', () => {
+  const ids = extractIdentifiers('EXPORT ACCOMPANYING DOCUMENT\nMRN 26LTVR610172694233\nVIN W1T96340310484233');
+  assert.equal(ids.mrn, '26LTVR610172694233');
+  assert.equal(ids.vin, 'W1T96340310484233');
 });
 
 // ---------------------------------------------------------------------------
