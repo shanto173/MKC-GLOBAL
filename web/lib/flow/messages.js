@@ -411,46 +411,56 @@ What I need right now is ${needEn}.`,
     `🧾 Your request number is ${ref} — our Customs Documentation team has it.`,
   ),
 
+  /**
+   * A paper has arrived. That is ALL this says.
+   *
+   * It used to read "✅ Invoice received", and a tick beside the word received
+   * is read as accepted: customers took it to mean the paperwork was in order
+   * and stopped chasing it. Checking a document is Operations' work and
+   * confirming it is Operations' word (lib/admin/console.js, reviewDocument),
+   * so the bot says where the file went and who decides - never that it is
+   * good. The same reason "Booking request received" is not "confirmed".
+   */
   documentReceived: (labelAr, labelEn) => both(
-    `✅ وصلنا ${labelAr}.`,
-    `✅ ${labelEn} received.`,
+    `📥 بعتنا ${labelAr} لفريق العمليات - هما اللي بيراجعوا ويأكدوا.`,
+    `📥 Your ${labelEn} has gone to our Operations Team — they review it and confirm.`,
   ),
 
   // Several files sent together are acknowledged together, once they have all
   // been read - not one at a time with a shrinking list after each. What the
   // message with them said is acknowledged in the same breath.
   documentsReceived: (labelsAr, labelsEn, notedAr = [], notedEn = []) => both(
-    `✅ وصلنا: ${labelsAr.join('، ')}.` +
+    `📥 بعتنا لفريق العمليات: ${labelsAr.join('، ')} - هما اللي بيراجعوا ويأكدوا.` +
     (notedAr.length ? `\n📝 وسجلنا من رسالتك: ${notedAr.join(' · ')}.` : ''),
-    `✅ Received: ${labelsEn.join(', ')}.` +
+    `📥 Sent to our Operations Team: ${labelsEn.join(', ')} — they review these and confirm.` +
     (notedEn.length ? `\n📝 Noted from your message: ${notedEn.join(' · ')}.` : ''),
   ),
 
   // Papers for a request already with the desk: filed, and the desk told.
   documentsForBooking: (ref, labelsAr, labelsEn) => both(
-    `✅ وصلنا ${labelsAr.join('، ')} واتضافت للحجز ${ref}.\nفريق العمليات هيراجعها ويكلمك لو محتاج حاجة تانية.`,
-    `✅ Received ${labelsEn.join(', ')} for booking ${ref}.\nOur Operations Team will check it and get back to you if anything else is needed.`,
+    `📥 ${labelsAr.join('، ')} اتضافت للحجز ${ref}.\nفريق العمليات هيراجع ويكلمك لو محتاج حاجة تانية.`,
+    `📥 ${labelsEn.join(', ')} added to booking ${ref}.\nOur Operations Team will check it and get back to you if anything else is needed.`,
   ),
 
   // A paper sent with nothing open to put it on. It is kept, and counts for a
   // booking started next; "I did not follow that" left the customer thinking
   // it was lost.
   fileNoBooking: (labelsAr, labelsEn) => both(
-    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\n` +
+    `📥 وصلنا ${labelsAr.join('، ')} واتحفظ عندنا - لسه ما اتراجعش.\n\n` +
     `مفيش عندك حجز مفتوح معانا دلوقتي. اضغط "احجز شحنة" عشان تبدأ واحد وهنستخدم المستند ده فيه، أو "${AGENT.ar}" لو الموضوع حاجة تانية.`,
-    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\n` +
+    `📥 Got your ${labelsEn.join(', ')} - it is saved, not checked yet.\n\n` +
     `You have no booking open with us right now. Tap "Book my shipment" to start one and this paper will be used for it, or "${AGENT.en}" if it is about something else.`,
   ),
 
   // The same, from a customer whose booking is already confirmed.
   fileWhichBooking: (ref, labelsAr, labelsEn) => both(
-    `✅ وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\nده للحجز ${ref}، ولا لحجز جديد؟`,
-    `✅ Got your ${labelsEn.join(', ')} - it is saved.\n\nIs it for booking ${ref}, or for a new booking?`,
+    `📥 وصلنا ${labelsAr.join('، ')} واتحفظ عندنا.\n\nده للحجز ${ref}، ولا لحجز جديد؟`,
+    `📥 Got your ${labelsEn.join(', ')} - it is saved.\n\nIs it for booking ${ref}, or for a new booking?`,
   ),
 
   filedTo: (ref) => both(
-    `✅ اتضاف للحجز ${ref}. فريق العمليات هيراجعه ويكلمك لو محتاج حاجة تانية.`,
-    `✅ Added to booking ${ref}. Our Operations Team will check it and get back to you if anything else is needed.`,
+    `📥 اتضاف للحجز ${ref}. فريق العمليات هيراجعه ويكلمك لو محتاج حاجة تانية.`,
+    `📥 Added to booking ${ref}. Our Operations Team will check it and get back to you if anything else is needed.`,
   ),
 
   notedFromMessage: (notedAr, notedEn) => both(
@@ -529,9 +539,25 @@ What I need right now is ${needEn}.`,
     `⚠️ Almost there!\n\nWe just need your ${labelEn}.`,
   ),
 
+  // Everything we asked for is in, which is not the same as everything being in
+  // order. It read "✅ Perfect! We have everything we need", and a customer who
+  // reads that stops expecting to hear from Operations about the paperwork.
   documentsComplete: () => both(
-    '✅ تمام! وصلنا كل اللي محتاجينه.\n\n3️⃣ الخطوة التالتة من 3 - الحجز.',
-    '✅ Perfect! We have everything we need.\n\nStep 3 of 3 — your booking.',
+    '📥 وصلنا كل الورق اللي طلبناه، وهو مع فريق العمليات للمراجعة والتأكيد.\n\n3️⃣ الخطوة التالتة من 3 - الحجز.',
+    '📥 We now have every paper we asked for. Our Operations Team will check them and confirm.\n\nStep 3 of 3 — your booking.',
+  ),
+
+  /**
+   * The paperwork is in order - the one message that says so.
+   *
+   * Sent from the desk's own action, when the last document a booking needs is
+   * checked (lib/admin/console.js, reviewDocument), and from nowhere else. It
+   * is the other half of the bot no longer saying it: a customer who has been
+   * told "Operations will check them and confirm" has to hear the confirming.
+   */
+  documentsChecked: (ref) => both(
+    `✅ فريق العمليات راجع مستندات الحجز ${ref} وكلها تمام. مش محتاجين منك حاجة تانية في الورق.`,
+    `✅ Our Operations Team has checked the documents for booking ${ref} and they are in order. We need nothing further from you on the paperwork.`,
   ),
 
   documentWrongChassis: (docVin, bookingVin) => both(
@@ -658,12 +684,12 @@ What I need right now is ${needEn}.`,
   // the labels name the papers, when papers were the answer.
   answerPassedOn: (answered, labelsAr = [], labelsEn = []) => both(
     (labelsAr.length
-      ? `✅ شكراً، وصلنا ${labelsAr.join('، ')} بخصوص ${aboutAr(answered)} وبعتناها للفريق.`
-      : `✅ شكراً، وصلنا ردك بخصوص ${aboutAr(answered)} وبعتناه للفريق.`) +
+      ? `📥 شكراً، وصلنا ${labelsAr.join('، ')} بخصوص ${aboutAr(answered)} وبعتناها للفريق.`
+      : `📥 شكراً، وصلنا ردك بخصوص ${aboutAr(answered)} وبعتناه للفريق.`) +
     ' هيرجعولك لو محتاجين حاجة تانية.',
     (labelsEn.length
-      ? `✅ Thank you — ${labelsEn.join(', ')} received for ${aboutEn(answered)}, and we have passed it on to the team.`
-      : `✅ Thank you — we have your answer about ${aboutEn(answered)} and have passed it on to the team.`) +
+      ? `📥 Thank you — we have your ${labelsEn.join(', ')} for ${aboutEn(answered)} and have passed it on to the team.`
+      : `📥 Thank you — we have your answer about ${aboutEn(answered)} and have passed it on to the team.`) +
     ' They will come back to you if anything else is needed.',
   ),
 

@@ -289,7 +289,11 @@ export function documentsCard(status, lang = 'en') {
   // Four buckets, because they mean four different things and a customer who
   // has sent three documents must never read "still missing" about one of them.
   const lines = [
-    received.length ? `\u2705 ${bi('\u0648\u0635\u0644\u0646\u0627', 'Received')}: ${listJoin(received)}` : null,
+    // "Arrived", under \ud83d\udce5 rather than a tick: whether a paper is any good is
+    // Operations' to say, and a customer reading \u2705 took it as said already.
+    received.length
+      ? `\u{1F4E5} ${bi('\u0648\u0635\u0644\u0646\u0627 - \u0644\u0633\u0647 \u062a\u062d\u062a \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629', 'Received, with Operations')}: ${listJoin(received)}`
+      : null,
     wrongVehicle.length
       ? `\u26a0\ufe0f ${bi('\u0644\u0634\u0627\u0633\u064a\u0647 \u062a\u0627\u0646\u064a', 'Another chassis')}: ${listJoin(wrongVehicle)}`
       : null,

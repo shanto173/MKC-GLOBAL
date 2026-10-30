@@ -1119,6 +1119,47 @@ test('asking for a new copy of a paper not yet put right asks the customer, and 
   assert.ok(rows('notification_outbox').some((o) => o.event_type === 'document_rejected' && o.entity_id === 'MKY-BKG-1'));
 });
 
+/**
+ * The customer hears "your documents are in order" from HERE, and nowhere else.
+ *
+ * The bot stopped saying it (lib/flow/messages.js): a file arriving proves a
+ * file arrived, and the owner's instruction was that confirmation waits for
+ * Operations. So it is said when the last paper a booking needs is checked -
+ * once, however many papers the operator works through.
+ */
+test('the customer is told their documents are in order only when the last one is checked, and only once', async () => {
+  const sent = () => rows('notification_outbox').filter((o) => o.event_type === 'documents_verified');
+
+  const invoice = await post({ action: 'verify_document', document_id: 101 });
+  assert.equal(invoice.status, 200);
+  assert.equal(sent().length, 0, 'two papers still unchecked');
+  assert.equal(invoice.body.customer_told, undefined, 'and nothing to report to the desk');
+
+  await post({ action: 'verify_document', document_id: 102 });
+  assert.equal(sent().length, 0, 'the MRN is still unchecked');
+
+  const last = await post({ action: 'verify_document', document_id: 103 });
+  assert.equal(last.status, 200);
+  assert.equal(sent().length, 1);
+  assert.equal(sent()[0].entity_id, 'MKY-BKG-1');
+  assert.ok(last.body.customer_told, 'the desk is told whether the customer was reached');
+
+  // Checking one of them again is not a second message.
+  await post({ action: 'verify_document', document_id: 101 });
+  assert.equal(sent().length, 1, 'said once');
+});
+
+test('the confirmation the desk sends names the booking and says the papers are in order', async () => {
+  const { render } = await import('../lib/outbox.js');
+  const message = render({ event_type: 'documents_verified', payload: { booking_ref: 'MKY-BKG-1' } });
+  assert.match(message.text, /MKY-BKG-1/);
+  assert.match(message.text, /checked the documents/);
+  assert.match(message.text, /in order/);
+  // A row an older deployment wrote without the reference is not sent as a
+  // sentence with a gap in it.
+  assert.equal(render({ event_type: 'documents_verified', payload: {} }), null);
+});
+
 /** A request's call-back tasks as the bot writes them - and as it wrote them before 2026-10-08. */
 function callbackTasks() {
   const t = rows('support_tickets')[0];

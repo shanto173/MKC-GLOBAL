@@ -644,7 +644,7 @@ test('before a choice, every message and card is exactly as bilingual as before'
   assert.match(card, /📋 راجع بيانات الحجز من فضلك\n📋 Please confirm your booking details/);
   assert.match(card, /👤 العميل \/ Client: Nile Motors/);
   assert.match(card, /🌍 خط الشحن \/ Route: Vilnius → Alexandria Port/);
-  assert.match(card, /✅ الفاتورة التجارية \/ Invoice/);
+  assert.match(card, /📥 الفاتورة التجارية \/ Invoice/);
   for (const r of replies) {
     for (const m of r.messages) {
       if (/[A-Za-z]{4}/.test(m.text) && ARABIC.test(m.text)) continue;   // both halves present
@@ -866,8 +866,8 @@ test('cards for the assistant follow the turn\'s language', () => {
   assert.doesNotMatch(en, ARABIC);
 
   const docs = { received: ['Invoice', 'Brief'], missing_labels: ['MRN', 'ACID'] };
-  assert.match(withLanguage('ar', () => documentsCard(docs)), /وصلنا: Invoice، Brief/);
-  assert.match(documentsCard(docs), /وصلنا \/ Received: Invoice, Brief/);
+  assert.match(withLanguage('ar', () => documentsCard(docs)), /وصلنا - لسه تحت المراجعة: Invoice، Brief/);
+  assert.match(documentsCard(docs), /Received, with Operations: Invoice, Brief/);
 
   // The department card is recognised in the language it was sent in.
   const arabicCard = withLanguage('ar', () => departmentsCard());

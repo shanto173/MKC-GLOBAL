@@ -1740,10 +1740,12 @@ export async function confirmationCard(booking, documentState = null) {
   // Labels on one line - "العميل / Client" - until the client has chosen a
   // language, and in that language alone after. The values are the paperwork's
   // and are never translated.
+  // 📥 is "it arrived", not "it is in order" - a tick here was read as the
+  // paperwork being accepted, which only Operations can say.
   const docLines = (state?.required ?? []).map((type) => {
     const have = state.received_types?.includes(type);
     const label = pair(docAr(type), docEn(type));
-    return `${have ? '✅' : '❌'} ${label}`;
+    return `${have ? '📥' : '❌'} ${label}`;
   });
 
   if (booking.mrn_choice === 'mky_issue') {

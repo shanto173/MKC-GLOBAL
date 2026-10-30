@@ -26,7 +26,7 @@ import { resetFlowReady } from '../lib/flow/ready.js';
 import { runFlow } from '../lib/flow/machine.js';
 import { parseCallback } from '../lib/flow/keyboards.js';
 import { S } from '../lib/flow/states.js';
-import { matchPort, looksLikeVin, normalizeVin } from '../lib/bookings.js';
+import { matchPort, looksLikeVin, normalizeVin, missingBasics } from '../lib/bookings.js';
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -638,6 +638,34 @@ test('TEST 6 - several missing fields are listed before the first is asked', asy
   assert.doesNotMatch(said(r), /Mobile number/);
 });
 
+/**
+ * The owner's list of what every booking must carry, in the owner's words:
+ * POL, POD, chassis number, client name and the vehicle's mark.
+ *
+ * All five are collected and none may be skipped - this pins that down, so a
+ * change that quietly drops one fails here rather than in a live booking. The
+ * mobile number rides along because the desk cannot call a request without it.
+ */
+test('POL, POD, chassis, client and mark are each required, asked for, and shown back', async () => {
+  const h = harness();
+  const card = said(await bookUpTo(h));
+
+  assert.match(card, /Client: Nile Motors/);
+  assert.match(card, /Chassis · VIN: W1T96340310484233/);
+  assert.match(card, /Make: Mercedes-Benz/);
+  assert.match(card, /Route: Vilnius → Alexandria Port/);
+
+  const booking = h.booking();
+  assert.equal(booking.origin_port, 'Vilnius', 'POL');
+  assert.equal(booking.destination_port, 'Alexandria Port', 'POD');
+
+  // Take any one of them away and the flow asks for exactly that one again,
+  // rather than sending Operations a request with a hole in it.
+  for (const field of ['customer_name', 'customer_contact', 'vin', 'make', 'origin_port', 'destination_port']) {
+    assert.deepEqual(missingBasics({ ...booking, [field]: null }), [field], field);
+  }
+});
+
 test('a destination we do not serve is refused with the list of ones we do', async () => {
   const h = harness();
   await identify(h);
@@ -754,7 +782,7 @@ test('TEST 11 - all documents present advances to the confirmation card, step 3'
   const h = harness();
   const r = await bookUpTo(h);
 
-  assert.match(said(r), /We have everything we need/);
+  assert.match(said(r), /every paper we asked for/);
   assert.match(said(r), /Step 3 of 3/);
   assert.match(said(r), /Please confirm your booking details/);
   assert.match(said(r), /W1T96340310484233/);
@@ -763,6 +791,30 @@ test('TEST 11 - all documents present advances to the confirmation card, step 3'
   assert.match(said(r), /\+201005551234/);
   assert.deepEqual(buttons(r), ['bk:confirm', 'bk:edit', 'bk:cancel:ask']);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
+});
+
+/**
+ * The owner's instruction, after a month live: the bot must not confirm that
+ * documents have been received or checked. Only Operations may say that, and
+ * only after reading them (lib/admin/console.js, reviewDocument).
+ *
+ * So no tick, and never the word "verified" - a customer who read "✅ Invoice
+ * received" took the paperwork to be settled and stopped expecting to hear
+ * from the desk about it.
+ */
+test('the bot never ticks a paper off or calls it checked - it says where it went', async () => {
+  const h = harness();
+  await bookUpTo(h, { documents: false });
+
+  const words = [];
+  for (const type of ['invoice', 'brief', 'mrn']) {
+    words.push(said(await h.file(h.upload(type, { vin: 'W1T96340310484233' }))));
+  }
+  const all = words.join('\n');
+
+  assert.doesNotMatch(all, /verified|checked it|all good/i);
+  assert.doesNotMatch(all, /✅/, 'a tick beside a document reads as accepted');
+  assert.match(all, /Operations Team/, 'who has it, and who decides');
 });
 
 test('a document for another chassis is flagged, and does not count as received', async () => {
@@ -791,7 +843,7 @@ test('the client classifying a file files it under that type', async () => {
   await h.file(h.upload('other', { vin: 'W1T96340310484233' }));
   const r = await h.tap('bk:doctype:invoice');
 
-  assert.match(said(r), /Invoice received/);
+  assert.match(said(r), /your Invoice has gone to our Operations Team/i);
   const doc = h.db._tables.booking_documents.find((d) => d.doc_type === 'invoice');
   assert.ok(doc, 'the document was refiled as an invoice');
 });
@@ -832,7 +884,7 @@ test('the details written on a file are read, and the file counted, in one go', 
   assert.equal(b.make, 'MAN');
   assert.equal(b.origin_port, 'Hamburg');
   assert.equal(b.destination_port, 'Port Said');
-  assert.match(said(r), /Received: Invoice/);
+  assert.match(said(r), /Sent to our Operations Team: Invoice/);
   assert.match(said(r), /Noted from your message: chassis W1T96340310484233 · make MAN TGX · route Hamburg → Port Said/);
   // Nothing basic is missing any more, so the next question is the MRN one.
   assert.match(said(r), /do you have your own MRN/);
@@ -876,7 +928,7 @@ test('the papers answer the questions they contain, and only the destination is 
   assert.equal(b.model, 'Actros 1845 LS');
   assert.equal(b.origin_port, 'Klaipeda', 'the invoice names the port of loading, the CMR a city inland');
 
-  assert.match(said(r), /Received: Invoice, Brief, MRN/);
+  assert.match(said(r), /Sent to our Operations Team: Invoice, Brief, MRN/);
   assert.match(said(r), /Read from your documents: chassis WDB9634031L894512 · make Mercedes-Benz Actros 1845 LS · loading Klaipeda/);
   for (const asked of [/Chassis \/ VIN/, /Make \/ Brand/, /Port of loading/]) {
     assert.doesNotMatch(said(r), asked, 'it is printed on every page they just sent');
@@ -934,7 +986,7 @@ test('a chassis read off a paper is looked up like a typed one, and a booked one
 
   const r = await sendSet(h, [paper(h, 'invoice', { origin_place: 'Klaipeda' })]);
 
-  assert.match(said(r), /Invoice received/, 'the file is still acknowledged');
+  assert.match(said(r), /your Invoice has gone to our Operations Team/i, 'the file is still acknowledged');
   assert.match(said(r), /already booked/, 'and the booking it already has is named');
   assert.match(said(r), /MKY-BKG-OLD/);
   assert.doesNotMatch(said(r), /Read from your documents/, 'nothing was adopted');
@@ -1087,13 +1139,13 @@ test('the caption is read ahead of the file, and the file then only counts', asy
   // Then the three files, the last of which speaks.
   const docs = ['brief', 'invoice', 'mrn'].map((t) => h.upload(t, { vin: 'XLRTEH4350G741552' }));
   const r = await h.file(docs[2], { speak: true, batch: docs.map((d) => ({ ...d.document, file_name: 'f.pdf' })) });
-  assert.match(said(r), /Received: Brief, Invoice, MRN/);
+  assert.match(said(r), /Sent to our Operations Team: Brief, Invoice, MRN/);
   // And what the caption said, read back in the same message - whichever of
   // the three files ended up speaking.
   assert.match(said(r), /Noted from your message: client Giza Freight Lines · chassis XLRTEH4350G741552 · make DAF XF 480 FT · route Rotterdam → Damietta Port/);
   assert.doesNotMatch(said(r), /Make \/ Brand/, 'it was in the caption');
   assert.doesNotMatch(said(r), /send it all in one message/, 'the step-2 opening is not repeated');
-  assert.match(said(r), /We have everything we need/);
+  assert.match(said(r), /every paper we asked for/);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
   assert.equal(h.db._tables.conversation_sessions[0].context.caption_noted, undefined, 'read back once, then forgotten');
 });
@@ -1152,7 +1204,7 @@ test('a paper sent before the chassis is kept, and the chassis asked for next', 
 
   const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
 
-  assert.match(said(r), /Invoice received/);
+  assert.match(said(r), /your Invoice has gone to our Operations Team/i);
   assert.match(said(r), /VIN \/ Chassis number/);
   assert.equal(r.state, S.BOOK_VIN, 'back to the next thing missing, not stuck at the document step');
   // And the file is still counted once the chassis is in.
@@ -1183,10 +1235,10 @@ test('three papers sent together get one answer, once all of them are read', asy
 
   // The last to finish answers for all three.
   const r = await h.file(mrn, { speak: true, batch });
-  assert.match(said(r), /Received: Invoice, Brief, MRN/);
+  assert.match(said(r), /Sent to our Operations Team: Invoice, Brief, MRN/);
   assert.doesNotMatch(said(r), /Just a little more/);
   assert.doesNotMatch(said(r), /Almost there/);
-  assert.match(said(r), /We have everything we need/);
+  assert.match(said(r), /every paper we asked for/);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
@@ -1234,18 +1286,18 @@ test('a file that could not be read, among several, is asked about in turn', asy
   ];
 
   const r = await h.file(second, { speak: true, batch });
-  assert.match(said(r), /Received: Invoice/);
+  assert.match(said(r), /Sent to our Operations Team: Invoice/);
   assert.match(said(r), /I have scan-1\.pdf, but I am not sure what it is/);
   assert.equal(r.state, S.BOOK_DOCUMENT_CLASSIFY);
 
   const next = await h.tap('bk:doctype:brief');
-  assert.match(said(next), /Brief received/);
+  assert.match(said(next), /your Brief has gone to our Operations Team/i);
   assert.match(said(next), /I have scan-2\.pdf, but I am not sure what it is/);
   assert.equal(next.state, S.BOOK_DOCUMENT_CLASSIFY);
 
   const done = await h.tap('bk:doctype:mrn');
-  assert.match(said(done), /MRN received/);
-  assert.match(said(done), /We have everything we need/);
+  assert.match(said(done), /your MRN has gone to our Operations Team/i);
+  assert.match(said(done), /every paper we asked for/);
   assert.equal(done.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
@@ -1263,7 +1315,7 @@ test('an MRN among the papers answers the MRN question', async () => {
 
   assert.equal(h.booking().mrn_choice, 'existing', 'they sent one, so they have one');
   assert.doesNotMatch(said(r), /do you have your own MRN/);
-  assert.match(said(r), /We have everything we need/);
+  assert.match(said(r), /every paper we asked for/);
   assert.equal(r.state, S.BOOK_FINAL_CONFIRMATION);
 });
 
@@ -2276,7 +2328,7 @@ test('regression: a document sent from the menu lands on the open request', asyn
   await h.command('/menu');
   const r = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
 
-  assert.match(said(r), /Invoice received/);
+  assert.match(said(r), /your Invoice has gone to our Operations Team/i);
   assert.match(said(r), /Just a little more/);
   assert.equal(r.state, S.BOOK_DOCUMENTS);
 });
@@ -2292,7 +2344,7 @@ test('regression: a paper sent for a request already with the desk is acknowledg
   const r = await h.file(h.upload('mrn', { vin: 'W1T96340310484233', bookingRef: ref }), { caption: 'here' });
 
   assert.doesNotMatch(said(r), /did not follow/);
-  assert.match(said(r), new RegExp(`Received MRN for booking ${ref}`));
+  assert.match(said(r), new RegExp(`MRN added to booking ${ref}`));
   assert.match(said(r), /Operations Team will check it/);
   assert.equal(h.booking().status, 'pending_review', 'nothing about the request itself changed');
 
@@ -2356,7 +2408,7 @@ test('a paper already filed on the confirmed booking by its chassis is acknowled
   h.booking().status = 'confirmed';
   // lib/documents.js files a paper naming the booking's chassis as it is read.
   const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233', bookingRef: ref }));
-  assert.match(said(r), new RegExp(`Received ACID for booking ${ref}`));
+  assert.match(said(r), new RegExp(`ACID added to booking ${ref}`));
   assert.ok(!buttons(r).includes(`bk:fileto:${ref}`));
 });
 
@@ -2367,7 +2419,7 @@ test('a paper for a request already with the desk is filed on it, not left loose
   const ref = h.booking().booking_ref;
   // Sent from the menu, so the transport found nothing to file it under.
   const r = await h.file(h.upload('acid', { vin: 'W1T96340310484233' }));
-  assert.match(said(r), new RegExp(`for booking ${ref}`));
+  assert.match(said(r), new RegExp(`added to booking ${ref}`));
   assert.equal(h.db._tables.booking_documents.find((d) => d.doc_type === 'acid').booking_ref, ref,
     'the desk sees it on the case it was said to be added to');
 });
@@ -2390,7 +2442,7 @@ test('regression: once the right invoice arrives, the warning about the wrong on
   assert.match(said(wrong), /but this booking is for/);
 
   const fixed = await h.file(h.upload('invoice', { vin: 'W1T96340310484233' }));
-  assert.match(said(fixed), /Invoice received/);
+  assert.match(said(fixed), /your Invoice has gone to our Operations Team/i);
   assert.doesNotMatch(said(fixed), /but this booking is for/, 'the right invoice is in; the wrong one is behind us');
 
   const next = await h.file(h.upload('brief', { vin: 'W1T96340310484233' }));
@@ -3400,7 +3452,7 @@ test('a document Operations added themselves is asked for by the name they gave 
   // And saying so files it as that, acknowledged by the same name.
   const after = await h.tap('bk:doctype:packing_list');
   assert.equal(h.db._tables.booking_documents.at(-1).doc_type, 'packing_list');
-  assert.match(said(after), /Packing list received/);
+  assert.match(said(after), /your Packing list has gone to our Operations Team/i);
 
   // Which completes what the booking was waiting for.
   const { bookingDocumentState } = await import('../lib/documents.js');

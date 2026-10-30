@@ -542,8 +542,10 @@ async function addNote(req, res, who) {
  * Verify or reject one document.
  *
  * Rejecting asks the customer for a replacement, which means the request is
- * now waiting on them - so the status moves too. Verifying is silent: it
- * changes nothing the customer needs to hear about.
+ * now waiting on them - so the status moves too. Verifying says so once the
+ * LAST paper a booking needs has been checked: the bot no longer tells a
+ * customer their documents are in order, because it cannot know, so the
+ * sentence has to come from here.
  */
 async function reviewDocument(req, res, who, verify, ctx) {
   const doc = ctx.doc;
@@ -566,7 +568,8 @@ async function reviewDocument(req, res, who, verify, ctx) {
     // The task that asked somebody to look at it is done, so it stops being
     // work. A queue that disagrees with the record is worse than no queue.
     await closeDocumentTask(doc.booking_ref, who.name);
-    return res.status(200).json({ ok: true, status: 'verified' });
+    const told = await tellCustomerDocumentsChecked(doc);
+    return res.status(200).json({ ok: true, status: 'verified', ...(told ? { customer_told: told } : {}) });
   }
 
   const code = String(req.body.reason_code ?? 'other');
@@ -853,6 +856,57 @@ async function putRight(doc, booking) {
       || (['received', 'pending_verification'].includes(d.status) && chassis && norm(d.vin) === chassis)));
   // A checked one first: that is the one the desk has already vouched for.
   return right.find((d) => d.status === 'verified') ?? right[0] ?? null;
+}
+
+/**
+ * "Your documents have been checked" - said when the LAST required one is.
+ *
+ * Per booking, not per document: an operator working through four papers must
+ * not send four messages, which is what the idempotency key and the "every
+ * required type is verified" test together prevent. Nothing is said while
+ * anything is still outstanding, because there is nothing to confirm yet.
+ *
+ * No WhatsApp template exists for this event, so outside the 24-hour window it
+ * waits in the outbox until the customer writes - the same as every other desk
+ * message (docs/WHATSAPP-TEMPLATES.md).
+ *
+ * @returns {Promise<object|null>} what became of the message, or null when
+ *   there was nothing to send.
+ */
+async function tellCustomerDocumentsChecked(doc) {
+  if (!doc.booking_ref) return null;
+
+  const { data: booking } = await db().from('bookings')
+    .select('booking_ref, client_id, chat_id, channel, mrn_choice')
+    .eq('booking_ref', doc.booking_ref).maybeSingle();
+  if (!booking?.chat_id) return null;
+
+  // Re-derived from rows, like every other readiness answer here.
+  const { data: docs } = await db().from('booking_documents')
+    .select('doc_type, status').eq('booking_ref', booking.booking_ref).is('deleted_at', null);
+  const required = await requiredDocuments({ mrnChoice: booking.mrn_choice ?? 'existing' });
+  const summary = documentSummary(docs ?? [], required);
+  const allChecked = summary.required.length > 0
+    && summary.required.every((type) => summary.verified_types.includes(type));
+  if (!allChecked) return null;
+
+  const channel = booking.channel ?? channelOf(booking.chat_id);
+  const customer = await customerFor({ clientId: booking.client_id, channel, chatId: booking.chat_id });
+  const idempotencyKey = `documents_verified:${booking.booking_ref}`;
+  const queued = await enqueue({
+    chatId: booking.chat_id,
+    clientId: booking.client_id ?? null,
+    channel,
+    eventType: 'documents_verified',
+    entityType: 'booking',
+    entityId: booking.booking_ref,
+    language: customer.language,
+    idempotencyKey,
+    payload: { booking_ref: booking.booking_ref },
+  });
+  await drain({ limit: 5 }).catch(() => null);
+  const reached = await customerReached({ chat: queued.ok, channel, key: idempotencyKey });
+  return { queued: queued.ok, duplicate: queued.ok && !queued.queued, ...reached };
 }
 
 /** Closes the review task once a document is checked, so the work queue agrees with the record. */

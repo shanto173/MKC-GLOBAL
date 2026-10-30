@@ -488,6 +488,12 @@ export function render(row) {
       };
     }
 
+    // Operations checked the paperwork and it is in order. The bot never says
+    // this of its own accord, so this is the only message that does.
+    case 'documents_verified':
+      if (!p.booking_ref) return null;
+      return { text: M.documentsChecked(p.booking_ref), inline: kb.homeOnly() };
+
     // MKY obtained it; the customer is told so, and for which booking.
     case 'mrn_issued':
       if (!p.mrn_number) return null;
