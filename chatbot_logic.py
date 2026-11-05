@@ -126,7 +126,7 @@ def intent_from_text(text: str) -> str | None:
 
 def welcome_reply() -> BotReply:
     return BotReply(
-        "Hello! Welcome to **ABC Global Forwarding**. How can I help you today?",
+        "Hello! Welcome to **ABC Global Forwarding**, How can I help you today?",
         tuple(MAIN_MENU),
     )
 
