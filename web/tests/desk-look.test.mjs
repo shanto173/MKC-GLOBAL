@@ -114,14 +114,21 @@ const caseMod = await import('../public/desk/case.js');
 const viewer = await import('../public/desk/viewer.js');
 const src = (file) => readFileSync(path.join(DESK, file), 'utf8');
 
-test('each of the four destinations says what it is for', () => {
+test('each destination says what it is for', () => {
   assert.deepEqual(ui.PURPOSE, {
     inbox: 'Requests and issues that need your team.',
     chats: 'Read customer messages and reply.',
     shipments: 'Track confirmed shipments and update customers.',
+    portSum: 'Orders with a route and VIN — documents, funds and assignment in one place.',
+    assigned: 'Port Sum Up orders assigned to you. Other orders stay in Port Sum Up.',
+    teamMky: 'Talk with colleagues. Tag an order with @customer or @VIN.',
     settings: 'Manage the team and how the bot works.',
   });
-  for (const [file, key] of [['inbox.js', 'inbox'], ['chats.js', 'chats'], ['shipments.js', 'shipments'], ['settings.js', 'settings']]) {
+  for (const [file, key] of [
+    ['inbox.js', 'inbox'], ['chats.js', 'chats'], ['shipments.js', 'shipments'],
+    ['port-sum.js', 'portSum'], ['port-sum.js', 'assigned'], ['team-mky.js', 'teamMky'],
+    ['settings.js', 'settings'],
+  ]) {
     assert.match(src(file), new RegExp(`PURPOSE\\.${key}\\b`), `${file} shows its purpose`);
   }
 });

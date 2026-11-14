@@ -103,6 +103,9 @@ export const PURPOSE = {
   inbox: 'Requests and issues that need your team.',
   chats: 'Read customer messages and reply.',
   shipments: 'Track confirmed shipments and update customers.',
+  portSum: 'Orders with a route and VIN — documents, funds and assignment in one place.',
+  assigned: 'Port Sum Up orders assigned to you. Other orders stay in Port Sum Up.',
+  teamMky: 'Talk with colleagues. Tag an order with @customer or @VIN.',
   settings: 'Manage the team and how the bot works.',
 };
 

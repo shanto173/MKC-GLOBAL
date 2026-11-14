@@ -1281,6 +1281,39 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
 .shipment-head .case-title-row { margin-top: var(--sp-1); }
 .shipment-head .case-facts { margin-top: var(--sp-1); }
 
+/* -- Port Sum Up + Team MKY --------------------------------------------------------------------- */
+
+.port-sum-table .port-route { font-weight: var(--w-semibold); color: var(--ink); text-decoration: none; }
+.port-sum-table .port-route:hover { color: var(--brand-700); text-decoration: underline; }
+.port-docs { display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px; }
+.port-docs-cell { vertical-align: top; }
+.port-doc { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.port-doc.is-mky { border-style: dashed; }
+.port-amount { width: 6.5rem; }
+.port-sum-detail .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sp-4); margin: 0; }
+.port-sum-detail .fact { display: contents; }
+.port-sum-detail .fact dt { color: var(--ink-3); font-size: var(--text-sm); }
+.port-sum-detail .fact dd { margin: 0; overflow-wrap: anywhere; }
+.port-doc-block + .port-doc-block { margin-top: var(--sp-4); }
+.port-doc-heading { margin: 0 0 var(--sp-2); font-size: var(--text-sm); color: var(--ink-3); font-weight: var(--w-medium); }
+.port-doc-list { list-style: none; margin: 0; padding: 0; }
+.port-doc-list li { display: flex; justify-content: space-between; gap: var(--sp-3); align-items: center; padding: var(--sp-2) 0; border-top: 1px solid var(--line); }
+.port-doc-list li:first-child { border-top: 0; }
+.port-doc-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.team-feed { max-height: min(60vh, 560px); overflow: auto; margin-bottom: var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.team-messages { list-style: none; margin: 0; padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); }
+.team-msg { max-width: min(640px, 100%); padding: var(--sp-3); border-radius: var(--r-md); background: var(--n-25); }
+.team-msg.is-mine { align-self: flex-end; background: var(--brand-50, var(--n-50)); }
+.team-msg-meta { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--text-sm); color: var(--ink-3); margin-bottom: 4px; }
+.team-msg-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-mention { color: var(--brand-700); font-weight: var(--w-semibold); text-decoration: none; }
+.team-mention:hover { text-decoration: underline; }
+.team-compose { position: relative; max-width: 720px; display: flex; flex-direction: column; gap: var(--sp-3); }
+.team-suggest { position: absolute; left: var(--sp-3); right: var(--sp-3); bottom: 100%; margin: 0 0 4px; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.08)); z-index: 5; max-height: 220px; overflow: auto; }
+.team-suggest-item { width: 100%; display: flex; justify-content: space-between; gap: var(--sp-3); padding: 8px var(--sp-3); border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; }
+.team-suggest-item:hover { background: var(--n-25); }
+
 /* -- Search ------------------------------------------------------------------------------------- */
 
 .search-results { display: flex; flex-direction: column; gap: var(--sp-5); max-width: 1100px; }

@@ -24,12 +24,15 @@ export const VIEW_SCOPES = {
   document: ['bookings', 'history', 'team'],
   chats: ['bookings', 'customers', 'messages', 'problems'],
   shipments: ['customers', 'shipments'],
+  port_sum: ['bookings', 'customers', 'team'],
+  team_mky: ['history', 'bookings', 'team'],
   settings: ['team'],
   // As areas, for a page that cannot name its record (and as the fallback).
   'case:booking': ['bookings', 'customers', 'history', 'outbox', 'shipments', 'team'],
   'case:request': ['bookings', 'customers', 'history', 'requests', 'team'],
   chat: ['bookings', 'customers', 'messages', 'problems', 'requests', 'team'],
   shipment: ['bookings', 'customers', 'shipments', 'team'],
+  port_sum_detail: ['bookings', 'customers', 'history', 'shipments', 'team'],
 };
 
 /**
@@ -57,6 +60,7 @@ const RECORD_SCOPES = {
   'case:request': (q) => (q.ref ? [`request:${q.ref}`, 'team'] : null),
   chat: (q) => (q.channel && q.chat_id ? [chatKey(q.channel, q.chat_id), 'team'] : null),
   shipment: (q) => (q.id ? [`shipment:${q.id}`, 'team'] : null),
+  port_sum_detail: (q) => (q.ref ? [`booking:${q.ref}`, 'team'] : null),
 };
 
 /** Whether a scope is one of the areas, rather than one record's key. */

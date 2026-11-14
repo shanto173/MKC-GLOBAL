@@ -167,6 +167,7 @@ export function linkFor(link) {
   if (link.type === 'mrn') return `#/case/mrn/${enc(link.ref)}`;
   if (link.type === 'chat') return `#/chats/${enc(link.channel)}/${enc(link.chat_id)}${doc}`;
   if (link.type === 'shipment') return `#/shipments/${enc(link.id)}`;
+  if (link.type === 'port_sum') return `#/port-sum/${enc(link.ref)}`;
   return '#/inbox';
 }
 

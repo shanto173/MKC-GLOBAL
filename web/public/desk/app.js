@@ -26,6 +26,8 @@ import { renderInbox } from './inbox.js';
 import { renderCase } from './case.js';
 import { renderChats } from './chats.js';
 import { renderShipments } from './shipments.js';
+import { renderPortSum, renderAssigned } from './port-sum.js';
+import { renderTeamMky } from './team-mky.js';
 import { renderSettings } from './settings.js';
 import { renderSearch } from './search.js';
 import { openGlossary } from './glossary.js';
@@ -35,6 +37,9 @@ const NAV = [
   { key: 'inbox', label: 'Inbox', icon: 'inbox', href: '#/inbox' },
   { key: 'chats', label: 'Chats', icon: 'chats', href: '#/chats' },
   { key: 'shipments', label: 'Shipments', icon: 'ship', href: '#/shipments' },
+  { key: 'port-sum', label: 'Port Sum Up', icon: 'mapPin', href: '#/port-sum' },
+  { key: 'assigned', label: 'Assigned to me', icon: 'user', href: '#/assigned' },
+  { key: 'team-mky', label: 'Team MKY', icon: 'users', href: '#/team-mky' },
   { key: 'settings', label: 'Settings', icon: 'settings', href: '#/settings', needs: 'settings' },
 ];
 
@@ -93,6 +98,7 @@ function render() {
   };
   const pages = {
     inbox: renderInbox, case: renderCase, chats: renderChats, shipments: renderShipments,
+    'port-sum': renderPortSum, assigned: renderAssigned, 'team-mky': renderTeamMky,
     settings: renderSettings, search: renderSearch,
   };
   const page = pages[route.page];

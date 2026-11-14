@@ -83,6 +83,8 @@ export function keysFor(table, r, tables = {}) {
       return ['shipments', key('shipment', r.shipment_id), key('booking', r.booking_ref)];
     case 'shipment_events':
       return ['shipments', key('shipment', r.shipment_id)];
+    case 'team_messages':
+      return ['history'];
     case 'ops_users':
     case 'bot_settings':
       return ['team'];
@@ -91,10 +93,23 @@ export function keysFor(table, r, tables = {}) {
   }
 }
 
+const filled = (r) => Boolean(String(r?.vin ?? '').trim() && String(r?.origin_port ?? '').trim() && String(r?.destination_port ?? '').trim());
+
 /** The keys one row's change moves, as desk_activity_touch() decides them. */
 export function scopesFor(table, op, before, after, tables = {}) {
   if (op === 'update') {
-    if (table === 'bookings' && before?.status === 'draft' && after?.status === 'draft') return [];
+    if (table === 'bookings' && before?.status === 'draft' && after?.status === 'draft') {
+      // Port Sum Up: bump when a draft becomes listable, or funds/assignee change on one.
+      if (!filled(after)) return [];
+      if (filled(before)
+        && before.assigned_to === after.assigned_to
+        && before.port_amount === after.port_amount
+        && before.port_funds_status === after.port_funds_status
+        && before.customer_name === after.customer_name
+        && before.vin === after.vin
+        && before.origin_port === after.origin_port
+        && before.destination_port === after.destination_port) return [];
+    }
     if (table === 'notification_outbox' && before?.status === 'sent' && after?.status === 'sent') return [];
     if (table === 'clients' && same(before, after, 'updated_at')) return [];
     if (table === 'ops_users' && same(before, after, 'last_seen')) return [];

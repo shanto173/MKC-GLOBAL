@@ -64,6 +64,7 @@ export function deniedReason(permission, role) {
     assign_others: 'Only a supervisor can give work to someone else.',
     priority: 'Only a supervisor can change the priority.',
     override: 'Only a supervisor can do this.',
+    notes: 'Your role cannot write internal notes or Team MKY messages.',
     settings: 'Only an administrator can change settings.',
     users: 'Only an administrator can manage the team.',
     delete: 'Only an administrator can delete records.',
@@ -283,7 +284,13 @@ export const DETAIL_FIELDS = [
  * not the booking's own - which is exactly when "confirm" should be refused.
  *
  * Notes and messages are left out on purpose. A colleague writing a note must
- * not make your confirmation bounce.
+ * not make your confirmation bounce. So are Port Sum Up's amount and funds
+ * status: they are read from the bookings table, which the queue view does not
+ * carry, so counting them would give the inbox a different fingerprint from
+ * the case page's for every booking - and "Assign to me", sent straight from
+ * the list with the row's version, would be refused as stale every time. A
+ * colleague recording a payment must not bounce your work either; Port Sum Up
+ * is told about it by the desk's live pulse, which the trigger moves.
  */
 export function bookingVersion(booking, docs = [], mrn = null) {
   return fingerprint({

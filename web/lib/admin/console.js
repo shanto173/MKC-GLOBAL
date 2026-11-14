@@ -10,6 +10,8 @@
  *   GET  ?resource=console&view=chats / chat&channel=&chat_id=
  *   GET  ?resource=console&view=chat_files&refs=doc:12,msg:34   ten-minute links to a conversation's files
  *   GET  ?resource=console&view=shipments / shipment&id=
+ *   GET  ?resource=console&view=port_sum / port_sum_detail&ref= / port_sum_mentions
+ *   GET  ?resource=console&view=team_mky
  *   GET  ?resource=console&view=search&q=…
  *   GET  ?resource=console&view=settings      (administrators)
  *   GET  ?resource=console&view=pulse         what changed: one cheap read (lib/admin/desk-live.js)
@@ -80,6 +82,9 @@ import { channelOf } from '../channels.js';
 import { pulseView, conditionalView } from './desk-live.js';
 import { shipmentList, shipmentDetail } from './desk-shipments.js';
 import { search } from './desk-search.js';
+import {
+  portSumList, portSumDetail, portSumUpdate, portSumMentions, teamMkyList, teamMkyPost,
+} from './desk-port-sum.js';
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -98,6 +103,10 @@ const VIEWS = {
   chat_files: chatFilesView,
   shipments: shipmentList,
   shipment: shipmentDetail,
+  port_sum: portSumList,
+  port_sum_detail: portSumDetail,
+  port_sum_mentions: portSumMentions,
+  team_mky: teamMkyList,
   search,
   settings: settingsView,
   delete_preview: deletePreview,
@@ -244,6 +253,8 @@ const NEEDS = {
   issue_mrn: 'mrn', mrn_need_info: 'mrn', mrn_review: 'mrn', mrn_reject: 'mrn',
   request_assign: 'assign_self', request_status: 'status', request_resolve: 'client',
   shipment_update: 'booking',
+  port_sum_update: 'status',
+  team_message: 'notes',
   settings_write: 'settings', user_save: 'users',
   delete_record: 'delete', delete_records: 'delete', restore_record: 'delete',
   // Anyone may set their own password; setPassword checks for itself before
@@ -260,6 +271,7 @@ const VERSIONED = new Set([
   'verify_document', 'reject_document', 'mark_document_read_values', 'create_booking', 'confirm', 'reject', 'cancel',
   'edit_details', 'issue_mrn', 'mrn_need_info', 'mrn_review', 'mrn_reject',
   'request_assign', 'request_status', 'request_resolve', 'shipment_update',
+  'port_sum_update',
 ]);
 
 async function act(req, res) {
@@ -318,6 +330,8 @@ async function act(req, res) {
     case 'request_reply': return requestReply(req, res, who);
     case 'request_resolve': return requestResolve(req, res, who);
     case 'shipment_update': return shipmentUpdate(req, res, who);
+    case 'port_sum_update': return portSumUpdate(req, res, who);
+    case 'team_message': return teamMkyPost(req, res, who);
     case 'delete_record': return deleteRecord(req, res, who);
     case 'delete_records': return deleteRecords(req, res, who);
     case 'restore_record': return restoreRecord(req, res, who);
