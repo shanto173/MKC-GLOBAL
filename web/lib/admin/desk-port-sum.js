@@ -5,13 +5,20 @@
  * VIN — drafts included, documents optional. Funds amount/status and assignee
  * live on the booking; Team MKY is a shared staff chat that can @ a customer
  * name or chassis and open that Port Sum Up row.
+ *
+ * Written for a desk with thousands of orders on it, the way Shipments is
+ * (lib/admin/desk-shipments.js): the database does the filtering, the
+ * counting and the paging, the list reads only the columns it shows, and the
+ * papers of a page are read in chunks - one `in` list of three hundred
+ * references is a URL PostgREST refuses. Team MKY reads the orders a message
+ * actually names, not every order there is.
  */
 
 import { db } from '../supabase.js';
 import { channelOf } from '../channels.js';
 import { DOC_LABEL, statusWords, statusTone } from '../ops/workflow.js';
 import {
-  bookingVersion, deniedReason, teamList, isMissingSchema,
+  deniedReason, teamList, isMissingSchema, inChunks,
 } from './desk-shared.js';
 import { shortPort } from './desk-inbox.js';
 import { documentOut, declaredMrn, loadBooking } from './desk-case.js';
@@ -25,6 +32,7 @@ export const FUNDS = {
 export const FUNDS_KEYS = Object.keys(FUNDS);
 
 const HIDDEN = new Set(['cancelled', 'expired', 'rejected']);
+const HIDDEN_IN = '("cancelled","expired","rejected")';
 const PAGE = 100;
 const MAX_PAGE = 300;
 const LIST_COLUMNS = [
@@ -40,6 +48,24 @@ function parseCursor(raw) {
   const m = /^(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2}))~([A-Za-z0-9_.-]{1,64})$/.exec(String(raw ?? ''));
   return m ? { at: m[1], id: m[2] } : null;
 }
+
+/**
+ * The predicates that decide a Port Sum Up row, on any query of bookings -
+ * the list, and each of the counts beside the filter. They are the partial
+ * index the migration adds, so the database reads an index and not the table.
+ * A VIN or a port that is there but empty is excluded here rather than in
+ * JavaScript, so a count and its page agree.
+ */
+function listable(query) {
+  return query
+    .not('vin', 'is', null).neq('vin', '')
+    .not('origin_port', 'is', null).neq('origin_port', '')
+    .not('destination_port', 'is', null).neq('destination_port', '')
+    .not('status', 'in', HIDDEN_IN);
+}
+
+/** One person's orders, by name, with `%` and `_` left as themselves. */
+const mineOf = (query, name) => query.ilike('assigned_to', String(name ?? '').replace(/[%_]/g, (c) => `\\${c}`));
 
 /** Whether a booking belongs on Port Sum Up. */
 export function isPortSumRow(b) {
@@ -82,6 +108,50 @@ export function parseMentions(body, candidates = []) {
   return found.sort((a, b) => a.start - b.start);
 }
 
+/**
+ * What a message might be tagging: after each `@`, the first word, the first
+ * two words, and so on - "Please check @John Doe today" asks about "John",
+ * "John Doe" and "John Doe today", and the database says which of the three
+ * is somebody. That is a handful of exact lookups per message, whatever the
+ * desk holds; reading every order to find out does not stay possible.
+ *
+ * A token with a character PostgREST's or() reads as syntax is left out: it
+ * cannot be asked for safely, and a customer name does not need one.
+ */
+const MENTION_WORDS = 6;
+const MENTION_TOKENS = 12;
+export function mentionTokens(body, { words = MENTION_WORDS, max = MENTION_TOKENS } = {}) {
+  const text = String(body ?? '');
+  const seen = new Set();
+  const out = [];
+  for (let i = text.indexOf('@'); i >= 0; i = text.indexOf('@', i + 1)) {
+    const rest = text.slice(i + 1);
+    const run = /^[^\n@]*/.exec(rest)[0];
+    const parts = run.split(/\s+/).filter(Boolean).slice(0, words);
+    for (let n = 1; n <= parts.length; n += 1) {
+      const token = parts.slice(0, n).join(' ').replace(/[.,;:!?)\]}]+$/, '').trim();
+      const key = token.toLowerCase();
+      if (!token || seen.has(key) || SYNTAX.test(token)) continue;
+      seen.add(key);
+      out.push(token);
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
+/** The orders a message's `@`s could name, read by those tokens alone. */
+async function candidatesForBody(body) {
+  const tokens = mentionTokens(body);
+  if (!tokens.length) return [];
+  const or = tokens.flatMap((t) => [`customer_name.ilike."${t}"`, `vin.ilike."${t}"`]).join(',');
+  const { data, error } = await listable(db().from('bookings')
+    .select('booking_ref, customer_name, vin, origin_port, destination_port, status'))
+    .or(or).limit(200);
+  if (error) return [];
+  return mentionCandidates((data ?? []).filter(isPortSumRow));
+}
+
 /** Autocomplete tags for Team MKY: customer name and VIN per Port Sum row. */
 export function mentionCandidates(rows = []) {
   const out = [];
@@ -116,12 +186,18 @@ function docChip(d) {
   };
 }
 
+/**
+ * The papers of a page of orders, by reference. In chunks: three hundred
+ * references in one `in` list is a query string of some kilobytes, which
+ * PostgREST answers with 414 rather than rows - so the list of a busy desk
+ * would show every order with no papers at all, or fail outright.
+ */
 async function docsForRefs(refs) {
   if (!refs.length) return new Map();
-  const { data, error } = await db().from('booking_documents')
+  const { data, error } = await inChunks(refs, (chunk) => db().from('booking_documents')
     .select('id, booking_ref, doc_type, file_name, storage_path, status, vin, uploaded_at')
-    .in('booking_ref', refs).is('deleted_at', null)
-    .order('uploaded_at', { ascending: false });
+    .in('booking_ref', chunk).is('deleted_at', null)
+    .order('uploaded_at', { ascending: false }));
   if (error) throw new Error(error.message);
   const map = new Map();
   for (const d of data ?? []) {
@@ -152,24 +228,29 @@ function rowOut(b, docs = []) {
     chat_id: b.chat_id ?? null,
     documents: docs.map(docChip),
     created_at: b.created_at,
-    version: bookingVersion(b, docs, null),
+    // No version on a list row. A booking's fingerprint counts its MRN
+    // application, which a page of a hundred orders does not read, so the one
+    // worked out here would be wrong for every order that has one - and an
+    // action sent with it would be refused as stale every time. The desk's
+    // own checks stand instead: an agent cannot take an order a colleague
+    // has, and an amount is last-word-wins between two people on one order.
   };
 }
 
-/** GET view=port_sum&filter=all|mine&q=&limit=&after= */
+/** GET view=port_sum&filter=all|mine&funds=&q=&limit=&after= */
 export async function portSumList(req, res, who) {
   const filter = String(req.query.filter ?? 'all');
+  const funds = FUNDS_KEYS.includes(String(req.query.funds)) ? String(req.query.funds) : 'any';
   const q = String(req.query.q ?? '').trim();
   const limit = Math.min(Math.max(Number(req.query.limit) || PAGE, 1), MAX_PAGE);
   const after = parseCursor(req.query.after);
   const mine = filter === 'mine';
 
-  let query = db().from('bookings').select(LIST_COLUMNS)
-    .not('vin', 'is', null).not('origin_port', 'is', null).not('destination_port', 'is', null)
-    .not('status', 'in', '("cancelled","expired","rejected")')
+  let query = listable(db().from('bookings').select(LIST_COLUMNS))
     .order('created_at', { ascending: false }).order('booking_ref', { ascending: false });
 
-  if (mine) query = query.ilike('assigned_to', who.name);
+  if (mine) query = mineOf(query, who.name);
+  if (funds !== 'any') query = query.eq('port_funds_status', funds);
 
   const pushed = q && !SYNTAX.test(q);
   const search = pushed
@@ -183,21 +264,40 @@ export async function portSumList(req, res, who) {
   else if (search || rest) query = query.or(search ?? rest);
   query = query.limit(limit + 1);
 
-  const [{ data, error }, team] = await Promise.all([
+  // How many each funds state holds, for the numbers beside the filter, and
+  // how many orders there are in all, so a page can say "100 of 412". Counted
+  // in the database, never fetched; and not again for a next page, which is
+  // the same list further down. Received is what is left, so three counts
+  // answer four numbers.
+  const countOf = (state) => {
+    let c = listable(db().from('bookings').select('booking_ref', { count: 'exact', head: true }));
+    if (mine) c = mineOf(c, who.name);
+    return state ? c.eq('port_funds_status', state) : c;
+  };
+  const [{ data, error }, team, all, notReceived, inProcess] = await Promise.all([
     query,
     teamList().catch(() => []),
+    after || q ? { count: null } : countOf(null),
+    after || q ? { count: null } : countOf('not_received'),
+    after || q ? { count: null } : countOf('in_process'),
   ]);
   if (error) {
     if (isMissingSchema(error)) {
       return res.status(200).json({
-        filter, rows: [], next: null, funds: FUNDS, team: [],
+        filter, funds, rows: [], next: null, counts: null, funds_words: FUNDS, team: [],
         pending: 'Port Sum Up starts once the database update is applied.',
       });
     }
     return res.status(500).json({ error: 'We could not load Port Sum Up.' });
   }
+  const counts = after || q || all.error || notReceived.error || inProcess.error ? null : {
+    any: all.count ?? 0,
+    not_received: notReceived.count ?? 0,
+    in_process: inProcess.count ?? 0,
+    received: Math.max(0, (all.count ?? 0) - (notReceived.count ?? 0) - (inProcess.count ?? 0)),
+  };
 
-  // Empty VIN/ports can still sneak past .not('…','is',null) as ''.
+  // A VIN or port of nothing but spaces is the one thing the query cannot say.
   let page = (data ?? []).filter(isPortSumRow).slice(0, limit);
   if (q && !pushed) {
     const needle = q.toLowerCase();
@@ -220,10 +320,12 @@ export async function portSumList(req, res, who) {
 
   res.status(200).json({
     filter,
+    funds,
     total: rows.length,
+    counts,
     rows,
     next,
-    funds: FUNDS,
+    funds_words: FUNDS,
     team: people,
     can_assign_others: who.can('assign_others'),
     can_edit: who.can('status') || who.can('assign_self'),
@@ -289,7 +391,7 @@ export async function portSumDetail(req, res, who) {
     shipment: shipment ?? null,
     mrn: mrn ? { request_ref: mrn.request_ref, status: mrn.status, mrn_number: mrn.mrn_number } : null,
     version,
-    funds: FUNDS,
+    funds_words: FUNDS,
     team: people,
     can_assign_others: who.can('assign_others'),
     can_edit: who.can('status') || who.can('assign_self'),
@@ -365,18 +467,33 @@ export async function portSumUpdate(req, res, who) {
   res.status(200).json({ ok: true, row: rowOut(data, docs) });
 }
 
-/** Candidates for @ autocomplete (Port Sum rows only). */
+/**
+ * GET view=port_sum_mentions&q=&limit= — what the `@` list offers.
+ *
+ * Searched in the database for what has been typed so far, a handful at a
+ * time. It used to hand the browser every order it could find, five hundred
+ * of them, on every visit to Team MKY: a list that gets slower as the desk
+ * gets busier, and that quietly stops offering the older orders altogether.
+ */
 export async function portSumMentions(req, res) {
-  const { data, error } = await db().from('bookings')
-    .select('booking_ref, customer_name, vin, origin_port, destination_port, status')
-    .not('vin', 'is', null).not('origin_port', 'is', null).not('destination_port', 'is', null)
-    .not('status', 'in', '("cancelled","expired","rejected")')
-    .order('created_at', { ascending: false }).limit(500);
+  const q = String(req.query.q ?? '').trim();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 8, 1), 25);
+  let query = listable(db().from('bookings')
+    .select('booking_ref, customer_name, vin, origin_port, destination_port, status'))
+    .order('created_at', { ascending: false });
+  if (q && !SYNTAX.test(q)) query = query.or(`customer_name.ilike.%${q}%,vin.ilike.%${q}%`);
+  // Two tags can come from one order (its name and its chassis), so read a
+  // few more rows than the number of tags asked for.
+  const { data, error } = await query.limit(limit * 2);
   if (error) {
     if (isMissingSchema(error)) return res.status(200).json({ candidates: [] });
     return res.status(500).json({ error: 'We could not load mention tags.' });
   }
-  res.status(200).json({ candidates: mentionCandidates((data ?? []).filter(isPortSumRow)) });
+  const needle = q.toLowerCase();
+  const candidates = mentionCandidates((data ?? []).filter(isPortSumRow))
+    .filter((c) => !needle || c.label.toLowerCase().includes(needle))
+    .slice(0, limit);
+  res.status(200).json({ candidates });
 }
 
 /** GET view=team_mky&after= */
@@ -418,13 +535,7 @@ export async function teamMkyPost(req, res, who) {
   if (body.length < 1) return res.status(400).json({ error: 'The message is empty.' });
   if (body.length > 4000) return res.status(400).json({ error: 'Keep a message under 4000 characters.' });
 
-  const { data: bookings } = await db().from('bookings')
-    .select('booking_ref, customer_name, vin, origin_port, destination_port, status')
-    .not('vin', 'is', null).not('origin_port', 'is', null).not('destination_port', 'is', null)
-    .not('status', 'in', '("cancelled","expired","rejected")')
-    .order('created_at', { ascending: false }).limit(500);
-  const candidates = mentionCandidates((bookings ?? []).filter(isPortSumRow));
-  const parsed = parseMentions(body, candidates);
+  const parsed = parseMentions(body, await candidatesForBody(body));
   const mentions = parsed.map(({ booking_ref, label, start, end }) => ({ booking_ref, label, start, end }));
 
   const { data, error } = await db().from('team_messages')

@@ -4,8 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isPortSumRow, parseMentions, mentionCandidates, FUNDS_KEYS,
+  isPortSumRow, parseMentions, mentionCandidates, mentionTokens, FUNDS_KEYS,
 } from '../lib/admin/desk-port-sum.js';
+const look = await import('../public/desk/port-sum.js');
 
 test('a row needs from-port, to-port and VIN; cancelled stays out', () => {
   assert.equal(isPortSumRow({
@@ -44,4 +45,55 @@ test('mention candidates expose both customer name and VIN', () => {
 
 test('funds statuses are the three the desk offers', () => {
   assert.deepEqual(FUNDS_KEYS, ['not_received', 'received', 'in_process']);
+});
+
+// ---------------------------------------------------------------------------
+// What a message asks the database about
+//
+// Team MKY used to read five hundred orders on every message sent, to find
+// out which of them a "@" named. It now asks about the words after each "@"
+// and nothing else, so the work is the message's size, not the desk's.
+// ---------------------------------------------------------------------------
+
+test('a message asks about the words after each @, longest last', () => {
+  assert.deepEqual(mentionTokens('Please check @John Doe today'),
+    ['John', 'John Doe', 'John Doe today']);
+  assert.deepEqual(mentionTokens('@S2936820JL'), ['S2936820JL']);
+  assert.deepEqual(mentionTokens('nothing tagged here'), []);
+});
+
+test('the same tag twice is asked about once, and a tag stops at the next one', () => {
+  // The second "@" ends the first one's words: "@John and" is a question
+  // worth asking, "@John and @John again" is not.
+  assert.deepEqual(mentionTokens('@John and @John again'), ['John', 'John and', 'John again']);
+});
+
+test('a name keeps its spaces and loses the punctuation after it', () => {
+  // "@John Doe, please" names John Doe: the comma ends the name, and the
+  // three words with a comma in the middle of them are not asked about.
+  assert.deepEqual(mentionTokens('ask @John Doe, please'), ['John', 'John Doe']);
+});
+
+test('a token that would be read as or() syntax is left out, and the count is capped', () => {
+  // A comma, a bracket or a wildcard cannot be put in an or() filter safely.
+  assert.deepEqual(mentionTokens('@a(b) @c%d'), []);
+  assert.equal(mentionTokens(`@${'w '.repeat(40)}`, { max: 5 }).length, 5);
+  assert.equal(mentionTokens('@one two three four five six seven eight').length, 6);
+});
+
+// ---------------------------------------------------------------------------
+// What the list says when it has nothing to show
+// ---------------------------------------------------------------------------
+
+test('an empty list says why it is empty', () => {
+  assert.match(look.emptyWords('hamburg', 'all', 'any')[0], /No order matches that/);
+  assert.match(look.emptyWords('', 'mine', 'any')[0], /Nothing is assigned to you/);
+  assert.match(look.emptyWords('', 'all', 'received')[0], /"Received"/);
+  assert.match(look.emptyWords('', 'all', 'any')[1], /both ports and a chassis/);
+});
+
+test('an amount reads as a person writes one', () => {
+  assert.equal(look.amountWords(1200), '1,200');
+  assert.equal(look.amountWords('1200.5'), '1,200.5');
+  assert.equal(look.amountWords(null), '');
 });

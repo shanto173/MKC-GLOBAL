@@ -1289,7 +1289,17 @@ a.chip-meta { color: var(--accent); font-size: var(--text-sm); }
 .port-docs-cell { vertical-align: top; }
 .port-doc { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
 .port-doc.is-mky { border-style: dashed; }
+
+/* The money: the state as a badge, with the two controls that change it under
+   it. The amount is narrow on purpose - it holds a price, not a sentence. */
+.port-funds { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.port-funds-mark { display: inline-flex; }
+.port-funds-edit { display: flex; gap: 4px; align-items: center; }
 .port-amount { width: 6.5rem; }
+.port-sum-table .owner-none { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-3); }
+.port-sum-table .row-owner { display: inline-flex; align-items: center; gap: 6px; }
+/* Seven columns of work: let the table scroll rather than squeeze a chassis. */
+.port-sum-table { min-width: 1080px; }
 .port-sum-detail .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sp-4); margin: 0; }
 .port-sum-detail .fact { display: contents; }
 .port-sum-detail .fact dt { color: var(--ink-3); font-size: var(--text-sm); }
@@ -1547,6 +1557,11 @@ a.result:hover .result-title { color: var(--brand-700); }
   .table td, .table th { border: 0; padding: 2px 0; }
   .table td[data-label]::before { content: attr(data-label) ": "; color: var(--ink-3); font-size: var(--text-sm); }
   .table-plain tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px var(--sp-3); align-items: center; }
+  /* A stacked card has the width it has: the seven-column minimum is for a
+     desk screen, and would be a sideways scroll on a phone. */
+  .port-sum-table { min-width: 0; }
+  .port-funds { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .port-docs { max-width: none; }
   .eta { flex-direction: row; gap: var(--sp-2); display: inline-flex; }
   .settings-body .card { padding: var(--sp-4); }
   .result { grid-template-columns: 28px minmax(0, 1fr) auto; }

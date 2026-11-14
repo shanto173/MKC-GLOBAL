@@ -22,6 +22,7 @@ export function renderTeamMky({ main, signal = null }) {
   let next = null;
   let first = null;
   let mentionAt = -1;
+  let lastQuery = '';
 
   add(main,
     h('div', { class: 'page-head' }, h('div', {},
@@ -33,14 +34,27 @@ export function renderTeamMky({ main, signal = null }) {
       input,
       h('div', { class: 'form-actions' }, send)));
 
-  async function loadMentions() {
+  /**
+   * The tags the `@` list offers, searched in the database for what has been
+   * typed so far. It used to fetch every order on the desk once and filter
+   * the lot in the browser, which stops working twice over on a busy desk:
+   * the fetch grows without limit, and past its limit the orders it left out
+   * simply cannot be tagged.
+   */
+  async function loadMentions(query = '') {
+    const want = query;
     try {
-      const data = await api({ view: 'port_sum_mentions' }, { signal });
+      const data = await api({ view: 'port_sum_mentions', q: query, limit: 8 }, { signal });
+      // A slower answer to an earlier keystroke must not replace a later one.
+      if (want !== lastQuery) return;
       candidates = data.candidates ?? [];
-    } catch {
+    } catch (err) {
+      if (err.aborted || want !== lastQuery) return;
       candidates = [];
     }
+    if (!suggest.hidden || mentionAt >= 0) drawSuggest();
   }
+  const searchMentions = debounce((query) => loadMentions(query), 200);
 
   async function load({ quiet = false } = {}) {
     let data;
@@ -118,8 +132,15 @@ export function renderTeamMky({ main, signal = null }) {
     return parts.length ? parts : [body];
   }
 
+  /** Asks for the tags that match, and draws whatever is in hand meanwhile. */
   function showSuggest(query) {
-    const q = query.toLowerCase();
+    lastQuery = query;
+    searchMentions(query);
+    drawSuggest();
+  }
+
+  function drawSuggest() {
+    const q = lastQuery.toLowerCase();
     const hits = candidates
       .filter((c) => !q || c.label.toLowerCase().includes(q))
       .slice(0, 8);
@@ -191,10 +212,9 @@ export function renderTeamMky({ main, signal = null }) {
     }
   });
 
-  loadMentions();
   load();
   return {
-    refresh: () => { loadMentions(); return load({ quiet: true }); },
+    refresh: () => load({ quiet: true }),
     scopes: VIEW_SCOPES.team_mky,
   };
 }
