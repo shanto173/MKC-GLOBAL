@@ -10,9 +10,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DESK = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'desk');
 const css = readFileSync(path.join(DESK, 'desk.css'), 'utf8');
@@ -113,6 +113,36 @@ const inbox = await import('../public/desk/inbox.js');
 const caseMod = await import('../public/desk/case.js');
 const viewer = await import('../public/desk/viewer.js');
 const src = (file) => readFileSync(path.join(DESK, file), 'utf8');
+
+/**
+ * Every module the browser loads, loaded. app.js imports each screen at the
+ * top of the file, so one of them that will not parse - or that does not
+ * export what app.js asks it for - is not a broken screen: it is a blank
+ * desk, every page of it, because the module graph never finishes loading.
+ * Reading these files as text, which the tests below do, cannot see that.
+ *
+ * app.js itself is left out: it touches the document as it loads. Its import
+ * list is checked instead, name by name, against what each module exports.
+ */
+test('every screen the desk loads parses, and app.js gets the names it asks for', async () => {
+  const files = readdirSync(DESK).filter((f) => f.endsWith('.js') && f !== 'app.js').sort();
+  assert.ok(files.length >= 10, `${files.length} desk modules found`);
+  for (const f of files) {
+    await assert.doesNotReject(() => import(pathToFileURL(path.join(DESK, f)).href), `${f} loads`);
+  }
+
+  // `import { a, b } from './x.js';` - the static imports, which are the ones
+  // that decide whether the desk comes up at all.
+  const app = readFileSync(path.join(DESK, 'app.js'), 'utf8');
+  const imports = [...app.matchAll(/import\s*\{([^}]+)\}\s*from\s*'\.\/([\w.-]+\.js)'/g)];
+  assert.ok(imports.length >= 8, `${imports.length} named imports read from app.js`);
+  for (const [, names, file] of imports) {
+    const mod = await import(pathToFileURL(path.join(DESK, file)).href);
+    for (const name of names.split(',').map((n) => n.trim().split(/\s+as\s+/)[0]).filter(Boolean)) {
+      assert.ok(name in mod, `${file} exports ${name}, which app.js imports`);
+    }
+  }
+});
 
 test('each destination says what it is for', () => {
   assert.deepEqual(ui.PURPOSE, {

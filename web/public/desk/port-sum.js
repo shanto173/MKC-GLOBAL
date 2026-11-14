@@ -116,7 +116,7 @@ function renderList({ main, signal = null }, { filter, title, purpose }) {
     add(listEl, h('div', { class: 'table-wrap' }, h('table', { class: 'table table-hover port-sum-table' },
       h('thead', {}, h('tr', {},
         ['Route', 'Employee', 'Customer / VIN', 'Documents', 'Amount', 'Funds', 'Assign', ''].map((c) => h('th', { scope: 'col' }, c)))),
-      h('tbody', {}, rows.map((r) => rowEl(r)))));
+      h('tbody', {}, rows.map((r) => rowEl(r))))));
     if (next) {
       const button = h('button', { class: 'btn', type: 'button' }, 'Show more');
       button.addEventListener('click', () => more(button));
